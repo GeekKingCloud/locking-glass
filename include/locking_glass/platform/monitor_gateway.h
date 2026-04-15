@@ -15,6 +15,9 @@ struct MonitorBounds {
 
 struct MonitorDescriptor {
   std::string stable_id;
+  std::string device_path;
+  std::string edid_serial;
+  std::string display_name;
   std::string label;
   MonitorBounds bounds;
   bool is_primary = false;

@@ -43,6 +43,9 @@ BOOL CALLBACK CaptureMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM raw_context) 
   const RECT& bounds = info.rcMonitor;
   context->monitors->push_back(MonitorDescriptor{
       .stable_id = Narrow(info.szDevice),
+      .device_path = Narrow(info.szDevice),
+      .edid_serial = "",
+      .display_name = Narrow(info.szDevice),
       .label = "Display " + std::to_string(context->next_index),
       .bounds =
           MonitorBounds{
