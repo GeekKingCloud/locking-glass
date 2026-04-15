@@ -11,6 +11,7 @@ struct ParsedArguments {
   bool self_check = false;
   bool prototype_windows_apis = false;
   bool install_autostart = false;
+  bool watch_monitors = false;
   bool background = false;
   bool help = false;
 };
@@ -27,6 +28,8 @@ ParsedArguments ParseArguments(int argc, char** argv, bool* valid) {
       parsed.prototype_windows_apis = true;
     } else if (argument == "--install-autostart") {
       parsed.install_autostart = true;
+    } else if (argument == "--watch-monitors") {
+      parsed.watch_monitors = true;
     } else if (argument == "--background") {
       parsed.background = true;
     } else if (argument == "--help") {
@@ -47,7 +50,7 @@ std::string ResolveExecutablePath(char** argv) {
 
 void PrintUsage() {
   std::cout << "Usage: locking_glass [--self-check] [--install-autostart] "
-               "[--prototype-windows-apis] [--background]\n";
+               "[--prototype-windows-apis] [--watch-monitors] [--background]\n";
 }
 
 }  // namespace
@@ -86,6 +89,18 @@ int main(int argc, char** argv) {
         runtime.windows_api_probe->BuildPrototype(diagnostics.monitors);
     std::cout << locking_glass::integration::FormatWindowsApiPrototype(prototype);
     return 0;
+  }
+
+  if (arguments.watch_monitors) {
+    std::string previous_fingerprint;
+    return runtime.monitor_watcher->Watch(
+        [&](const locking_glass::platform::MonitorWatchEvent& event) {
+          const auto report = locking_glass::core::RefreshMonitorState(
+              runtime, event.monitors, event.trigger, previous_fingerprint);
+          previous_fingerprint = report.topology_fingerprint;
+          std::cout << locking_glass::core::FormatMonitorRefreshReport(report);
+          return true;
+        });
   }
 
   if (arguments.background) {

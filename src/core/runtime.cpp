@@ -1,7 +1,9 @@
 #include "locking_glass/core/runtime.h"
 
+#include <algorithm>
 #include <sstream>
 #include <utility>
+#include <vector>
 
 namespace locking_glass::core {
 
@@ -32,11 +34,21 @@ const SessionMonitorState* FindSessionState(
 std::string FormatMonitorLine(const platform::MonitorDescriptor& monitor,
                               const SessionRefreshResult& session) {
   std::ostringstream builder;
-  builder << "  - " << monitor.label << " [" << monitor.stable_id << "] "
+  builder << "  - " << monitor.label;
+  if (!monitor.display_name.empty()) {
+    builder << " \"" << monitor.display_name << "\"";
+  }
+  builder << " [id=" << monitor.stable_id << "] "
           << "(" << monitor.bounds.left << "," << monitor.bounds.top << ")-("
           << monitor.bounds.right << "," << monitor.bounds.bottom << ")";
   if (monitor.is_primary) {
     builder << " primary";
+  }
+  if (!monitor.device_path.empty() && monitor.device_path != monitor.stable_id) {
+    builder << " path=" << monitor.device_path;
+  }
+  if (!monitor.edid_serial.empty()) {
+    builder << " serial=" << monitor.edid_serial;
   }
   if (const auto* monitor_state = FindSessionState(session, monitor);
       monitor_state != nullptr) {
@@ -54,6 +66,7 @@ Runtime BuildRuntime() {
   return Runtime{
       .session_store = SessionStore{},
       .monitor_gateway = platform::CreateMonitorGateway(),
+      .monitor_watcher = platform::CreateMonitorWatcher(),
       .background_session = platform::CreateBackgroundSession(),
       .ffmpeg_probe = integration::CreateFfmpegProbe(),
       .windows_api_probe = integration::CreateWindowsApiProbe(),
@@ -74,6 +87,49 @@ StartupDiagnostics CollectStartupDiagnostics(const Runtime& runtime,
   diagnostics.autostart =
       runtime.autostart_manager->BuildPlan(executable_path);
   return diagnostics;
+}
+
+std::string BuildMonitorTopologyFingerprint(
+    const std::vector<platform::MonitorDescriptor>& monitors) {
+  std::vector<std::string> entries;
+  entries.reserve(monitors.size());
+
+  for (const auto& monitor : monitors) {
+    std::ostringstream entry;
+    entry << monitor.stable_id << '|'
+          << monitor.device_path << '|'
+          << monitor.edid_serial << '|'
+          << monitor.bounds.left << ',' << monitor.bounds.top << ','
+          << monitor.bounds.right << ',' << monitor.bounds.bottom << '|'
+          << (monitor.is_primary ? '1' : '0');
+    entries.push_back(entry.str());
+  }
+
+  std::sort(entries.begin(), entries.end());
+
+  std::ostringstream fingerprint;
+  for (const auto& entry : entries) {
+    fingerprint << entry << '\n';
+  }
+  return fingerprint.str();
+}
+
+MonitorRefreshReport RefreshMonitorState(const Runtime& runtime,
+                                         std::vector<platform::MonitorDescriptor> monitors,
+                                         std::string trigger,
+                                         std::string previous_fingerprint) {
+  MonitorRefreshReport report{
+      .monitors = std::move(monitors),
+      .session = SessionRefreshResult{},
+      .trigger = std::move(trigger),
+      .topology_fingerprint = {},
+      .topology_changed = false,
+  };
+  report.topology_fingerprint = BuildMonitorTopologyFingerprint(report.monitors);
+  report.topology_changed = previous_fingerprint.empty() ||
+                            previous_fingerprint != report.topology_fingerprint;
+  report.session = runtime.session_store.Restore(report.monitors);
+  return report;
 }
 
 std::string FormatDiagnostics(const StartupDiagnostics& diagnostics) {
@@ -110,6 +166,35 @@ std::string FormatDiagnostics(const StartupDiagnostics& diagnostics) {
   } else {
     for (const auto& monitor : diagnostics.monitors) {
       builder << FormatMonitorLine(monitor, diagnostics.session) << '\n';
+    }
+  }
+
+  return builder.str();
+}
+
+std::string FormatMonitorRefreshReport(const MonitorRefreshReport& report) {
+  std::ostringstream builder;
+  builder << "LockingGlass monitor refresh\n";
+  builder << "Trigger:\n";
+  builder << "  - source: " << report.trigger << '\n';
+  builder << "  - topology changed: "
+          << (report.topology_changed ? "yes" : "no") << '\n';
+
+  builder << "Session:\n";
+  builder << "  - active monitors: " << report.monitors.size() << '\n';
+  builder << "  - restored locks: "
+          << report.session.restored_locked_monitors << '\n';
+  builder << "  - disconnected monitors: "
+          << report.session.disconnected_monitors << '\n';
+  builder << "  - new monitors: " << report.session.new_monitors << '\n';
+  builder << "  - review required: " << report.session.review_monitors << '\n';
+
+  builder << "Monitors:\n";
+  if (report.monitors.empty()) {
+    builder << "  - none detected in the active host build\n";
+  } else {
+    for (const auto& monitor : report.monitors) {
+      builder << FormatMonitorLine(monitor, report.session) << '\n';
     }
   }
 

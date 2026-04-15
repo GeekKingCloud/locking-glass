@@ -35,6 +35,8 @@ WindowsSurfaceProbe ProbeWindowsSurface() {
   probe.monitor_api_ready =
       user32 != nullptr && GetProcAddress(user32, "EnumDisplayMonitors") != nullptr &&
       GetProcAddress(user32, "GetMonitorInfoW") != nullptr &&
+      GetProcAddress(user32, "QueryDisplayConfig") != nullptr &&
+      GetProcAddress(user32, "DisplayConfigGetDeviceInfo") != nullptr &&
       GetProcAddress(user32, "RegisterWindowMessageW") != nullptr;
   probe.tray_api_ready =
       shell32 != nullptr && GetProcAddress(shell32, "Shell_NotifyIconW") != nullptr;
@@ -73,7 +75,7 @@ CapabilityReport ProbeMonitorBoundary() {
         .component = "monitor-enumeration",
         .status = CapabilityStatus::kReady,
         .detail =
-            "Enumerates active monitors through EnumDisplayMonitors/GetMonitorInfoW and refreshes topology on WM_DISPLAYCHANGE.",
+            "Enumerates active monitors through EnumDisplayMonitors plus QueryDisplayConfig identity data and refreshes topology on WM_DISPLAYCHANGE.",
     };
   }
 
@@ -88,7 +90,7 @@ CapabilityReport ProbeMonitorBoundary() {
       .component = "monitor-enumeration",
       .status = CapabilityStatus::kStubbed,
       .detail =
-          "Win32 monitor enumeration is stubbed on non-Windows hosts; the boundary contract still documents EnumDisplayMonitors, GetMonitorInfoW, and WM_DISPLAYCHANGE usage.",
+          "Win32 monitor enumeration is stubbed on non-Windows hosts; the boundary contract still documents EnumDisplayMonitors, QueryDisplayConfig, DisplayConfigGetDeviceInfo, and WM_DISPLAYCHANGE usage.",
   };
 #endif
 }
@@ -206,6 +208,8 @@ class WindowsApiProbeImpl final : public WindowsApiProbe {
             {
                 "EnumDisplayMonitors",
                 "GetMonitorInfoW",
+                "QueryDisplayConfig",
+                "DisplayConfigGetDeviceInfo",
                 "WM_DISPLAYCHANGE",
             },
         .in_scope =
@@ -231,7 +235,7 @@ class WindowsApiProbeImpl final : public WindowsApiProbe {
     prototype.interaction_steps.push_back(
         "Startup: probe tray, monitor, and virtual desktop entry points before enabling any monitor lock orchestration.");
     prototype.interaction_steps.push_back(
-        "Monitor scan: enumerate monitors with EnumDisplayMonitors/GetMonitorInfoW and emit MonitorDescriptor values for SessionStore reconciliation.");
+        "Monitor scan: enumerate monitors with EnumDisplayMonitors plus QueryDisplayConfig/DisplayConfigGetDeviceInfo and emit MonitorDescriptor values for SessionStore reconciliation.");
     prototype.interaction_steps.push_back(
         "Observed " + std::to_string(monitors.size()) +
         " active monitors in this host build; on Windows the same boundary drives numbering, identification, and review prompts.");
