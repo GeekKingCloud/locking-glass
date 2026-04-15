@@ -14,6 +14,10 @@ struct BackgroundSessionMenuItem {
   MonitorDescriptor monitor;
   bool locked = false;
   bool requires_confirmation = false;
+  std::string padlock_variant;
+  std::string padlock_accent;
+  bool padlock_filled = false;
+  bool padlock_review_badge = false;
   std::string status_label;
   std::string menu_label;
   std::string identify_label;

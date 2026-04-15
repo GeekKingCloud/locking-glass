@@ -20,10 +20,18 @@ struct TrayIconState {
   bool review_badge = false;
 };
 
+struct TrayPadlockIconState {
+  std::string variant;
+  std::string accent;
+  bool filled = false;
+  bool review_badge = false;
+};
+
 struct TrayMonitorState {
   platform::MonitorDescriptor monitor;
   bool locked = false;
   bool requires_confirmation = false;
+  TrayPadlockIconState padlock_icon;
   std::string status_label;
   std::string menu_label;
   std::string identify_label;

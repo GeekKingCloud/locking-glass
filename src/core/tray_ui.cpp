@@ -8,9 +8,6 @@ namespace locking_glass::core {
 
 namespace {
 
-constexpr char kLockedGlyph[] = "\xF0\x9F\x94\x92";
-constexpr char kUnlockedGlyph[] = "\xF0\x9F\x94\x93";
-
 std::string BuildMonitorDisplayLabel(
     const platform::MonitorDescriptor& monitor) {
   std::ostringstream builder;
@@ -95,10 +92,29 @@ std::string BuildMonitorStatusLabel(const TrayMonitorState& monitor) {
   return builder.str();
 }
 
+TrayPadlockIconState BuildMonitorPadlockIconState(
+    const TrayMonitorState& monitor) {
+  TrayPadlockIconState icon{
+      .variant = monitor.locked ? "locked" : "unlocked",
+      .accent = {},
+      .filled = monitor.locked,
+      .review_badge = monitor.requires_confirmation,
+  };
+
+  if (monitor.requires_confirmation) {
+    icon.accent = "amber";
+  } else if (monitor.locked) {
+    icon.accent = "emerald";
+  } else {
+    icon.accent = "slate";
+  }
+
+  return icon;
+}
+
 std::string BuildMonitorMenuLabel(const TrayMonitorState& monitor) {
   std::ostringstream builder;
-  builder << (monitor.locked ? kLockedGlyph : kUnlockedGlyph) << ' '
-          << BuildMonitorDisplayLabel(monitor.monitor);
+  builder << BuildMonitorDisplayLabel(monitor.monitor);
   if (monitor.requires_confirmation) {
     builder << " [review]";
   }
@@ -230,11 +246,13 @@ TrayMenuModel BuildTrayMenuModel(const SessionRefreshResult& session,
         .monitor = monitor_state.monitor,
         .locked = monitor_state.locked,
         .requires_confirmation = monitor_state.requires_confirmation,
+        .padlock_icon = {},
         .status_label = {},
         .menu_label = {},
         .identify_label = {},
     };
     tray_monitor.status_label = BuildMonitorStatusLabel(tray_monitor);
+    tray_monitor.padlock_icon = BuildMonitorPadlockIconState(tray_monitor);
     tray_monitor.menu_label = BuildMonitorMenuLabel(tray_monitor);
     tray_monitor.identify_label = BuildMonitorIdentifyLabel(tray_monitor);
     model.monitors.push_back(std::move(tray_monitor));
@@ -337,7 +355,14 @@ std::string FormatTrayMenuModel(const TrayMenuModel& model) {
 
   for (const auto& monitor : model.monitors) {
     builder << "  - " << BuildTrayMonitorLabel(monitor) << " : "
-            << monitor.status_label << '\n';
+            << monitor.status_label << " | padlock: "
+            << monitor.padlock_icon.variant << ", "
+            << monitor.padlock_icon.accent << ", "
+            << (monitor.padlock_icon.filled ? "filled" : "outline");
+    if (monitor.padlock_icon.review_badge) {
+      builder << ", review badge";
+    }
+    builder << '\n';
     builder << "    " << monitor.identify_label << '\n';
   }
   return builder.str();

@@ -520,6 +520,14 @@ bool RunTraySessionChecks() {
                           "first tray click should show Display 1 as initially unlocked");
       failures += !Expect(opened_left->requires_confirmation,
                           "new monitors should still be marked for review in the tray UI");
+      failures += !Expect(opened_left->padlock_variant == "unlocked",
+                          "unlocked tray monitors should expose the unlocked padlock variant");
+      failures += !Expect(opened_left->padlock_accent == "amber",
+                          "review-required tray monitors should use the review padlock accent");
+      failures += !Expect(!opened_left->padlock_filled,
+                          "unlocked tray monitors should use an outline padlock");
+      failures += !Expect(opened_left->padlock_review_badge,
+                          "review-required tray monitors should expose the review badge");
     }
     const auto* opened_right = FindBackgroundMonitor(events[1], "Display 2");
     failures += !Expect(opened_right != nullptr,
@@ -553,6 +561,14 @@ bool RunTraySessionChecks() {
                           "toggling a monitor should confirm it and clear review state");
       failures += !Expect(toggled_right->status_label == "locked",
                           "tray toggle should expose a locked status label");
+      failures += !Expect(toggled_right->padlock_variant == "locked",
+                          "locked tray monitors should expose the locked padlock variant");
+      failures += !Expect(toggled_right->padlock_accent == "emerald",
+                          "locked tray monitors should use the locked padlock accent");
+      failures += !Expect(toggled_right->padlock_filled,
+                          "locked tray monitors should use a filled padlock icon");
+      failures += !Expect(!toggled_right->padlock_review_badge,
+                          "confirmed tray monitors should clear the review badge");
     }
 
     const auto* disconnected_right = FindBackgroundMonitor(events[5], "Display 2");
@@ -576,6 +592,8 @@ bool RunTraySessionChecks() {
     if (restored_right != nullptr) {
       failures += !Expect(restored_right->locked,
                           "reconnected monitor should recover its saved lock state");
+      failures += !Expect(restored_right->padlock_variant == "locked",
+                          "reconnected locked monitors should keep the locked padlock variant");
     }
 
     failures += !Expect(events[8].prompt.visible,
@@ -596,6 +614,14 @@ bool RunTraySessionChecks() {
                           "new tray monitors should default to unlocked");
       failures += !Expect(added_monitor->requires_confirmation,
                           "new tray monitors should require review");
+      failures += !Expect(added_monitor->padlock_variant == "unlocked",
+                          "new tray monitors should expose the unlocked padlock variant");
+      failures += !Expect(added_monitor->padlock_accent == "amber",
+                          "new tray monitors should use the review padlock accent");
+      failures += !Expect(!added_monitor->padlock_filled,
+                          "new tray monitors should use an outline padlock icon");
+      failures += !Expect(added_monitor->padlock_review_badge,
+                          "new tray monitors should mark the padlock icon with the review badge");
       failures += !Expect(added_monitor->identify_label.find("Display 3") !=
                               std::string::npos,
                           "tray menu items should describe the identify-hover behavior");
@@ -656,6 +682,13 @@ bool RunTraySessionChecks() {
   failures += !Expect(formatted.find("Display 3 - LG UltraFine [review]") !=
                           std::string::npos,
                       "formatted tray menu output should flag review-required monitors");
+  failures += !Expect(formatted.find("padlock: locked, emerald, filled") !=
+                          std::string::npos,
+                      "formatted tray menu output should describe locked padlock icons");
+  failures += !Expect(
+      formatted.find("padlock: unlocked, amber, outline, review badge") !=
+          std::string::npos,
+      "formatted tray menu output should describe review-state padlock icons");
   failures += !Expect(formatted.find("Hover highlights Display 3 on screen") !=
                           std::string::npos,
                       "formatted tray menu output should describe the identify-hover affordance");
