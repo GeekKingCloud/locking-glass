@@ -23,16 +23,23 @@ std::string FormatMonitorLine(const platform::MonitorDescriptor& monitor) {
 Runtime BuildRuntime() {
   return Runtime{
       .monitor_gateway = platform::CreateMonitorGateway(),
+      .background_session = platform::CreateBackgroundSession(),
       .ffmpeg_probe = integration::CreateFfmpegProbe(),
       .windows_api_probe = integration::CreateWindowsApiProbe(),
+      .autostart_manager = integration::CreateAutostartManager(),
   };
 }
 
-StartupDiagnostics CollectStartupDiagnostics(const Runtime& runtime) {
+StartupDiagnostics CollectStartupDiagnostics(const Runtime& runtime,
+                                            const std::string& executable_path) {
   StartupDiagnostics diagnostics;
   diagnostics.monitors = runtime.monitor_gateway->Enumerate();
+  diagnostics.capabilities.push_back(runtime.background_session->Probe());
   diagnostics.capabilities.push_back(runtime.windows_api_probe->Probe());
+  diagnostics.capabilities.push_back(runtime.autostart_manager->Probe());
   diagnostics.capabilities.push_back(runtime.ffmpeg_probe->Probe());
+  diagnostics.autostart =
+      runtime.autostart_manager->BuildPlan(executable_path);
   return diagnostics;
 }
 
@@ -45,6 +52,13 @@ std::string FormatDiagnostics(const StartupDiagnostics& diagnostics) {
             << integration::ToString(capability.status) << " (" << capability.detail
             << ")\n";
   }
+
+  builder << "Autostart:\n";
+  builder << "  - scope: " << diagnostics.autostart.scope << '\n';
+  builder << "  - location: " << diagnostics.autostart.location << '\n';
+  builder << "  - entry: " << diagnostics.autostart.entry_name << '\n';
+  builder << "  - launch mode: " << diagnostics.autostart.launch_mode << '\n';
+  builder << "  - command: " << diagnostics.autostart.launch_command << '\n';
 
   builder << "Monitors:\n";
   if (diagnostics.monitors.empty()) {
