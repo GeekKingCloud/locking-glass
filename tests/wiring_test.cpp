@@ -526,6 +526,9 @@ bool RunTraySessionChecks() {
                           "first tray click should show Display 1 as initially unlocked");
       failures += !Expect(opened_left->requires_confirmation,
                           "new monitors should still be marked for review in the tray UI");
+      failures += !Expect(opened_left->menu_label.find("2560x1440 @ 0,0, primary") !=
+                              std::string::npos,
+                          "primary tray monitors should expose layout metadata in the menu label");
       failures += !Expect(opened_left->padlock_variant == "unlocked",
                           "unlocked tray monitors should expose the unlocked padlock variant");
       failures += !Expect(opened_left->padlock_accent == "amber",
@@ -542,6 +545,9 @@ bool RunTraySessionChecks() {
       failures += !Expect(opened_right->menu_label.find("Display 2") !=
                               std::string::npos,
                           "tray click should expose monitor menu labels");
+      failures += !Expect(opened_right->menu_label.find("2560x1440 @ 2560,0") !=
+                              std::string::npos,
+                          "tray click should expose per-monitor layout metadata in menu labels");
     }
     failures += !Expect(events[1].tray_icon_tooltip.find("0 of 2 locked") !=
                             std::string::npos,
@@ -556,6 +562,9 @@ bool RunTraySessionChecks() {
     failures += !Expect(events[2].highlight.message.find("Dell U2720Q") !=
                             std::string::npos,
                         "hover overlay should include the display name");
+    failures += !Expect(events[2].highlight.message.find("top-left 2560,0") !=
+                            std::string::npos,
+                        "hover overlay should include monitor placement metadata");
 
     const auto* toggled_right = FindBackgroundMonitor(events[4], "Display 2");
     failures += !Expect(toggled_right != nullptr,
@@ -645,6 +654,9 @@ bool RunTraySessionChecks() {
       failures += !Expect(added_monitor->identify_label.find("Display 3") !=
                               std::string::npos,
                           "tray menu items should describe the identify-hover behavior");
+      failures += !Expect(added_monitor->menu_label.find("1920x1080 @ -1920,0") !=
+                              std::string::npos,
+                          "new tray monitors should expose layout metadata in the menu label");
     }
 
     const auto* reopened_right = FindBackgroundMonitor(events[10], "Display 2");
@@ -696,10 +708,12 @@ bool RunTraySessionChecks() {
                       "formatted tray menu output should include the tray title");
   failures += !Expect(formatted.find("variant: review") != std::string::npos,
                       "formatted tray menu output should include the tray icon variant");
-  failures += !Expect(formatted.find("Display 1 - Dell U2720Q") !=
+  failures += !Expect(
+      formatted.find("Display 1 - Dell U2720Q (2560x1440 @ 0,0, primary)") !=
                           std::string::npos,
                       "formatted tray menu output should include monitor labels");
-  failures += !Expect(formatted.find("Display 3 - LG UltraFine [review]") !=
+  failures += !Expect(
+      formatted.find("Display 3 - LG UltraFine (1920x1080 @ -1920,0) [review]") !=
                           std::string::npos,
                       "formatted tray menu output should flag review-required monitors");
   failures += !Expect(formatted.find("padlock: locked, emerald, filled") !=
@@ -709,8 +723,9 @@ bool RunTraySessionChecks() {
       formatted.find("padlock: unlocked, amber, outline, review badge") !=
           std::string::npos,
       "formatted tray menu output should describe review-state padlock icons");
-  failures += !Expect(formatted.find("Hover highlights Display 3 on screen") !=
-                          std::string::npos,
+  failures += !Expect(
+      formatted.find("Hover highlights Display 3 on screen (LG UltraFine, 1920x1080 @ -1920,0)") !=
+          std::string::npos,
                       "formatted tray menu output should describe the identify-hover affordance");
 
   SetEnvironmentVariable("LOCKING_GLASS_TRAY_SCRIPT", "");

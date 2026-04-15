@@ -42,9 +42,9 @@ make prototype
 ## Tray Session
 
 - The Win32 background session keeps a hidden tool window alive, renders a custom tray icon that changes between unlocked, mixed, locked, and review-needed states, and uses the same model to drive the menu header and tooltip copy.
-- Clicking the tray icon rebuilds the current monitor list from `MonitorGateway`, reconciles it through `SessionStore`, and shows a structured popup menu with a title, live summary line, hover guidance, and one rendered padlock icon per active monitor entry.
+- Clicking the tray icon rebuilds the current monitor list from `MonitorGateway`, reconciles it through `SessionStore`, and shows a structured popup menu with a title, live summary line, hover guidance, one rendered padlock icon per active monitor entry, and layout metadata in each monitor label (`resolution @ x,y`, plus `primary` when applicable) so identical panels stay distinguishable before hover.
 - Monitor entries now use a filled emerald padlock for locked displays, a hollow slate padlock for unlocked displays, and an amber review-badged padlock for newly added monitors that still need confirmation.
-- Hovering a monitor entry now paints a full-monitor topmost highlight overlay with a centered identify card, making it clear which physical screen is being referenced before toggling.
+- Hovering a monitor entry now paints a full-monitor topmost highlight overlay with a centered identify card, making it clear which physical screen is being referenced before toggling; the overlay text also echoes the monitor's placement metadata for easier verification in scripted runs.
 - Selecting a monitor entry toggles its persisted lock state immediately, clears any outstanding review requirement for that monitor, and reopens the tray menu with refreshed lock counts and padlock indicators so the change is visible without another click.
 - Startup, `WM_DISPLAYCHANGE`, and manual tray refreshes now emit a lightweight review prompt when brand-new monitors appear, while disconnected monitors stay silent and simply retain their saved lock state until they return.
 - The tray tooltip summarizes the current lock count and pending-review count so topology changes are visible even before the menu is opened, and the scripted event model exposes the same tray/menu and per-monitor padlock state for host verification.

@@ -112,27 +112,41 @@ TrayPadlockIconState BuildMonitorPadlockIconState(
   return icon;
 }
 
-std::string BuildMonitorMenuLabel(const TrayMonitorState& monitor) {
-  std::ostringstream builder;
-  builder << BuildMonitorDisplayLabel(monitor.monitor);
-  if (monitor.requires_confirmation) {
-    builder << " [review]";
-  }
-  return builder.str();
-}
-
 std::string FormatMonitorResolution(const platform::MonitorDescriptor& monitor) {
   const int width = monitor.bounds.right - monitor.bounds.left;
   const int height = monitor.bounds.bottom - monitor.bounds.top;
   return std::to_string(width) + "x" + std::to_string(height);
 }
 
+std::string BuildMonitorMenuLabel(const TrayMonitorState& monitor) {
+  std::ostringstream builder;
+  builder << BuildMonitorDisplayLabel(monitor.monitor);
+  builder << " (" << FormatMonitorResolution(monitor.monitor) << " @ "
+          << monitor.monitor.bounds.left << "," << monitor.monitor.bounds.top;
+  if (monitor.monitor.is_primary) {
+    builder << ", primary";
+  }
+  builder << ")";
+  if (monitor.requires_confirmation) {
+    builder << " [review]";
+  }
+  return builder.str();
+}
+
 std::string BuildMonitorIdentifyLabel(const TrayMonitorState& monitor) {
   std::ostringstream builder;
   builder << "Hover highlights " << monitor.monitor.label << " on screen";
   if (!monitor.monitor.display_name.empty()) {
-    builder << " (" << monitor.monitor.display_name << ")";
+    builder << " (" << monitor.monitor.display_name << ", ";
+  } else {
+    builder << " (";
   }
+  builder << FormatMonitorResolution(monitor.monitor) << " @ "
+          << monitor.monitor.bounds.left << "," << monitor.monitor.bounds.top;
+  if (monitor.monitor.is_primary) {
+    builder << ", primary";
+  }
+  builder << ")";
   return builder.str();
 }
 
@@ -282,7 +296,8 @@ TrayIdentifyOverlay BuildTrayIdentifyOverlay(const TrayMonitorState& monitor) {
     message << monitor.monitor.display_name << " | ";
   }
   message << FormatMonitorResolution(monitor.monitor) << " | "
-          << monitor.status_label;
+          << monitor.status_label << " | top-left "
+          << monitor.monitor.bounds.left << "," << monitor.monitor.bounds.top;
   if (monitor.monitor.is_primary) {
     message << " | primary";
   }
