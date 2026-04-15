@@ -36,6 +36,8 @@ make prototype
 
 `make prototype` runs `locking_glass --prototype-windows-apis`, which prints the Windows integration boundary contract and a simple interaction trace for virtual desktop control plus monitor enumeration.
 
+For the real Windows hook proof, run `scripts/run-live-desktop-probe.ps1` from a Windows shell. That wrapper downloads the current `VirtualDesktopAccessor.dll` release when needed, builds `tools/windows_live_desktop_probe`, exercises the live move path on a real top-level probe window, and records live desktop-switch notifications without using `LOCKING_GLASS_DESKTOP_SCRIPT`.
+
 ## Autostart
 
 - `locking_glass --install-autostart` writes a `LockingGlass` entry under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
@@ -68,9 +70,12 @@ make prototype
 ## Desktop Locking
 
 - `src/core/monitor_locking.cpp` builds the per-switch policy: it restores persisted monitor locks, identifies which live monitors are locked, and plans only the top-level movable windows that need to swap desktops to keep a locked monitor visually fixed.
-- `src/integration/virtual_desktop_controller.cpp` owns the desktop-switch replay seam and formats the resulting move report. The same boundary is where the Windows COM and helper-based live notification path will plug in.
+- `src/integration/virtual_desktop_controller.cpp` owns the desktop-switch replay seam and formats the resulting move report, but it now explicitly fails closed unless the live Windows helper path is available.
+- `docs/windows-live-desktop-hook.md` records the chosen live boundary: `VirtualDesktopAccessor.dll:RegisterPostMessageHook` for real desktop-switch notifications and `VirtualDesktopAccessor.dll:MoveWindowToDesktopNumber` for isolated top-level window moves.
+- The Windows proof probe for ticket `#15` also showed that direct `IVirtualDesktopManager.MoveWindowToDesktop` is not the supported move path on this runtime; the helper move export succeeded while COM remained useful for readiness and desktop-id verification.
 - In the replay format, each `event	desktop-switch	<trigger>	<from>	<to>` block can include `monitor` rows plus `window` rows (`window_id`, `title`, `monitor_id`, `monitor_label`, `desktop_id`, `is_top_level`, `can_move`).
-- Local verification on this Linux worker uses that scripted replay path. Direct live COM notification handling and per-monitor desktop behavior still need final confirmation on a real Windows shell.
+- `LOCKING_GLASS_DESKTOP_SCRIPT` remains a replay seam for local policy verification only. It is not valid completion evidence for the live Windows desktop hook path.
+- `scripts/run-live-desktop-probe.ps1` and `tools/windows_live_desktop_probe/Program.cs` are the real-runtime feasibility gate for ticket `#15`: they capture at least two live desktop-switch notifications and a move-path exercise on Windows without relying on replay.
 
 ## Monitor Enumeration
 
@@ -84,17 +89,20 @@ make prototype
 - `src/platform/monitor_gateway.cpp` is where Win32 monitor enumeration is wired with `EnumDisplayMonitors`, `GetMonitorInfoW`, `QueryDisplayConfig`, and `DisplayConfigGetDeviceInfo`.
 - `src/platform/monitor_watcher.cpp` is where foreground monitor-watch sessions react to startup and `WM_DISPLAYCHANGE` refresh events.
 - `src/integration/windows_api_probe.cpp` is where tray and monitor entry points are probed with `user32.dll`, `shell32.dll`, COM initialization, and the base `IVirtualDesktopManager` seam.
-- `src/integration/virtual_desktop_controller.cpp` is where desktop switch replay, COM availability probing, and the future live virtual-desktop notification/move boundary are isolated.
+- `src/integration/virtual_desktop_controller.cpp` is where desktop switch replay, live-helper availability reporting, and fail-closed desktop-locking diagnostics are isolated.
+- `src/integration/windows_virtual_desktop_surface.cpp` centralizes the Windows-only readiness probe for `IVirtualDesktopManager` plus the `VirtualDesktopAccessor.dll` exports LockingGlass requires before it can claim the live hook path is available.
 - `src/platform/background_session.cpp` is where background launches enter the hidden Win32 tray session, handle tray clicks, and expose the scripted non-Windows verification path.
 - `src/integration/autostart.cpp` is where current-user Run-key registration is built and installed for sign-in autostart.
 - `src/integration/ffmpeg_probe.cpp` uses runtime loading instead of static linkage so future Windows packaging can decide where FFmpeg DLLs live without changing the call site contract.
 - `src/core/session_store.cpp` is where monitor lock state is serialized, restored, and reconciled against live monitor topology.
 - `src/core/tray_ui.cpp` is where active monitor session state is projected into the tray menu model, including the per-monitor padlock icon state, and where tray-driven lock toggles are persisted.
+- `scripts/run-live-desktop-probe.ps1` is the Windows-side wrapper that downloads the maintained helper DLL release, runs the .NET probe, and writes proof logs under `build/windows-live-desktop-probe/`.
 
 ## Windows Integration Boundaries
 
-- `virtual-desktop-control` owns COM initialization, supported `IVirtualDesktopManager` access, and the isolated helper seam used for desktop switch notifications or forced window moves.
+- `virtual-desktop-control` owns COM readiness, supported `IVirtualDesktopManager` access, and the isolated `VirtualDesktopAccessor.dll` seam used for live desktop switch notifications and top-level window moves.
 - `virtual-desktop-control` does not choose which monitors or windows should move. Core policy decides that, then passes only eligible top-level windows into the boundary.
+- If `VirtualDesktopAccessor.dll` or its required exports are missing, the desktop-control boundary must report `unavailable` and LockingGlass must fail closed instead of falling back to replay or guessed shell state.
 - `monitor-enumeration` owns `EnumDisplayMonitors`, `GetMonitorInfoW`, `QueryDisplayConfig`, `DisplayConfigGetDeviceInfo`, and `WM_DISPLAYCHANGE` handling. It reports live monitor geometry and identity fields without persisting state or deciding lock behavior.
 - `monitor-enumeration` emits the identity envelope consumed by `SessionStore`: stable id, device path, EDID serial when available, display name, bounds, and primary flag. Ambiguity resolution stays in the core/session layer.
 - `locking_glass --prototype-windows-apis` prints both boundaries plus the expected interaction flow: startup probe, live monitor scan, topology refresh on `WM_DISPLAYCHANGE`, desktop switch notification, and post-policy window moves.

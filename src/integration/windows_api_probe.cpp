@@ -1,5 +1,7 @@
 #include "locking_glass/integration/windows_api_probe.h"
 
+#include "windows_virtual_desktop_surface.h"
+
 #include <memory>
 #include <sstream>
 #include <string>
@@ -20,14 +22,20 @@ struct WindowsSurfaceProbe {
   bool tray_api_ready = false;
   bool monitor_api_ready = false;
   bool virtual_desktop_manager_ready = false;
+  bool helper_library_ready = false;
+  bool helper_watch_ready = false;
+  bool helper_move_ready = false;
 };
 
 #if defined(_WIN32)
 WindowsSurfaceProbe ProbeWindowsSurface() {
   WindowsSurfaceProbe probe;
-
-  const HRESULT com_result = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-  probe.com_ready = SUCCEEDED(com_result) || com_result == RPC_E_CHANGED_MODE;
+  const auto desktop_probe = internal::ProbeWindowsVirtualDesktopSurface();
+  probe.com_ready = desktop_probe.com_ready;
+  probe.virtual_desktop_manager_ready = desktop_probe.desktop_manager_ready;
+  probe.helper_library_ready = desktop_probe.helper_library_ready;
+  probe.helper_watch_ready = desktop_probe.helper_watch_ready;
+  probe.helper_move_ready = desktop_probe.helper_move_ready;
 
   HMODULE user32 = LoadLibraryW(L"user32.dll");
   HMODULE shell32 = LoadLibraryW(L"shell32.dll");
@@ -40,27 +48,11 @@ WindowsSurfaceProbe ProbeWindowsSurface() {
       GetProcAddress(user32, "RegisterWindowMessageW") != nullptr;
   probe.tray_api_ready =
       shell32 != nullptr && GetProcAddress(shell32, "Shell_NotifyIconW") != nullptr;
-
-  IVirtualDesktopManager* desktop_manager = nullptr;
-  if (probe.com_ready) {
-    const HRESULT desktop_result =
-        CoCreateInstance(CLSID_VirtualDesktopManager, nullptr, CLSCTX_ALL,
-                         IID_PPV_ARGS(&desktop_manager));
-    probe.virtual_desktop_manager_ready =
-        SUCCEEDED(desktop_result) && desktop_manager != nullptr;
-  }
-
-  if (desktop_manager != nullptr) {
-    desktop_manager->Release();
-  }
   if (user32 != nullptr) {
     FreeLibrary(user32);
   }
   if (shell32 != nullptr) {
     FreeLibrary(shell32);
-  }
-  if (com_result == S_OK || com_result == S_FALSE) {
-    CoUninitialize();
   }
 
   return probe;
@@ -98,12 +90,13 @@ CapabilityReport ProbeMonitorBoundary() {
 CapabilityReport ProbeVirtualDesktopBoundary() {
 #if defined(_WIN32)
   const auto probe = ProbeWindowsSurface();
-  if (probe.com_ready && probe.virtual_desktop_manager_ready) {
+  if (probe.com_ready && probe.virtual_desktop_manager_ready &&
+      probe.helper_watch_ready && probe.helper_move_ready) {
     return CapabilityReport{
         .component = "virtual-desktop-control",
         .status = CapabilityStatus::kReady,
         .detail =
-            "COM and IVirtualDesktopManager are available; helper-only desktop notifications and forced moves remain isolated behind this boundary.",
+            "COM, IVirtualDesktopManager, and VirtualDesktopAccessor.dll are available; live desktop notifications flow through RegisterPostMessageHook and window moves through MoveWindowToDesktopNumber inside this isolated boundary.",
     };
   }
 
@@ -111,14 +104,14 @@ CapabilityReport ProbeVirtualDesktopBoundary() {
       .component = "virtual-desktop-control",
       .status = CapabilityStatus::kUnavailable,
       .detail =
-          "Virtual desktop control boundary is unavailable because COM startup or IVirtualDesktopManager resolution failed.",
+          "Virtual desktop control fails closed until LockingGlass can resolve both IVirtualDesktopManager and VirtualDesktopAccessor.dll with RegisterPostMessageHook, UnregisterPostMessageHook, GetCurrentDesktopNumber, GoToDesktopNumber, MoveWindowToDesktopNumber, and GetWindowDesktopNumber.",
   };
 #else
   return CapabilityReport{
       .component = "virtual-desktop-control",
       .status = CapabilityStatus::kStubbed,
       .detail =
-          "Win32 virtual desktop control is stubbed on non-Windows hosts; the boundary contract still documents COM, IVirtualDesktopManager, and helper-based notification flow.",
+          "Win32 virtual desktop control is stubbed on non-Windows hosts; the boundary contract still documents COM plus the VirtualDesktopAccessor live hook, while replay stays explicitly separate from core feature proof.",
   };
 #endif
 }
@@ -140,12 +133,13 @@ class WindowsApiProbeImpl final : public WindowsApiProbe {
 #if defined(_WIN32)
     const auto probe = ProbeWindowsSurface();
     if (probe.com_ready && probe.monitor_api_ready && probe.tray_api_ready &&
-        probe.virtual_desktop_manager_ready) {
+        probe.virtual_desktop_manager_ready && probe.helper_watch_ready &&
+        probe.helper_move_ready) {
       return CapabilityReport{
           .component = "windows-api",
           .status = CapabilityStatus::kReady,
           .detail =
-              "Resolved tray, monitor, and base virtual-desktop entry points; helper-based desktop notifications and window moves stay isolated behind the Windows boundary.",
+              "Resolved tray, monitor, IVirtualDesktopManager, and VirtualDesktopAccessor entry points; live desktop notifications and move calls stay isolated behind the Windows boundary.",
       };
     }
 
@@ -153,7 +147,7 @@ class WindowsApiProbeImpl final : public WindowsApiProbe {
         .component = "windows-api",
         .status = CapabilityStatus::kUnavailable,
         .detail =
-            "Windows API probe failed. Tray, monitor, or virtual-desktop entry points were unavailable.",
+            "Windows API probe failed. Tray, monitor, IVirtualDesktopManager, or VirtualDesktopAccessor entry points were unavailable, so LockingGlass must fail closed on live desktop locking.",
     };
 #else
     return CapabilityReport{
@@ -171,32 +165,36 @@ class WindowsApiProbeImpl final : public WindowsApiProbe {
     prototype.boundaries.push_back(WindowsApiBoundary{
         .name = "virtual-desktop-control",
         .purpose =
-            "Own COM startup, supported IVirtualDesktopManager calls, and the isolated helper seam used for desktop switch notifications and window moves.",
+            "Own COM readiness, the VirtualDesktopAccessor live hook, and the isolated boundary that translates desktop switch notifications into explicit move calls.",
         .capability = ProbeVirtualDesktopBoundary(),
         .windows_apis =
             {
                 "CoInitializeEx / CoUninitialize",
                 "CoCreateInstance(CLSID_VirtualDesktopManager)",
                 "IVirtualDesktopManager",
-                "VirtualDesktopAccessor or equivalent helper",
+                "VirtualDesktopAccessor.dll:RegisterPostMessageHook",
+                "VirtualDesktopAccessor.dll:UnregisterPostMessageHook",
+                "VirtualDesktopAccessor.dll:GetCurrentDesktopNumber",
+                "VirtualDesktopAccessor.dll:GoToDesktopNumber",
+                "VirtualDesktopAccessor.dll:MoveWindowToDesktopNumber",
             },
         .in_scope =
             {
-                "Resolve the supported virtual desktop COM entry point before any monitor lock orchestration runs.",
-                "Translate desktop switch notifications into app-level events with source and target desktop context.",
-                "Move already-selected top-level windows between desktops when the core policy decides they should follow an unlocked monitor.",
+                "Resolve the supported IVirtualDesktopManager and VirtualDesktopAccessor entry points before any monitor lock orchestration runs.",
+                "Receive real desktop switch notifications through the helper post-message hook and translate them into app-level events with source and target desktop context.",
+                "Move already-selected top-level windows between desktops through the isolated move call when the core policy decides they should follow an unlocked monitor.",
             },
         .out_of_scope =
             {
                 "Choosing which monitors or windows should move on a desktop switch.",
                 "Persisting monitor lock state, matching saved monitors, or mutating tray UI state.",
-                "Reaching into shell behavior outside the explicitly isolated helper seam.",
+                "Treating the replay seam as evidence that the live Windows path is complete.",
             },
         .expected_behavior =
             {
-                "Fail closed when COM or IVirtualDesktopManager is unavailable instead of guessing at desktop state.",
+                "Fail closed when IVirtualDesktopManager or the VirtualDesktopAccessor hook/move exports are unavailable instead of guessing at desktop state.",
                 "Accept only top-level window handles from the core policy layer and report per-window move failures explicitly.",
-                "Keep helper-based desktop notifications and forced moves replaceable behind this one boundary.",
+                "Keep the helper-based live hook boundary isolated so replay remains an optional test seam rather than the product path.",
             },
     });
     prototype.boundaries.push_back(WindowsApiBoundary{
@@ -242,9 +240,9 @@ class WindowsApiProbeImpl final : public WindowsApiProbe {
     prototype.interaction_steps.push_back(
         "Topology change: when the background window receives WM_DISPLAYCHANGE, rerun monitor enumeration and let the core decide whether any saved monitor state now needs user review.");
     prototype.interaction_steps.push_back(
-        "Desktop switch: receive the supported desktop identity through IVirtualDesktopManager and helper-based notifications, then hand the event to the core policy layer.");
+        "Desktop switch: receive the real switch event through VirtualDesktopAccessor RegisterPostMessageHook, pair it with current desktop identity, and hand the event to the core policy layer.");
     prototype.interaction_steps.push_back(
-        "Window move: after the core selects eligible top-level windows on unlocked monitors, the virtual desktop boundary issues the move and reports any failed HWND operations without touching persistence or tray state.");
+        "Window move: after the core selects eligible top-level windows on unlocked monitors, the virtual desktop boundary issues MoveWindowToDesktopNumber and reports any failed HWND operations without touching persistence or tray state.");
     return prototype;
   }
 };

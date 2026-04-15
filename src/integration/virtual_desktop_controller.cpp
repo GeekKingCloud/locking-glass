@@ -1,5 +1,7 @@
 #include "locking_glass/integration/virtual_desktop_controller.h"
 
+#include "windows_virtual_desktop_surface.h"
+
 #include <cstdlib>
 #include <fstream>
 #include <memory>
@@ -7,12 +9,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#include <objbase.h>
-#include <shobjidl_core.h>
-#endif
 
 namespace locking_glass::integration {
 
@@ -82,32 +78,14 @@ std::string DescribeMonitor(const core::DesktopWindow& window) {
 
 #if defined(_WIN32)
 CapabilityReport ProbeWindowsController() {
-  const HRESULT com_result = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-  const bool com_ready = SUCCEEDED(com_result) || com_result == RPC_E_CHANGED_MODE;
-
-  IVirtualDesktopManager* desktop_manager = nullptr;
-  bool desktop_manager_ready = false;
-  if (com_ready) {
-    const HRESULT desktop_result =
-        CoCreateInstance(CLSID_VirtualDesktopManager, nullptr, CLSCTX_ALL,
-                         IID_PPV_ARGS(&desktop_manager));
-    desktop_manager_ready =
-        SUCCEEDED(desktop_result) && desktop_manager != nullptr;
-  }
-
-  if (desktop_manager != nullptr) {
-    desktop_manager->Release();
-  }
-  if (com_result == S_OK || com_result == S_FALSE) {
-    CoUninitialize();
-  }
-
-  if (desktop_manager_ready) {
+  const auto probe = internal::ProbeWindowsVirtualDesktopSurface();
+  if (probe.com_ready && probe.desktop_manager_ready && probe.helper_watch_ready &&
+      probe.helper_move_ready) {
     return CapabilityReport{
         .component = "desktop-locking",
         .status = CapabilityStatus::kReady,
         .detail =
-            "Monitor lock planning can target IVirtualDesktopManager moves; LOCKING_GLASS_DESKTOP_SCRIPT replays switch scenarios while live notifications stay behind the helper seam.",
+            "Live desktop locking is available through the VirtualDesktopAccessor post-message hook and move exports; replay through LOCKING_GLASS_DESKTOP_SCRIPT stays test-only and is not completion evidence for the core feature.",
     };
   }
 
@@ -115,7 +93,7 @@ CapabilityReport ProbeWindowsController() {
       .component = "desktop-locking",
       .status = CapabilityStatus::kUnavailable,
       .detail =
-          "Desktop locking is unavailable because IVirtualDesktopManager could not be resolved through COM.",
+          "Desktop locking fails closed until both IVirtualDesktopManager and VirtualDesktopAccessor.dll (RegisterPostMessageHook, UnregisterPostMessageHook, GetCurrentDesktopNumber, GoToDesktopNumber, MoveWindowToDesktopNumber, GetWindowDesktopNumber) are available on the live Windows runtime.",
   };
 }
 #endif
@@ -259,7 +237,7 @@ class VirtualDesktopControllerImpl final : public VirtualDesktopController {
         .component = "desktop-locking",
         .status = CapabilityStatus::kStubbed,
         .detail =
-            "Desktop locking is stubbed on non-Windows hosts; set LOCKING_GLASS_DESKTOP_SCRIPT to replay desktop-switch scenarios through the core policy.",
+            "Desktop locking is stubbed on non-Windows hosts; LOCKING_GLASS_DESKTOP_SCRIPT remains a replay seam for policy checks only and does not prove the live Windows hook path.",
     };
 #endif
   }
