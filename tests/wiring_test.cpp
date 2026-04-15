@@ -210,9 +210,22 @@ int main() {
   const auto diagnostics =
       locking_glass::core::CollectStartupDiagnostics(runtime, test_install_path);
   const auto formatted = locking_glass::core::FormatDiagnostics(diagnostics);
+  const auto prototype_monitors = std::vector<locking_glass::platform::MonitorDescriptor>{
+      MakeMonitor("\\\\.\\DISPLAY1", "DISPLAY#LEFT", "SERIAL-LEFT",
+                  "Dell U2720Q", "Display 1", 0, 0, 2560, 1440, true),
+      MakeMonitor("\\\\.\\DISPLAY2", "DISPLAY#RIGHT", "SERIAL-RIGHT",
+                  "Dell U2720Q", "Display 2", 2560, 0, 5120, 1440, false),
+  };
+  const auto windows_api_prototype =
+      runtime.windows_api_probe->BuildPrototype(prototype_monitors);
+  const auto formatted_prototype =
+      locking_glass::integration::FormatWindowsApiPrototype(
+          windows_api_prototype);
 
   failures += !Expect(diagnostics.capabilities.size() == 5U,
                       "startup diagnostics should expose exactly five capability probes");
+  failures += !Expect(windows_api_prototype.boundaries.size() == 2U,
+                      "windows API prototype should define the virtual desktop and monitor boundaries");
   failures += !Expect(formatted.find("background-session") != std::string::npos,
                       "formatted diagnostics should mention the background session capability");
   failures += !Expect(formatted.find("windows-api") != std::string::npos,
@@ -229,6 +242,27 @@ int main() {
       formatted.find("\"C:\\Program Files\\LockingGlass\\LockingGlass.exe\" --background") !=
           std::string::npos,
       "formatted diagnostics should expose the quoted Windows autostart command");
+  failures += !Expect(
+      formatted_prototype.find("virtual-desktop-control") != std::string::npos,
+      "formatted prototype should name the virtual desktop boundary");
+  failures += !Expect(
+      formatted_prototype.find("monitor-enumeration") != std::string::npos,
+      "formatted prototype should name the monitor enumeration boundary");
+  failures += !Expect(formatted_prototype.find("IVirtualDesktopManager") !=
+                          std::string::npos,
+                      "formatted prototype should document the supported virtual desktop COM API");
+  failures += !Expect(formatted_prototype.find("VirtualDesktopAccessor") !=
+                          std::string::npos,
+                      "formatted prototype should document the helper seam for missing desktop controls");
+  failures += !Expect(
+      formatted_prototype.find("EnumDisplayMonitors") != std::string::npos,
+      "formatted prototype should document Win32 monitor enumeration");
+  failures += !Expect(formatted_prototype.find("WM_DISPLAYCHANGE") !=
+                          std::string::npos,
+                      "formatted prototype should document topology refresh behavior");
+  failures += !Expect(
+      formatted_prototype.find("Observed 2 active monitors") != std::string::npos,
+      "formatted prototype should include the observed monitor count");
   failures += !Expect(diagnostics.session.storage_path == diagnostics_session_path,
                       "startup diagnostics should use the configured session storage path");
   failures += !Expect(!diagnostics.session.loaded_from_disk,

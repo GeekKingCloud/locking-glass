@@ -17,11 +17,14 @@ Initial scaffold for a Windows-resident tray utility that will keep selected mon
 make
 make test
 make smoke
+make prototype
 ```
 
 `make test` injects `build/lib/libfakeavutil.so` through `LOCKING_GLASS_FFMPEG_LIBRARY` so the FFmpeg seam is verified without requiring system FFmpeg packages.
 
 `make test` also simulates a restart by saving monitor lock state to a temp session file, reloading it through a fresh `SessionStore`, and reconciling add/remove monitor topology changes.
+
+`make prototype` runs `locking_glass --prototype-windows-apis`, which prints the Windows integration boundary contract and a simple interaction trace for virtual desktop control plus monitor enumeration.
 
 ## Autostart
 
@@ -39,8 +42,16 @@ make smoke
 ## Windows Notes
 
 - `src/platform/monitor_gateway.cpp` is where Win32 monitor enumeration is wired with `EnumDisplayMonitors` and `GetMonitorInfoW`.
-- `src/integration/windows_api_probe.cpp` is where tray and monitor entry points are probed with `user32.dll`, `shell32.dll`, and COM initialization.
+- `src/integration/windows_api_probe.cpp` is where tray and monitor entry points are probed with `user32.dll`, `shell32.dll`, COM initialization, and the base `IVirtualDesktopManager` seam.
 - `src/platform/background_session.cpp` is where background launches enter a hidden Win32 message loop.
 - `src/integration/autostart.cpp` is where current-user Run-key registration is built and installed for sign-in autostart.
 - `src/integration/ffmpeg_probe.cpp` uses runtime loading instead of static linkage so future Windows packaging can decide where FFmpeg DLLs live without changing the call site contract.
 - `src/core/session_store.cpp` is where monitor lock state is serialized, restored, and reconciled against live monitor topology.
+
+## Windows Integration Boundaries
+
+- `virtual-desktop-control` owns COM initialization, supported `IVirtualDesktopManager` access, and the isolated helper seam used for desktop switch notifications or forced window moves.
+- `virtual-desktop-control` does not choose which monitors or windows should move. Core policy decides that, then passes only eligible top-level windows into the boundary.
+- `monitor-enumeration` owns `EnumDisplayMonitors`, `GetMonitorInfoW`, and `WM_DISPLAYCHANGE` handling. It reports live monitor geometry and identity fields without persisting state or deciding lock behavior.
+- `monitor-enumeration` emits the identity envelope consumed by `SessionStore`: stable id, device path, EDID serial when available, display name, bounds, and primary flag. Ambiguity resolution stays in the core/session layer.
+- `locking_glass --prototype-windows-apis` prints both boundaries plus the expected interaction flow: startup probe, live monitor scan, topology refresh on `WM_DISPLAYCHANGE`, desktop switch notification, and post-policy window moves.

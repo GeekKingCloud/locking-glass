@@ -28,7 +28,7 @@ APP := $(BIN_DIR)/locking_glass
 TEST_BIN := $(BIN_DIR)/locking_glass_tests
 FAKE_FFMPEG_LIB := $(LIB_DIR)/libfakeavutil.$(SHARED_EXT)
 
-.PHONY: all clean test smoke
+.PHONY: all clean test smoke prototype
 
 all: $(APP) $(TEST_BIN) $(FAKE_FFMPEG_LIB)
 
@@ -53,6 +53,9 @@ test: $(TEST_BIN) $(FAKE_FFMPEG_LIB)
 
 smoke: $(APP) $(FAKE_FFMPEG_LIB)
 	LOCKING_GLASS_FFMPEG_LIBRARY=$(abspath $(FAKE_FFMPEG_LIB)) $(APP) --self-check
+
+prototype: $(APP) $(FAKE_FFMPEG_LIB)
+	LOCKING_GLASS_FFMPEG_LIBRARY=$(abspath $(FAKE_FFMPEG_LIB)) $(APP) --prototype-windows-apis
 
 clean:
 	rm -rf $(BUILD_DIR)

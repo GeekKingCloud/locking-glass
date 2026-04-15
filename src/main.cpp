@@ -9,6 +9,7 @@ namespace {
 
 struct ParsedArguments {
   bool self_check = false;
+  bool prototype_windows_apis = false;
   bool install_autostart = false;
   bool background = false;
   bool help = false;
@@ -22,6 +23,8 @@ ParsedArguments ParseArguments(int argc, char** argv, bool* valid) {
     const std::string_view argument(argv[index]);
     if (argument == "--self-check") {
       parsed.self_check = true;
+    } else if (argument == "--prototype-windows-apis") {
+      parsed.prototype_windows_apis = true;
     } else if (argument == "--install-autostart") {
       parsed.install_autostart = true;
     } else if (argument == "--background") {
@@ -44,7 +47,7 @@ std::string ResolveExecutablePath(char** argv) {
 
 void PrintUsage() {
   std::cout << "Usage: locking_glass [--self-check] [--install-autostart] "
-               "[--background]\n";
+               "[--prototype-windows-apis] [--background]\n";
 }
 
 }  // namespace
@@ -75,6 +78,13 @@ int main(int argc, char** argv) {
 
   if (arguments.self_check) {
     std::cout << locking_glass::core::FormatDiagnostics(diagnostics);
+    return 0;
+  }
+
+  if (arguments.prototype_windows_apis) {
+    const auto prototype =
+        runtime.windows_api_probe->BuildPrototype(diagnostics.monitors);
+    std::cout << locking_glass::integration::FormatWindowsApiPrototype(prototype);
     return 0;
   }
 
