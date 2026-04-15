@@ -8,6 +8,9 @@ namespace locking_glass::core {
 
 namespace {
 
+constexpr char kLockedGlyph[] = "\xF0\x9F\x94\x92";
+constexpr char kUnlockedGlyph[] = "\xF0\x9F\x94\x93";
+
 std::string BuildMonitorDisplayLabel(
     const platform::MonitorDescriptor& monitor) {
   std::ostringstream builder;
@@ -83,6 +86,107 @@ std::vector<platform::MonitorDescriptor> CollectPromptMonitors(
   return monitors;
 }
 
+std::string BuildMonitorStatusLabel(const TrayMonitorState& monitor) {
+  std::ostringstream builder;
+  builder << (monitor.locked ? "locked" : "unlocked");
+  if (monitor.requires_confirmation) {
+    builder << ", review required";
+  }
+  return builder.str();
+}
+
+std::string BuildMonitorMenuLabel(const TrayMonitorState& monitor) {
+  std::ostringstream builder;
+  builder << (monitor.locked ? kLockedGlyph : kUnlockedGlyph) << ' '
+          << BuildMonitorDisplayLabel(monitor.monitor);
+  if (monitor.requires_confirmation) {
+    builder << " [review]";
+  }
+  return builder.str();
+}
+
+std::string FormatMonitorResolution(const platform::MonitorDescriptor& monitor) {
+  const int width = monitor.bounds.right - monitor.bounds.left;
+  const int height = monitor.bounds.bottom - monitor.bounds.top;
+  return std::to_string(width) + "x" + std::to_string(height);
+}
+
+std::string BuildMonitorIdentifyLabel(const TrayMonitorState& monitor) {
+  std::ostringstream builder;
+  builder << "Hover highlights " << monitor.monitor.label << " on screen";
+  if (!monitor.monitor.display_name.empty()) {
+    builder << " (" << monitor.monitor.display_name << ")";
+  }
+  return builder.str();
+}
+
+TrayMenuHeader BuildTrayMenuHeader(const TrayMenuModel& model) {
+  TrayMenuHeader header{
+      .title = "Lock monitors from the tray",
+      .subtitle = {},
+      .instruction =
+          "Hover a monitor to reveal its on-screen label, then click to "
+          "toggle its padlock.",
+  };
+
+  std::ostringstream subtitle;
+  subtitle << model.monitors.size() << " visible";
+  if (model.monitors.size() == 1U) {
+    subtitle << " monitor";
+  } else {
+    subtitle << " monitors";
+  }
+  subtitle << " | " << model.locked_monitors << " locked";
+  if (model.review_monitors > 0U) {
+    subtitle << " | " << model.review_monitors << " need review";
+  }
+  header.subtitle = subtitle.str();
+  return header;
+}
+
+TrayIconState BuildTrayIconState(const TrayMenuModel& model) {
+  TrayIconState icon{
+      .variant = "idle",
+      .tooltip = "LockingGlass - No monitors detected",
+      .accessibility_label = "No monitors detected",
+      .review_badge = false,
+  };
+
+  if (model.monitors.empty()) {
+    return icon;
+  }
+
+  if (model.review_monitors > 0U) {
+    icon.variant = "review";
+  } else if (model.locked_monitors == 0U) {
+    icon.variant = "unlocked";
+  } else if (model.locked_monitors == model.monitors.size()) {
+    icon.variant = "locked";
+  } else {
+    icon.variant = "mixed";
+  }
+
+  std::ostringstream tooltip;
+  tooltip << "LockingGlass - " << model.locked_monitors << " of "
+          << model.monitors.size() << " locked";
+  if (model.review_monitors > 0U) {
+    tooltip << ", " << model.review_monitors << " need review";
+  }
+  icon.tooltip = tooltip.str();
+
+  std::ostringstream accessibility_label;
+  accessibility_label << model.locked_monitors << " locked, "
+                      << (model.monitors.size() - model.locked_monitors)
+                      << " unlocked";
+  if (model.review_monitors > 0U) {
+    accessibility_label << ", " << model.review_monitors
+                        << " pending review";
+    icon.review_badge = true;
+  }
+  icon.accessibility_label = accessibility_label.str();
+  return icon;
+}
+
 std::string BuildPromptMonitorList(
     const std::vector<platform::MonitorDescriptor>& monitors) {
   constexpr std::size_t kMaxListedMonitors = 3U;
@@ -110,6 +214,8 @@ TrayMenuModel BuildTrayMenuModel(const SessionRefreshResult& session,
                                  std::string trigger) {
   TrayMenuModel model{
       .trigger = std::move(trigger),
+      .header = {},
+      .icon = {},
       .monitors = {},
       .locked_monitors = 0,
       .review_monitors = 0,
@@ -120,11 +226,18 @@ TrayMenuModel BuildTrayMenuModel(const SessionRefreshResult& session,
       continue;
     }
 
-    model.monitors.push_back(TrayMonitorState{
+    TrayMonitorState tray_monitor{
         .monitor = monitor_state.monitor,
         .locked = monitor_state.locked,
         .requires_confirmation = monitor_state.requires_confirmation,
-    });
+        .status_label = {},
+        .menu_label = {},
+        .identify_label = {},
+    };
+    tray_monitor.status_label = BuildMonitorStatusLabel(tray_monitor);
+    tray_monitor.menu_label = BuildMonitorMenuLabel(tray_monitor);
+    tray_monitor.identify_label = BuildMonitorIdentifyLabel(tray_monitor);
+    model.monitors.push_back(std::move(tray_monitor));
     if (monitor_state.locked) {
       ++model.locked_monitors;
     }
@@ -133,7 +246,30 @@ TrayMenuModel BuildTrayMenuModel(const SessionRefreshResult& session,
     }
   }
 
+  model.header = BuildTrayMenuHeader(model);
+  model.icon = BuildTrayIconState(model);
   return model;
+}
+
+TrayIdentifyOverlay BuildTrayIdentifyOverlay(const TrayMonitorState& monitor) {
+  TrayIdentifyOverlay overlay{
+      .visible = true,
+      .monitor = monitor.monitor,
+      .title = monitor.monitor.label,
+      .message = {},
+  };
+
+  std::ostringstream message;
+  if (!monitor.monitor.display_name.empty()) {
+    message << monitor.monitor.display_name << " | ";
+  }
+  message << FormatMonitorResolution(monitor.monitor) << " | "
+          << monitor.status_label;
+  if (monitor.monitor.is_primary) {
+    message << " | primary";
+  }
+  overlay.message = message.str();
+  return overlay;
 }
 
 MonitorReviewPrompt BuildMonitorReviewPrompt(
@@ -169,12 +305,10 @@ MonitorReviewPrompt BuildMonitorReviewPrompt(
 }
 
 std::string BuildTrayMonitorLabel(const TrayMonitorState& monitor) {
-  std::ostringstream builder;
-  builder << BuildMonitorDisplayLabel(monitor.monitor);
-  if (monitor.requires_confirmation) {
-    builder << " [review]";
+  if (!monitor.menu_label.empty()) {
+    return monitor.menu_label;
   }
-  return builder.str();
+  return BuildMonitorMenuLabel(monitor);
 }
 
 std::string FormatTrayMenuModel(const TrayMenuModel& model) {
@@ -182,6 +316,15 @@ std::string FormatTrayMenuModel(const TrayMenuModel& model) {
   builder << "LockingGlass tray menu\n";
   builder << "Trigger:\n";
   builder << "  - source: " << model.trigger << '\n';
+  builder << "Header:\n";
+  builder << "  - title: " << model.header.title << '\n';
+  builder << "  - subtitle: " << model.header.subtitle << '\n';
+  builder << "  - instruction: " << model.header.instruction << '\n';
+  builder << "Icon:\n";
+  builder << "  - variant: " << model.icon.variant << '\n';
+  builder << "  - tooltip: " << model.icon.tooltip << '\n';
+  builder << "  - review badge: "
+          << (model.icon.review_badge ? "yes" : "no") << '\n';
   builder << "Summary:\n";
   builder << "  - visible monitors: " << model.monitors.size() << '\n';
   builder << "  - locked monitors: " << model.locked_monitors << '\n';
@@ -194,7 +337,8 @@ std::string FormatTrayMenuModel(const TrayMenuModel& model) {
 
   for (const auto& monitor : model.monitors) {
     builder << "  - " << BuildTrayMonitorLabel(monitor) << " : "
-            << (monitor.locked ? "locked" : "unlocked") << '\n';
+            << monitor.status_label << '\n';
+    builder << "    " << monitor.identify_label << '\n';
   }
   return builder.str();
 }
