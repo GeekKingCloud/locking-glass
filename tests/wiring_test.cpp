@@ -1,5 +1,6 @@
 #include "locking_glass/core/runtime.h"
 #include "locking_glass/core/session_store.h"
+#include "locking_glass/core/tray_ui.h"
 #include "locking_glass/integration/autostart.h"
 
 #include <chrono>
@@ -89,6 +90,17 @@ const locking_glass::core::SessionMonitorState* FindMonitorState(
         monitor_state.monitor.bounds.bottom == monitor.bounds.bottom &&
         monitor_state.monitor.is_primary == monitor.is_primary) {
       return &monitor_state;
+    }
+  }
+  return nullptr;
+}
+
+const locking_glass::platform::BackgroundSessionMenuItem* FindBackgroundMonitor(
+    const locking_glass::platform::BackgroundSessionEvent& event,
+    const std::string& label) {
+  for (const auto& monitor : event.monitors) {
+    if (monitor.monitor.label == label) {
+      return &monitor;
     }
   }
   return nullptr;
@@ -300,6 +312,128 @@ bool RunMonitorWatchChecks() {
   return failures == 0;
 }
 
+bool RunTraySessionChecks() {
+  int failures = 0;
+
+  const auto temp_directory = MakeTempDirectory();
+  const auto session_path = temp_directory / "tray-session-state.tsv";
+  const auto script_path = temp_directory / "tray-script.tsv";
+  WriteTextFile(
+      script_path,
+      "event\tstartup\n"
+      "monitor\tstable-left\tDISPLAY#LEFT\tSERIAL-LEFT\tDell U2720Q\tDisplay 1\t0\t0\t2560\t1440\t1\n"
+      "monitor\tstable-right\tDISPLAY#RIGHT\tSERIAL-RIGHT\tDell U2720Q\tDisplay 2\t2560\t0\t5120\t1440\t0\n"
+      "action\tclick\n"
+      "action\ttoggle\tDisplay 1\n"
+      "action\tclick\n"
+      "event\tWM_DISPLAYCHANGE\n"
+      "monitor\tstable-left\tDISPLAY#LEFT\tSERIAL-LEFT\tDell U2720Q\tDisplay 1\t0\t0\t2560\t1440\t1\n"
+      "monitor\tstable-new\tDISPLAY#NEW\tSERIAL-NEW\tLG UltraFine\tDisplay 3\t-1920\t0\t0\t1080\t0\n"
+      "action\tclick\n"
+      "action\texit\n");
+
+  SetEnvironmentVariable("LOCKING_GLASS_SESSION_PATH", session_path.string());
+  SetEnvironmentVariable("LOCKING_GLASS_TRAY_SCRIPT", script_path.string());
+
+  auto runtime = locking_glass::core::BuildRuntime();
+  std::vector<locking_glass::platform::BackgroundSessionEvent> events;
+  const int run_result = runtime.background_session->Run(
+      [&](const locking_glass::platform::BackgroundSessionEvent& event) {
+        events.push_back(event);
+      });
+
+  failures += !Expect(run_result == 0,
+                      "scripted tray session should exit successfully");
+  failures += !Expect(events.size() == 7U,
+                      "scripted tray session should emit startup, click, toggle, refresh, and exit events");
+  if (events.size() == 7U) {
+    failures += !Expect(events[0].trigger == "startup",
+                        "tray session should publish the startup snapshot first");
+    failures += !Expect(!events[0].tray_menu_visible,
+                        "startup snapshot should not mark the tray menu as visible");
+    failures += !Expect(events[1].trigger == "tray-click",
+                        "first tray interaction should open the monitor menu");
+    failures += !Expect(events[1].tray_menu_visible,
+                        "tray click should mark the monitor UI as visible");
+    failures += !Expect(events[2].trigger == "tray-toggle",
+                        "monitor toggle should publish an updated tray snapshot");
+    failures += !Expect(!events[2].tray_menu_visible,
+                        "toggle result should reflect the post-selection closed menu");
+    failures += !Expect(events[3].trigger == "tray-click",
+                        "second click should reopen the tray UI");
+    failures += !Expect(events[4].trigger == "WM_DISPLAYCHANGE",
+                        "topology updates should republish tray state");
+    failures += !Expect(events[5].trigger == "tray-click",
+                        "topology changes should still leave the tray UI accessible");
+    failures += !Expect(events[6].trigger == "exit",
+                        "scripted tray exit should publish a terminal event");
+
+    const auto* opened_left = FindBackgroundMonitor(events[1], "Display 1");
+    failures += !Expect(opened_left != nullptr,
+                        "tray click should list the first monitor");
+    if (opened_left != nullptr) {
+      failures += !Expect(!opened_left->locked,
+                          "first tray click should show Display 1 as initially unlocked");
+      failures += !Expect(opened_left->requires_confirmation,
+                          "new monitors should still be marked for review in the tray UI");
+    }
+
+    const auto* toggled_left = FindBackgroundMonitor(events[2], "Display 1");
+    failures += !Expect(toggled_left != nullptr,
+                        "toggle update should still include Display 1");
+    if (toggled_left != nullptr) {
+      failures += !Expect(toggled_left->locked,
+                          "tray toggle should persist the new lock state");
+      failures += !Expect(!toggled_left->requires_confirmation,
+                          "toggling a monitor should confirm it and clear review state");
+    }
+
+    const auto* reopened_left = FindBackgroundMonitor(events[3], "Display 1");
+    failures += !Expect(reopened_left != nullptr,
+                        "reopened tray menu should still include Display 1");
+    if (reopened_left != nullptr) {
+      failures += !Expect(reopened_left->locked,
+                          "reopened tray UI should reflect the saved locked state");
+    }
+
+    const auto* added_monitor = FindBackgroundMonitor(events[4], "Display 3");
+    failures += !Expect(added_monitor != nullptr,
+                        "topology refresh should expose new monitors in the tray snapshot");
+    if (added_monitor != nullptr) {
+      failures += !Expect(!added_monitor->locked,
+                          "new tray monitors should default to unlocked");
+      failures += !Expect(added_monitor->requires_confirmation,
+                          "new tray monitors should require review");
+    }
+  }
+
+  const auto left_monitor =
+      MakeMonitor("stable-left", "DISPLAY#LEFT", "SERIAL-LEFT", "Dell U2720Q",
+                  "Display 1", 0, 0, 2560, 1440, true);
+  const auto new_monitor =
+      MakeMonitor("stable-new", "DISPLAY#NEW", "SERIAL-NEW", "LG UltraFine",
+                  "Display 3", -1920, 0, 0, 1080, false);
+  auto preview =
+      locking_glass::core::SessionStore(session_path).Preview({left_monitor, new_monitor});
+  failures += !Expect(preview.restored_locked_monitors == 1U,
+                      "tray toggles should persist lock state into the session store");
+  const auto formatted =
+      locking_glass::core::FormatTrayMenuModel(
+          locking_glass::core::BuildTrayMenuModel(preview, "verification"));
+  failures += !Expect(formatted.find("LockingGlass tray menu") != std::string::npos,
+                      "formatted tray menu output should include the tray heading");
+  failures += !Expect(formatted.find("Display 1 - Dell U2720Q") !=
+                          std::string::npos,
+                      "formatted tray menu output should include monitor labels");
+  failures += !Expect(formatted.find("Display 3 - LG UltraFine [review]") !=
+                          std::string::npos,
+                      "formatted tray menu output should flag review-required monitors");
+
+  SetEnvironmentVariable("LOCKING_GLASS_TRAY_SCRIPT", "");
+  std::filesystem::remove_all(temp_directory);
+  return failures == 0;
+}
+
 }  // namespace
 
 int main() {
@@ -465,6 +599,8 @@ int main() {
                       "session store should persist locks across restart and topology changes");
   failures += !Expect(RunMonitorWatchChecks(),
                       "monitor watch should reconcile scripted topology changes");
+  failures += !Expect(RunTraySessionChecks(),
+                      "background session should expose tray clicks and lock toggles");
 
   std::filesystem::remove_all(temp_directory);
 

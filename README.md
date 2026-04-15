@@ -24,6 +24,8 @@ make prototype
 
 `make test` also simulates a restart by saving monitor lock state to a temp session file, reloading it through a fresh `SessionStore`, and reconciling add/remove monitor topology changes.
 
+`make test` now also replays a scripted tray session: it opens the tray UI, toggles a monitor lock, refreshes the monitor list after a scripted topology change, and verifies that the saved session and tray-visible lock state stay in sync.
+
 `build/bin/locking_glass --watch-monitors` prints monitor refresh events. On Windows it waits for live `WM_DISPLAYCHANGE` updates; on non-Windows hosts set `LOCKING_GLASS_MONITOR_SCRIPT` to a scripted event file so the same reporting path can be verified locally.
 
 `make prototype` runs `locking_glass --prototype-windows-apis`, which prints the Windows integration boundary contract and a simple interaction trace for virtual desktop control plus monitor enumeration.
@@ -32,7 +34,16 @@ make prototype
 
 - `locking_glass --install-autostart` writes a `LockingGlass` entry under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 - The Run entry launches the binary with `--background`, which is wired to a hidden Win32 message loop on Windows so the process can stay resident after sign-in without foreground UI.
+- On Windows, `--background` now registers a `Shell_NotifyIconW` tray icon, refreshes monitor state on `WM_DISPLAYCHANGE`, and opens a popup monitor-toggle menu when the tray icon is clicked.
 - `locking_glass --self-check` prints the exact autostart command that the Windows registration path will install, which keeps the contract host-verifiable from Linux workers.
+
+## Tray Session
+
+- The Win32 background session keeps a hidden tool window alive, adds a tray icon with the default application icon, and uses a popup menu as the monitor-lock UI.
+- Clicking the tray icon rebuilds the current monitor list from `MonitorGateway`, reconciles it through `SessionStore`, and shows each active monitor as a checked or unchecked menu item.
+- Selecting a monitor entry toggles its persisted lock state immediately and clears any outstanding review requirement for that monitor.
+- The tray tooltip summarizes the current lock count and pending-review count so topology changes are visible even before the menu is opened.
+- On non-Windows hosts, set `LOCKING_GLASS_TRAY_SCRIPT` to a scripted event file if you want to replay tray clicks and monitor toggles through the same `--background` code path for local verification.
 
 ## Session State
 
@@ -53,10 +64,11 @@ make prototype
 - `src/platform/monitor_gateway.cpp` is where Win32 monitor enumeration is wired with `EnumDisplayMonitors`, `GetMonitorInfoW`, `QueryDisplayConfig`, and `DisplayConfigGetDeviceInfo`.
 - `src/platform/monitor_watcher.cpp` is where foreground monitor-watch sessions react to startup and `WM_DISPLAYCHANGE` refresh events.
 - `src/integration/windows_api_probe.cpp` is where tray and monitor entry points are probed with `user32.dll`, `shell32.dll`, COM initialization, and the base `IVirtualDesktopManager` seam.
-- `src/platform/background_session.cpp` is where background launches enter a hidden Win32 message loop.
+- `src/platform/background_session.cpp` is where background launches enter the hidden Win32 tray session, handle tray clicks, and expose the scripted non-Windows verification path.
 - `src/integration/autostart.cpp` is where current-user Run-key registration is built and installed for sign-in autostart.
 - `src/integration/ffmpeg_probe.cpp` uses runtime loading instead of static linkage so future Windows packaging can decide where FFmpeg DLLs live without changing the call site contract.
 - `src/core/session_store.cpp` is where monitor lock state is serialized, restored, and reconciled against live monitor topology.
+- `src/core/tray_ui.cpp` is where active monitor session state is projected into the tray menu model and where tray-driven lock toggles are persisted.
 
 ## Windows Integration Boundaries
 
