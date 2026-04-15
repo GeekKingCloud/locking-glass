@@ -26,7 +26,7 @@ make prototype
 
 `make test` also manually edits the stored session data to verify that malformed monitor rows and unsupported format versions are rejected, backed up to a `.invalid` file, and rebuilt from live monitor state without crashing the app.
 
-`make test` now also replays a scripted tray session: it opens the tray UI, hovers monitors to trigger the identify overlay, locks a monitor, simulates that monitor disconnecting, simulates it reconnecting beside a brand-new monitor, and verifies that the saved lock is restored while only the new hardware emits a review prompt.
+`make test` now also replays a scripted tray session: it opens the tray UI, hovers monitors to trigger the identify overlay, clears that hover while the menu stays open, locks a monitor, simulates that monitor disconnecting, simulates it reconnecting beside a brand-new monitor, and verifies that the saved lock is restored while only the new hardware emits a review prompt.
 
 `build/bin/locking_glass --watch-monitors` prints monitor refresh events. On Windows it waits for live `WM_DISPLAYCHANGE` updates; on non-Windows hosts set `LOCKING_GLASS_MONITOR_SCRIPT` to a scripted event file so the same reporting path can be verified locally. When a refresh introduces brand-new monitors, the report now includes the review prompt text that the tray flow will surface.
 
@@ -43,11 +43,11 @@ make prototype
 
 - The Win32 background session keeps a hidden tool window alive, renders a custom tray icon that changes between unlocked, mixed, locked, and review-needed states, and uses the same model to drive the menu header and tooltip copy.
 - Clicking the tray icon rebuilds the current monitor list from `MonitorGateway`, reconciles it through `SessionStore`, and shows a structured popup menu with a title, live summary line, hover guidance, and one padlock-prefixed entry per active monitor.
-- Hovering a monitor entry shows a small topmost overlay label on that physical display so the current menu selection can be matched to the real monitor before toggling.
+- Hovering a monitor entry now paints a full-monitor topmost highlight overlay with a centered identify card, making it clear which physical screen is being referenced before toggling.
 - Selecting a monitor entry toggles its persisted lock state immediately and clears any outstanding review requirement for that monitor.
 - Startup, `WM_DISPLAYCHANGE`, and manual tray refreshes now emit a lightweight review prompt when brand-new monitors appear, while disconnected monitors stay silent and simply retain their saved lock state until they return.
 - The tray tooltip summarizes the current lock count and pending-review count so topology changes are visible even before the menu is opened, and the scripted event model exposes the same icon/menu state for host verification.
-- On non-Windows hosts, set `LOCKING_GLASS_TRAY_SCRIPT` to a scripted event file if you want to replay tray clicks, hover-identify steps, disconnect/reconnect cycles, and new-monitor review prompts through the same `--background` code path for local verification.
+- On non-Windows hosts, set `LOCKING_GLASS_TRAY_SCRIPT` to a scripted event file if you want to replay tray clicks, hover-identify steps, explicit `hover-clear` transitions, disconnect/reconnect cycles, and new-monitor review prompts through the same `--background` code path for local verification.
 
 ## Session State
 

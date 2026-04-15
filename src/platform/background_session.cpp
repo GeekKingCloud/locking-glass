@@ -95,8 +95,10 @@ constexpr wchar_t kBackgroundWindowClassName[] = L"LockingGlassBackgroundWindow"
 constexpr wchar_t kIdentifyOverlayWindowClassName[] =
     L"LockingGlassIdentifyOverlayWindow";
 constexpr int kTrayIconPixels = 16;
-constexpr int kIdentifyOverlayWidth = 320;
-constexpr int kIdentifyOverlayHeight = 96;
+constexpr int kIdentifyOverlayInset = 18;
+constexpr int kIdentifyOverlayBorder = 6;
+constexpr int kIdentifyOverlayCardWidth = 360;
+constexpr int kIdentifyOverlayCardHeight = 108;
 
 std::wstring Widen(const std::string& value) {
   if (value.empty()) {
@@ -346,27 +348,68 @@ LRESULT CALLBACK IdentifyOverlayWindowProc(HWND window, UINT message,
       HDC dc = BeginPaint(window, &paint);
       RECT bounds{};
       GetClientRect(window, &bounds);
+      const int width = bounds.right - bounds.left;
+      const int height = bounds.bottom - bounds.top;
 
-      HBRUSH background = CreateSolidBrush(RGB(18, 25, 36));
+      HBRUSH background = CreateSolidBrush(RGB(8, 12, 18));
       FillRect(dc, &bounds, background);
       DeleteObject(background);
 
-      HPEN border = CreatePen(PS_SOLID, 2, RGB(47, 143, 255));
+      HPEN border = CreatePen(PS_SOLID, kIdentifyOverlayBorder,
+                              RGB(47, 143, 255));
       HGDIOBJ previous_pen = SelectObject(dc, border);
       HGDIOBJ previous_brush = SelectObject(dc, GetStockObject(NULL_BRUSH));
-      RoundRect(dc, bounds.left + 1, bounds.top + 1, bounds.right - 1,
-                bounds.bottom - 1, 16, 16);
+      Rectangle(dc, bounds.left + (kIdentifyOverlayBorder / 2),
+                bounds.top + (kIdentifyOverlayBorder / 2),
+                bounds.right - (kIdentifyOverlayBorder / 2),
+                bounds.bottom - (kIdentifyOverlayBorder / 2));
       SelectObject(dc, previous_brush);
       SelectObject(dc, previous_pen);
       DeleteObject(border);
+
+      RECT inner_bounds = bounds;
+      InflateRect(&inner_bounds, -kIdentifyOverlayInset, -kIdentifyOverlayInset);
+      HPEN inner_border = CreatePen(PS_SOLID, 2, RGB(130, 190, 255));
+      previous_pen = SelectObject(dc, inner_border);
+      previous_brush = SelectObject(dc, GetStockObject(NULL_BRUSH));
+      Rectangle(dc, inner_bounds.left, inner_bounds.top, inner_bounds.right,
+                inner_bounds.bottom);
+      SelectObject(dc, previous_brush);
+      SelectObject(dc, previous_pen);
+      DeleteObject(inner_border);
+
+      RECT card_rect{};
+      const int card_width =
+          min(kIdentifyOverlayCardWidth,
+              max(220, width - (kIdentifyOverlayInset * 4)));
+      const int card_height =
+          min(kIdentifyOverlayCardHeight,
+              max(86, height - (kIdentifyOverlayInset * 4)));
+      card_rect.left = bounds.left + max(0, (width - card_width) / 2);
+      card_rect.top = bounds.top + max(0, (height - card_height) / 2);
+      card_rect.right = card_rect.left + card_width;
+      card_rect.bottom = card_rect.top + card_height;
+
+      HBRUSH card_fill = CreateSolidBrush(RGB(18, 25, 36));
+      HPEN card_border = CreatePen(PS_SOLID, 2, RGB(130, 190, 255));
+      previous_pen = SelectObject(dc, card_border);
+      previous_brush = SelectObject(dc, card_fill);
+      RoundRect(dc, card_rect.left, card_rect.top, card_rect.right,
+                card_rect.bottom, 20, 20);
+      SelectObject(dc, previous_brush);
+      SelectObject(dc, previous_pen);
+      DeleteObject(card_border);
+      DeleteObject(card_fill);
 
       SetBkMode(dc, TRANSPARENT);
       SetTextColor(dc, RGB(244, 247, 250));
       HFONT font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
       HGDIOBJ previous_font = SelectObject(dc, font);
 
-      RECT title_rect{16, 16, bounds.right - 16, 44};
-      RECT message_rect{16, 46, bounds.right - 16, bounds.bottom - 16};
+      RECT title_rect{card_rect.left + 18, card_rect.top + 16,
+                      card_rect.right - 18, card_rect.top + 44};
+      RECT message_rect{card_rect.left + 18, card_rect.top + 46,
+                        card_rect.right - 18, card_rect.bottom - 18};
       if (state != nullptr) {
         DrawTextW(dc, state->identify_overlay_title.c_str(), -1, &title_rect,
                   DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
@@ -396,24 +439,29 @@ bool EnsureIdentifyOverlayWindow(HINSTANCE instance,
       WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE |
           WS_EX_TRANSPARENT,
       kIdentifyOverlayWindowClassName, L"LockingGlass Identify Overlay", WS_POPUP,
-      0, 0, kIdentifyOverlayWidth, kIdentifyOverlayHeight, nullptr, nullptr,
+      0, 0, 1, 1, nullptr, nullptr,
       instance, state);
   if (state->identify_overlay_window == nullptr) {
     return false;
   }
 
-  SetLayeredWindowAttributes(state->identify_overlay_window, 0, 235, LWA_ALPHA);
+  SetLayeredWindowAttributes(state->identify_overlay_window, 0, 118, LWA_ALPHA);
   return true;
 }
 
-void HideIdentifyOverlay(BackgroundSessionState* state) {
+bool HideIdentifyOverlay(BackgroundSessionState* state) {
   if (state == nullptr) {
-    return;
+    return false;
   }
+  const bool was_visible =
+      !state->highlighted_monitor_key.empty() &&
+      state->identify_overlay_window != nullptr &&
+      IsWindowVisible(state->identify_overlay_window);
   state->highlighted_monitor_key.clear();
   if (state->identify_overlay_window != nullptr) {
     ShowWindow(state->identify_overlay_window, SW_HIDE);
   }
+  return was_visible;
 }
 
 void ShowIdentifyOverlay(BackgroundSessionState* state,
@@ -428,19 +476,27 @@ void ShowIdentifyOverlay(BackgroundSessionState* state,
   state->highlighted_monitor_key = BuildMonitorIdentityKey(overlay.monitor);
 
   const int monitor_width =
-      overlay.monitor.bounds.right - overlay.monitor.bounds.left;
+      max(1, overlay.monitor.bounds.right - overlay.monitor.bounds.left);
   const int monitor_height =
-      overlay.monitor.bounds.bottom - overlay.monitor.bounds.top;
-  const int x = overlay.monitor.bounds.left +
-                (monitor_width - kIdentifyOverlayWidth) / 2;
-  const int y = overlay.monitor.bounds.top +
-                (monitor_height - kIdentifyOverlayHeight) / 2;
+      max(1, overlay.monitor.bounds.bottom - overlay.monitor.bounds.top);
+  const int x = overlay.monitor.bounds.left;
+  const int y = overlay.monitor.bounds.top;
 
   SetWindowPos(state->identify_overlay_window, HWND_TOPMOST, x, y,
-               kIdentifyOverlayWidth, kIdentifyOverlayHeight,
+               monitor_width, monitor_height,
                SWP_NOACTIVATE | SWP_SHOWWINDOW);
   InvalidateRect(state->identify_overlay_window, nullptr, TRUE);
   UpdateWindow(state->identify_overlay_window);
+}
+
+void PublishHoverClearEvent(BackgroundSessionState* state) {
+  if (state == nullptr) {
+    return;
+  }
+
+  auto hover_model = state->active_menu_model;
+  hover_model.trigger = "tray-hover-clear";
+  PublishEvent(state->observer, hover_model, true);
 }
 
 void ShowReviewNotification(HWND window, BackgroundSessionState* state,
@@ -634,7 +690,9 @@ void UpdateHoverOverlay(BackgroundSessionState* state, const UINT command,
   }
 
   if (flags == 0xFFFF && menu_handle == 0) {
-    HideIdentifyOverlay(state);
+    if (HideIdentifyOverlay(state)) {
+      PublishHoverClearEvent(state);
+    }
     return;
   }
 
@@ -642,7 +700,9 @@ void UpdateHoverOverlay(BackgroundSessionState* state, const UINT command,
       command < kMenuCommandMonitorBase ||
       command >=
           kMenuCommandMonitorBase + state->active_menu_model.monitors.size()) {
-    HideIdentifyOverlay(state);
+    if (HideIdentifyOverlay(state)) {
+      PublishHoverClearEvent(state);
+    }
     return;
   }
 
@@ -831,6 +891,7 @@ enum class TrayScriptStepType {
   kEvent,
   kClick,
   kHover,
+  kHoverClear,
   kToggle,
   kRefresh,
   kExit,
@@ -911,6 +972,15 @@ std::vector<TrayScriptStep> LoadTrayScript(const std::string& script_path) {
             .trigger = {},
             .monitors = {},
             .target = fields[2],
+        });
+        continue;
+      }
+      if (fields[1] == "hover-clear" && fields.size() == 2U) {
+        steps.push_back(TrayScriptStep{
+            .type = TrayScriptStepType::kHoverClear,
+            .trigger = {},
+            .monitors = {},
+            .target = {},
         });
         continue;
       }
@@ -1023,6 +1093,14 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
         }
         break;
       }
+      case TrayScriptStepType::kHoverClear:
+        if (!has_session || !tray_menu_visible) {
+          return 1;
+        }
+        PublishEvent(observer,
+                     core::BuildTrayMenuModel(session, "tray-hover-clear"),
+                     true);
+        break;
       case TrayScriptStepType::kToggle: {
         if (!has_session) {
           session = session_store.Restore(current_monitors);
@@ -1067,14 +1145,14 @@ class BackgroundSessionImpl final : public BackgroundSession {
         .component = "background-session",
         .status = locking_glass::integration::CapabilityStatus::kReady,
         .detail =
-            "Background startup enters a hidden Win32 message loop, renders a status-aware Shell_NotifyIcon tray icon, shows hover identify overlays for monitors, and exposes per-monitor padlock toggles through a structured popup menu.",
+            "Background startup enters a hidden Win32 message loop, renders a status-aware Shell_NotifyIcon tray icon, shows full-monitor hover highlight overlays for monitors, and exposes per-monitor padlock toggles through a structured popup menu.",
     };
 #else
     return locking_glass::integration::CapabilityReport{
         .component = "background-session",
         .status = locking_glass::integration::CapabilityStatus::kStubbed,
         .detail =
-            "Tray session is stubbed on non-Windows hosts; LOCKING_GLASS_TRAY_SCRIPT can still replay tray clicks, hover-identify overlays, monitor toggles, and new-monitor review prompts for local verification.",
+            "Tray session is stubbed on non-Windows hosts; LOCKING_GLASS_TRAY_SCRIPT can still replay tray clicks, hover-identify and hover-clear overlay events, monitor toggles, and new-monitor review prompts for local verification.",
     };
 #endif
   }

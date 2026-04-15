@@ -438,6 +438,7 @@ bool RunTraySessionChecks() {
       "monitor\tstable-right\tDISPLAY#RIGHT\tSERIAL-RIGHT\tDell U2720Q\tDisplay 2\t2560\t0\t5120\t1440\t0\n"
       "action\tclick\n"
       "action\thover\tDisplay 2\n"
+      "action\thover-clear\n"
       "action\ttoggle\tDisplay 2\n"
       "event\tWM_DISPLAYCHANGE\n"
       "monitor\tstable-left\tDISPLAY#LEFT\tSERIAL-LEFT\tDell U2720Q\tDisplay 1\t0\t0\t2560\t1440\t1\n"
@@ -463,9 +464,9 @@ bool RunTraySessionChecks() {
 
   failures += !Expect(run_result == 0,
                       "scripted tray session should exit successfully");
-  failures += !Expect(events.size() == 11U,
-                      "scripted tray session should emit startup, hover, disconnect, reconnect, and exit tray events");
-  if (events.size() == 11U) {
+  failures += !Expect(events.size() == 12U,
+                      "scripted tray session should emit startup, hover, hover-clear, disconnect, reconnect, and exit tray events");
+  if (events.size() == 12U) {
     failures += !Expect(events[0].trigger == "startup",
                         "tray session should publish the startup snapshot first");
     failures += !Expect(!events[0].tray_menu_visible,
@@ -486,23 +487,29 @@ bool RunTraySessionChecks() {
                         "hovering a monitor should publish an identify event");
     failures += !Expect(events[2].tray_menu_visible,
                         "hover events should keep the tray menu visible");
-    failures += !Expect(events[3].trigger == "tray-toggle",
+    failures += !Expect(events[3].trigger == "tray-hover-clear",
+                        "moving away from a hovered monitor should clear the identify overlay");
+    failures += !Expect(events[3].tray_menu_visible,
+                        "clearing the hover overlay should keep the tray menu visible");
+    failures += !Expect(!events[3].highlight.visible,
+                        "hover-clear events should hide the identify overlay");
+    failures += !Expect(events[4].trigger == "tray-toggle",
                         "monitor toggle should publish an updated tray snapshot");
-    failures += !Expect(!events[3].tray_menu_visible,
+    failures += !Expect(!events[4].tray_menu_visible,
                         "toggle result should reflect the post-selection closed menu");
-    failures += !Expect(events[4].trigger == "WM_DISPLAYCHANGE",
+    failures += !Expect(events[5].trigger == "WM_DISPLAYCHANGE",
                         "disconnect event should republish tray state");
-    failures += !Expect(events[5].trigger == "tray-click",
+    failures += !Expect(events[6].trigger == "tray-click",
                         "tray UI should still open after a monitor disconnects");
-    failures += !Expect(events[6].trigger == "tray-hover",
+    failures += !Expect(events[7].trigger == "tray-hover",
                         "disconnect state should still support hover identification");
-    failures += !Expect(events[7].trigger == "WM_DISPLAYCHANGE",
+    failures += !Expect(events[8].trigger == "WM_DISPLAYCHANGE",
                         "reconnect event should republish tray state");
-    failures += !Expect(events[8].trigger == "tray-click",
+    failures += !Expect(events[9].trigger == "tray-click",
                         "topology changes should still leave the tray UI accessible");
-    failures += !Expect(events[9].trigger == "tray-hover",
+    failures += !Expect(events[10].trigger == "tray-hover",
                         "newly added monitors should also support identify hover");
-    failures += !Expect(events[10].trigger == "exit",
+    failures += !Expect(events[11].trigger == "exit",
                         "scripted tray exit should publish a terminal event");
 
     const auto* opened_left = FindBackgroundMonitor(events[1], "Display 1");
@@ -527,13 +534,16 @@ bool RunTraySessionChecks() {
                         "tray icon tooltip should summarize the visible lock state");
     failures += !Expect(HighlightTargets(events[2], "Display 2"),
                         "hovering Display 2 should target it in the highlight overlay");
+    failures += !Expect(events[2].highlight.monitor.bounds.left == 2560 &&
+                            events[2].highlight.monitor.bounds.right == 5120,
+                        "hover overlay should map Display 2 back to the correct physical monitor bounds");
     failures += !Expect(events[2].highlight.title == "Display 2",
                         "hover overlay should use the monitor label as the title");
     failures += !Expect(events[2].highlight.message.find("Dell U2720Q") !=
                             std::string::npos,
                         "hover overlay should include the display name");
 
-    const auto* toggled_right = FindBackgroundMonitor(events[3], "Display 2");
+    const auto* toggled_right = FindBackgroundMonitor(events[4], "Display 2");
     failures += !Expect(toggled_right != nullptr,
                         "toggle update should still include Display 2");
     if (toggled_right != nullptr) {
@@ -545,22 +555,22 @@ bool RunTraySessionChecks() {
                           "tray toggle should expose a locked status label");
     }
 
-    const auto* disconnected_right = FindBackgroundMonitor(events[4], "Display 2");
+    const auto* disconnected_right = FindBackgroundMonitor(events[5], "Display 2");
     failures += !Expect(disconnected_right == nullptr,
                         "disconnect refresh should remove the missing monitor from the active tray model");
-    failures += !Expect(!events[4].prompt.visible,
+    failures += !Expect(!events[5].prompt.visible,
                         "disconnect refresh should not prompt when no new monitor was added");
 
-    const auto* reopened_left = FindBackgroundMonitor(events[5], "Display 1");
+    const auto* reopened_left = FindBackgroundMonitor(events[6], "Display 1");
     failures += !Expect(reopened_left != nullptr,
                         "tray menu should still include Display 1 after a disconnect");
-    failures += !Expect(HighlightTargets(events[6], "Display 1"),
+    failures += !Expect(HighlightTargets(events[7], "Display 1"),
                         "hovering Display 1 after a disconnect should still identify it");
-    failures += !Expect(events[6].highlight.message.find("unlocked, review required") !=
+    failures += !Expect(events[7].highlight.message.find("unlocked, review required") !=
                             std::string::npos,
                         "hover overlays should describe both lock and review state");
 
-    const auto* restored_right = FindBackgroundMonitor(events[7], "Display 2");
+    const auto* restored_right = FindBackgroundMonitor(events[8], "Display 2");
     failures += !Expect(restored_right != nullptr,
                         "reconnect refresh should restore the returning monitor");
     if (restored_right != nullptr) {
@@ -568,17 +578,17 @@ bool RunTraySessionChecks() {
                           "reconnected monitor should recover its saved lock state");
     }
 
-    failures += !Expect(events[7].prompt.visible,
+    failures += !Expect(events[8].prompt.visible,
                         "adding a new monitor should emit a review prompt");
-    failures += !Expect(events[7].prompt.title == "Review new monitor lock state",
+    failures += !Expect(events[8].prompt.title == "Review new monitor lock state",
                         "single-monitor additions should use the singular review prompt");
     failures += !Expect(
-        events[7].prompt.message.find("Display 3 - LG UltraFine") != std::string::npos,
+        events[8].prompt.message.find("Display 3 - LG UltraFine") != std::string::npos,
         "review prompt should name the newly added monitor");
-    failures += !Expect(FindPromptMonitor(events[7].prompt, "Display 3") != nullptr,
+    failures += !Expect(FindPromptMonitor(events[8].prompt, "Display 3") != nullptr,
                         "review prompt should track the new monitor explicitly");
 
-    const auto* added_monitor = FindBackgroundMonitor(events[7], "Display 3");
+    const auto* added_monitor = FindBackgroundMonitor(events[8], "Display 3");
     failures += !Expect(added_monitor != nullptr,
                         "topology refresh should expose new monitors in the tray snapshot");
     if (added_monitor != nullptr) {
@@ -591,18 +601,18 @@ bool RunTraySessionChecks() {
                           "tray menu items should describe the identify-hover behavior");
     }
 
-    const auto* reopened_right = FindBackgroundMonitor(events[8], "Display 2");
+    const auto* reopened_right = FindBackgroundMonitor(events[9], "Display 2");
     failures += !Expect(reopened_right != nullptr,
                         "reopened tray UI should still include the reconnected monitor");
     if (reopened_right != nullptr) {
       failures += !Expect(reopened_right->locked,
                           "reopened tray UI should reflect the restored locked state");
     }
-    failures += !Expect(!events[8].prompt.visible,
+    failures += !Expect(!events[9].prompt.visible,
                         "reopening the tray UI should not re-emit the one-time add-monitor prompt");
-    failures += !Expect(HighlightTargets(events[9], "Display 3"),
+    failures += !Expect(HighlightTargets(events[10], "Display 3"),
                         "hovering the new monitor should target it in the highlight overlay");
-    failures += !Expect(events[9].highlight.message.find("LG UltraFine") !=
+    failures += !Expect(events[10].highlight.message.find("LG UltraFine") !=
                             std::string::npos,
                         "highlight overlays should identify the new monitor hardware");
   }
