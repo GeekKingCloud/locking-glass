@@ -2,3 +2,5 @@
 .atoshell/archive.json
 build/
 *.dSYM/
+tools/windows_live_desktop_probe/bin/
+tools/windows_live_desktop_probe/obj/
