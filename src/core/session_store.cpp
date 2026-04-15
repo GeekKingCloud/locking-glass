@@ -2,12 +2,19 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cerrno>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <utility>
+
+#if defined(_WIN32)
+#define NOMINMAX
+#include <windows.h>
+#endif
 
 namespace locking_glass::core {
 
@@ -114,6 +121,20 @@ void AppendEscapedField(std::ostringstream* builder, const std::string& field) {
 
 std::string BoolField(const bool value) { return value ? "1" : "0"; }
 
+std::filesystem::path InvalidBackupPath(const std::filesystem::path& storage_path) {
+  return storage_path.string() + ".invalid";
+}
+
+void AppendStorageDetail(std::string* detail, const std::string& suffix) {
+  if (detail == nullptr || suffix.empty()) {
+    return;
+  }
+  if (!detail->empty()) {
+    *detail += ' ';
+  }
+  *detail += suffix;
+}
+
 bool ParseBool(const std::string& value, bool* parsed) {
   if (value == "1") {
     *parsed = true;
@@ -193,6 +214,14 @@ SessionRefreshResult ReconcileSnapshot(
       .snapshot = std::move(snapshot),
       .storage_path = storage_path,
       .loaded_from_disk = loaded_from_disk,
+      .restored_locked_monitors = 0,
+      .disconnected_monitors = 0,
+      .new_monitors = 0,
+      .review_monitors = 0,
+      .storage_issue = SessionStorageIssue::kNone,
+      .recovered_invalid_data = false,
+      .invalid_storage_backup_path = {},
+      .storage_detail = {},
   };
 
   for (const auto& live_monitor : live_monitors) {
@@ -257,6 +286,18 @@ SessionRefreshResult ReconcileSnapshot(
   return result;
 }
 
+bool ReplaceFile(const std::filesystem::path& source,
+                 const std::filesystem::path& destination) {
+#if defined(_WIN32)
+  return ::MoveFileExW(source.c_str(), destination.c_str(),
+                       MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+  std::error_code rename_error;
+  std::filesystem::rename(source, destination, rename_error);
+  return !rename_error;
+#endif
+}
+
 std::string SerializeMonitor(const SessionMonitorState& monitor_state) {
   std::ostringstream line;
   AppendEscapedField(&line, std::string(kMonitorTag));
@@ -313,6 +354,23 @@ bool ParseMonitor(const std::vector<std::string>& fields,
 
 }  // namespace
 
+const char* ToString(const SessionStorageIssue issue) {
+  switch (issue) {
+    case SessionStorageIssue::kNone:
+      return "none";
+    case SessionStorageIssue::kUnreadable:
+      return "unreadable";
+    case SessionStorageIssue::kMissingVersion:
+      return "missing-version";
+    case SessionStorageIssue::kUnsupportedVersion:
+      return "unsupported-version";
+    case SessionStorageIssue::kMalformedRecord:
+      return "malformed-record";
+  }
+
+  return "unknown";
+}
+
 std::filesystem::path ResolveDefaultSessionPath() {
   if (const char* override_path = std::getenv("LOCKING_GLASS_SESSION_PATH");
       override_path != nullptr && override_path[0] != '\0') {
@@ -363,42 +421,109 @@ locking_glass::integration::CapabilityReport SessionStore::Probe() const {
   };
 }
 
-SessionSnapshot SessionStore::Load() const {
-  SessionSnapshot snapshot;
-  std::ifstream input(storage_path_);
-  if (!input.is_open()) {
-    return snapshot;
+SessionLoadResult SessionStore::Load() const {
+  SessionLoadResult result;
+
+  std::error_code exists_error;
+  const bool storage_exists = std::filesystem::exists(storage_path_, exists_error);
+  if (exists_error) {
+    result.storage_issue = SessionStorageIssue::kUnreadable;
+    result.storage_detail =
+        "Failed to inspect session file: " + exists_error.message();
+    return result;
   }
+
+  result.loaded_from_disk = storage_exists;
+  if (!storage_exists) {
+    result.storage_detail = "No saved session file found.";
+    return result;
+  }
+
+  std::ifstream input(storage_path_, std::ios::binary);
+  if (!input.is_open()) {
+    result.storage_issue = SessionStorageIssue::kUnreadable;
+    result.storage_detail =
+        std::string("Failed to open existing session file: ") +
+        std::strerror(errno);
+    return result;
+  }
+
+  auto reject = [&](const SessionStorageIssue issue,
+                    std::string detail) -> SessionLoadResult {
+    result.snapshot.monitors.clear();
+    result.storage_issue = issue;
+    result.storage_detail = std::move(detail);
+    return result;
+  };
 
   std::string line;
   bool version_ok = false;
+  bool saw_content = false;
+  std::size_t line_number = 0;
   while (std::getline(input, line)) {
+    ++line_number;
     if (line.empty()) {
       continue;
     }
 
+    saw_content = true;
     const std::vector<std::string> fields = SplitFields(line);
     if (fields.empty()) {
       continue;
     }
 
     if (fields[0] == kVersionTag) {
-      version_ok = fields.size() == 2U && fields[1] == kFormatVersion;
+      if (version_ok) {
+        return reject(SessionStorageIssue::kMalformedRecord,
+                      "Line " + std::to_string(line_number) +
+                          ": duplicate session format header.");
+      }
+      if (fields.size() != 2U) {
+        return reject(SessionStorageIssue::kMalformedRecord,
+                      "Line " + std::to_string(line_number) +
+                          ": malformed session format header.");
+      }
+      if (fields[1] != kFormatVersion) {
+        return reject(SessionStorageIssue::kUnsupportedVersion,
+                      "Line " + std::to_string(line_number) +
+                          ": unsupported session format version \"" + fields[1] +
+                          "\".");
+      }
+      version_ok = true;
       continue;
     }
 
     if (!version_ok) {
-      snapshot.monitors.clear();
-      return snapshot;
+      return reject(SessionStorageIssue::kMissingVersion,
+                    "Line " + std::to_string(line_number) +
+                        ": session file is missing the required version header.");
     }
 
     SessionMonitorState monitor_state;
-    if (ParseMonitor(fields, &monitor_state)) {
-      snapshot.monitors.push_back(std::move(monitor_state));
+    if (!ParseMonitor(fields, &monitor_state)) {
+      return reject(SessionStorageIssue::kMalformedRecord,
+                    "Line " + std::to_string(line_number) +
+                        ": malformed monitor record.");
     }
+
+    result.snapshot.monitors.push_back(std::move(monitor_state));
   }
 
-  return snapshot;
+  if (!input.eof()) {
+    return reject(SessionStorageIssue::kUnreadable,
+                  "Failed while reading the session file.");
+  }
+
+  if (!version_ok) {
+    return reject(SessionStorageIssue::kMissingVersion,
+                  saw_content
+                      ? "Session file ended before a valid version header was found."
+                      : "Session file is empty and missing the required version header.");
+  }
+
+  result.storage_detail =
+      "Loaded session file format version " + std::string(kFormatVersion) + ".";
+  return result;
 }
 
 bool SessionStore::Save(const SessionSnapshot& snapshot) const {
@@ -423,16 +548,14 @@ bool SessionStore::Save(const SessionSnapshot& snapshot) const {
   }
   output.flush();
   if (!output.good()) {
+    output.close();
+    std::error_code cleanup_error;
+    std::filesystem::remove(temporary_path, cleanup_error);
     return false;
   }
   output.close();
 
-  std::error_code remove_error;
-  std::filesystem::remove(storage_path_, remove_error);
-
-  std::error_code rename_error;
-  std::filesystem::rename(temporary_path, storage_path_, rename_error);
-  if (rename_error) {
+  if (!ReplaceFile(temporary_path, storage_path_)) {
     std::error_code cleanup_error;
     std::filesystem::remove(temporary_path, cleanup_error);
     return false;
@@ -443,15 +566,52 @@ bool SessionStore::Save(const SessionSnapshot& snapshot) const {
 
 SessionRefreshResult SessionStore::Preview(
     const std::vector<platform::MonitorDescriptor>& live_monitors) const {
-  const bool loaded_from_disk = std::filesystem::exists(storage_path_);
-  return ReconcileSnapshot(Load(), live_monitors, storage_path_,
-                           loaded_from_disk);
+  auto load_result = Load();
+  auto result = ReconcileSnapshot(std::move(load_result.snapshot), live_monitors,
+                                  storage_path_, load_result.loaded_from_disk);
+  result.storage_issue = load_result.storage_issue;
+  result.storage_detail = std::move(load_result.storage_detail);
+  return result;
 }
 
 SessionRefreshResult SessionStore::Restore(
     const std::vector<platform::MonitorDescriptor>& live_monitors) const {
-  auto result = Preview(live_monitors);
-  Save(result.snapshot);
+  auto load_result = Load();
+  auto result = ReconcileSnapshot(std::move(load_result.snapshot), live_monitors,
+                                  storage_path_, load_result.loaded_from_disk);
+  result.storage_issue = load_result.storage_issue;
+  result.storage_detail = std::move(load_result.storage_detail);
+
+  if (result.storage_issue != SessionStorageIssue::kNone && result.loaded_from_disk) {
+    const auto backup_path = InvalidBackupPath(storage_path_);
+    std::error_code copy_error;
+    std::filesystem::copy_file(storage_path_, backup_path,
+                               std::filesystem::copy_options::overwrite_existing,
+                               copy_error);
+    if (copy_error) {
+      AppendStorageDetail(
+          &result.storage_detail,
+          "Failed to preserve the rejected session file at " +
+              backup_path.string() + ": " + copy_error.message() + '.');
+    } else {
+      result.invalid_storage_backup_path = backup_path;
+    }
+  }
+
+  const bool save_ok = Save(result.snapshot);
+  if (!save_ok) {
+    AppendStorageDetail(&result.storage_detail,
+                        "Failed to write the reconciled session file.");
+  } else if (result.storage_issue != SessionStorageIssue::kNone) {
+    result.recovered_invalid_data = true;
+    AppendStorageDetail(&result.storage_detail,
+                        "Rebuilt the active session file from live monitor state.");
+    if (!result.invalid_storage_backup_path.empty()) {
+      AppendStorageDetail(&result.storage_detail,
+                          "Rejected data was copied to " +
+                              result.invalid_storage_backup_path.string() + '.');
+    }
+  }
   return result;
 }
 

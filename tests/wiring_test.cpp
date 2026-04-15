@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -52,6 +53,13 @@ std::filesystem::path MakeTempDirectory() {
 void WriteTextFile(const std::filesystem::path& path, const std::string& contents) {
   std::ofstream output(path, std::ios::binary | std::ios::trunc);
   output << contents;
+}
+
+std::string ReadTextFile(const std::filesystem::path& path) {
+  std::ifstream input(path, std::ios::binary);
+  std::ostringstream contents;
+  contents << input.rdbuf();
+  return contents.str();
 }
 
 locking_glass::platform::MonitorDescriptor MakeMonitor(
@@ -208,6 +216,88 @@ bool RunSessionStoreChecks() {
     failures += !Expect(reconnected_right->locked,
                         "reconnected monitor should recover its saved lock state");
   }
+
+  const auto invalid_backup_path =
+      std::filesystem::path(session_path.string() + ".invalid");
+  const std::string malformed_contents =
+      "version\t1\n"
+      "monitor\tbad-stable\tbad-device\tbad-serial\tDell U2720Q\tDisplay 9\t0\t0\t1920\t1080\t1\tnot-a-bool\t0\n";
+  WriteTextFile(session_path, malformed_contents);
+
+  auto malformed_restore =
+      locking_glass::core::SessionStore(session_path).Restore({left_monitor});
+  failures += !Expect(malformed_restore.loaded_from_disk,
+                      "malformed session recovery should detect the edited session file");
+  failures += !Expect(
+      malformed_restore.storage_issue ==
+          locking_glass::core::SessionStorageIssue::kMalformedRecord,
+      "malformed session recovery should classify invalid monitor rows");
+  failures += !Expect(malformed_restore.recovered_invalid_data,
+                      "malformed session recovery should rebuild the active session file");
+  failures += !Expect(
+      malformed_restore.invalid_storage_backup_path == invalid_backup_path,
+      "malformed session recovery should preserve the rejected file at a deterministic path");
+  failures += !Expect(std::filesystem::exists(invalid_backup_path),
+                      "malformed session recovery should emit the rejected-data backup");
+  failures += !Expect(ReadTextFile(invalid_backup_path) == malformed_contents,
+                      "rejected malformed session data should remain inspectable");
+  failures += !Expect(malformed_restore.restored_locked_monitors == 0U,
+                      "malformed session recovery should not trust rejected lock data");
+  failures += !Expect(malformed_restore.new_monitors == 1U,
+                      "malformed session recovery should rebuild from live monitors");
+  failures += !Expect(malformed_restore.review_monitors == 1U,
+                      "malformed session recovery should require user review");
+  failures += !Expect(
+      malformed_restore.storage_detail.find("malformed monitor record") !=
+          std::string::npos,
+      "malformed session recovery should explain why the stored data was rejected");
+
+  const auto* malformed_left =
+      FindMonitorState(malformed_restore.snapshot, left_monitor);
+  failures += !Expect(malformed_left != nullptr,
+                      "malformed session recovery should still return the live monitor");
+  if (malformed_left != nullptr) {
+    failures += !Expect(!malformed_left->locked,
+                        "malformed session recovery should reset the live monitor to unlocked");
+    failures += !Expect(malformed_left->requires_confirmation,
+                        "malformed session recovery should require the user to reconfirm");
+  }
+
+  const std::string unsupported_contents = "version\t99\n";
+  WriteTextFile(session_path, unsupported_contents);
+
+  auto unsupported_preview =
+      locking_glass::core::SessionStore(session_path).Preview({left_monitor});
+  failures += !Expect(
+      unsupported_preview.storage_issue ==
+          locking_glass::core::SessionStorageIssue::kUnsupportedVersion,
+      "preview should flag unsupported session format versions");
+  failures += !Expect(!unsupported_preview.recovered_invalid_data,
+                      "preview should inspect unsupported data without mutating it");
+  failures += !Expect(ReadTextFile(session_path) == unsupported_contents,
+                      "preview should leave unsupported session files untouched");
+
+  auto unsupported_restore =
+      locking_glass::core::SessionStore(session_path).Restore({left_monitor});
+  failures += !Expect(
+      unsupported_restore.storage_issue ==
+          locking_glass::core::SessionStorageIssue::kUnsupportedVersion,
+      "restore should classify unsupported session versions");
+  failures += !Expect(unsupported_restore.recovered_invalid_data,
+                      "restore should rebuild the session after an unsupported format");
+  failures += !Expect(
+      unsupported_restore.invalid_storage_backup_path == invalid_backup_path,
+      "unsupported session recovery should reuse the deterministic rejected-data path");
+  failures += !Expect(ReadTextFile(invalid_backup_path) == unsupported_contents,
+                      "unsupported session recovery should preserve the rejected file contents");
+
+  const auto repaired_preview =
+      locking_glass::core::SessionStore(session_path).Preview({left_monitor});
+  failures += !Expect(
+      repaired_preview.storage_issue == locking_glass::core::SessionStorageIssue::kNone,
+      "rebuilt session storage should deserialize cleanly after recovery");
+  failures += !Expect(repaired_preview.review_monitors == 1U,
+                      "rebuilt session storage should keep the live monitor pending review");
 
   std::filesystem::remove_all(temp_directory);
   return failures == 0;
@@ -510,6 +600,16 @@ int main() {
                       "startup diagnostics should use the configured session storage path");
   failures += !Expect(!diagnostics.session.loaded_from_disk,
                       "startup diagnostics should report an empty temp session on first load");
+  failures += !Expect(
+      diagnostics.session.storage_issue ==
+          locking_glass::core::SessionStorageIssue::kNone,
+      "startup diagnostics should not report a storage issue for a missing session file");
+  failures += !Expect(
+      diagnostics.session.storage_detail.find("No saved session file found") !=
+          std::string::npos,
+      "startup diagnostics should explain when the session store is bootstrapping");
+  failures += !Expect(formatted.find("storage issue: none") != std::string::npos,
+                      "formatted diagnostics should show the persistence issue state");
 
   const auto* background_session =
       FindCapability(diagnostics, "background-session");

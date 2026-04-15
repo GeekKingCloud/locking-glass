@@ -153,12 +153,19 @@ std::string FormatDiagnostics(const StartupDiagnostics& diagnostics) {
   builder << "  - storage: " << diagnostics.session.storage_path.string() << '\n';
   builder << "  - loaded from disk: "
           << (diagnostics.session.loaded_from_disk ? "yes" : "no") << '\n';
+  builder << "  - storage issue: "
+          << ToString(diagnostics.session.storage_issue) << '\n';
+  builder << "  - storage detail: " << diagnostics.session.storage_detail << '\n';
   builder << "  - restored locks: "
           << diagnostics.session.restored_locked_monitors << '\n';
   builder << "  - disconnected monitors: "
           << diagnostics.session.disconnected_monitors << '\n';
   builder << "  - review required: " << diagnostics.session.review_monitors
           << '\n';
+  if (!diagnostics.session.invalid_storage_backup_path.empty()) {
+    builder << "  - rejected backup: "
+            << diagnostics.session.invalid_storage_backup_path.string() << '\n';
+  }
 
   builder << "Monitors:\n";
   if (diagnostics.monitors.empty()) {
@@ -182,12 +189,22 @@ std::string FormatMonitorRefreshReport(const MonitorRefreshReport& report) {
 
   builder << "Session:\n";
   builder << "  - active monitors: " << report.monitors.size() << '\n';
+  builder << "  - storage issue: " << ToString(report.session.storage_issue)
+          << '\n';
+  builder << "  - storage detail: " << report.session.storage_detail << '\n';
   builder << "  - restored locks: "
           << report.session.restored_locked_monitors << '\n';
   builder << "  - disconnected monitors: "
           << report.session.disconnected_monitors << '\n';
   builder << "  - new monitors: " << report.session.new_monitors << '\n';
   builder << "  - review required: " << report.session.review_monitors << '\n';
+  if (report.session.recovered_invalid_data) {
+    builder << "  - invalid data recovered: yes\n";
+  }
+  if (!report.session.invalid_storage_backup_path.empty()) {
+    builder << "  - rejected backup: "
+            << report.session.invalid_storage_backup_path.string() << '\n';
+  }
 
   builder << "Monitors:\n";
   if (report.monitors.empty()) {

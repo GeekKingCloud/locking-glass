@@ -24,6 +24,8 @@ make prototype
 
 `make test` also simulates a restart by saving monitor lock state to a temp session file, reloading it through a fresh `SessionStore`, and reconciling add/remove monitor topology changes.
 
+`make test` also manually edits the stored session data to verify that malformed monitor rows and unsupported format versions are rejected, backed up to a `.invalid` file, and rebuilt from live monitor state without crashing the app.
+
 `make test` now also replays a scripted tray session: it opens the tray UI, toggles a monitor lock, refreshes the monitor list after a scripted topology change, and verifies that the saved session and tray-visible lock state stay in sync.
 
 `build/bin/locking_glass --watch-monitors` prints monitor refresh events. On Windows it waits for live `WM_DISPLAYCHANGE` updates; on non-Windows hosts set `LOCKING_GLASS_MONITOR_SCRIPT` to a scripted event file so the same reporting path can be verified locally.
@@ -50,7 +52,9 @@ make prototype
 - Monitor lock state is stored by `core::SessionStore` in a local session file.
 - The default path is `%LOCALAPPDATA%\\LockingGlass\\monitor-session-state.tsv` on Windows and `$XDG_STATE_HOME/locking-glass/monitor-session-state.tsv` or `$HOME/.local/state/locking-glass/monitor-session-state.tsv` on non-Windows hosts.
 - Set `LOCKING_GLASS_SESSION_PATH` to override the storage file during tests or local inspection.
+- The on-disk format is versioned: the first row is `version<TAB>1`, followed by one `monitor` row per saved monitor record.
 - The model keeps disconnected monitors in the saved session, restores their lock state when they return, and adds brand-new monitors as unlocked records that still require user confirmation.
+- If the app finds malformed or unsupported session data on startup, it treats the file as rejected input, copies the original contents to `<session-path>.invalid`, and writes a clean snapshot based on the currently visible monitors.
 
 ## Monitor Enumeration
 
