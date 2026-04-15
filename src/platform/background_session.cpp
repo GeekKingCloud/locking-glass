@@ -21,12 +21,25 @@ namespace locking_glass::platform {
 
 namespace {
 
+BackgroundSessionPrompt BuildBackgroundPrompt(
+    const core::MonitorReviewPrompt& prompt) {
+  return BackgroundSessionPrompt{
+      .visible = prompt.visible,
+      .title = prompt.title,
+      .message = prompt.message,
+      .monitors = prompt.monitors,
+  };
+}
+
 BackgroundSessionEvent BuildSessionEvent(const core::TrayMenuModel& model,
-                                         const bool tray_menu_visible) {
+                                         const bool tray_menu_visible,
+                                         const core::MonitorReviewPrompt& prompt =
+                                             core::MonitorReviewPrompt{}) {
   BackgroundSessionEvent event{
       .trigger = model.trigger,
       .tray_menu_visible = tray_menu_visible,
       .monitors = {},
+      .prompt = BuildBackgroundPrompt(prompt),
   };
   for (const auto& monitor : model.monitors) {
     event.monitors.push_back(BackgroundSessionMenuItem{
@@ -40,9 +53,11 @@ BackgroundSessionEvent BuildSessionEvent(const core::TrayMenuModel& model,
 
 void PublishEvent(const BackgroundSessionObserver& observer,
                   const core::TrayMenuModel& model,
-                  const bool tray_menu_visible) {
+                  const bool tray_menu_visible,
+                  const core::MonitorReviewPrompt& prompt =
+                      core::MonitorReviewPrompt{}) {
   if (observer) {
-    observer(BuildSessionEvent(model, tray_menu_visible));
+    observer(BuildSessionEvent(model, tray_menu_visible, prompt));
   }
 }
 
@@ -106,24 +121,53 @@ void UpdateTrayTooltip(HWND window, BackgroundSessionState* state,
   Shell_NotifyIconW(NIM_MODIFY, &state->tray_icon);
 }
 
+void ShowReviewNotification(HWND window, BackgroundSessionState* state,
+                            const core::MonitorReviewPrompt& prompt) {
+  if (window == nullptr || state == nullptr || !prompt.visible) {
+    return;
+  }
+
+  auto notification = state->tray_icon;
+  notification.cbSize = sizeof(notification);
+  notification.hWnd = window;
+  notification.uID = 1;
+  notification.uFlags = NIF_INFO;
+  notification.dwInfoFlags = NIIF_INFO;
+  notification.uTimeout = 10000;
+
+  const auto title = Widen(prompt.title);
+  const auto message = Widen(prompt.message);
+  wcsncpy_s(notification.szInfoTitle, title.c_str(), _TRUNCATE);
+  wcsncpy_s(notification.szInfo, message.c_str(), _TRUNCATE);
+  Shell_NotifyIconW(NIM_MODIFY, &notification);
+}
+
 core::TrayMenuModel RefreshTrayModel(HWND window, BackgroundSessionState* state,
                                      std::string trigger,
-                                     const bool tray_menu_visible) {
+                                     const bool tray_menu_visible,
+                                     const bool emit_prompt) {
   state->session =
       state->session_store.Restore(state->monitor_gateway->Enumerate());
   const auto model =
       core::BuildTrayMenuModel(state->session, std::move(trigger));
+  const auto prompt = emit_prompt
+                          ? core::BuildMonitorReviewPrompt(state->session)
+                          : core::MonitorReviewPrompt{};
   UpdateTrayTooltip(window, state, model);
-  PublishEvent(state->observer, model, tray_menu_visible);
+  PublishEvent(state->observer, model, tray_menu_visible, prompt);
+  ShowReviewNotification(window, state, prompt);
   return model;
 }
 
 void RepublishCurrentModel(HWND window, BackgroundSessionState* state,
                            std::string trigger,
-                           const bool tray_menu_visible) {
+                           const bool tray_menu_visible,
+                           const core::MonitorReviewPrompt& prompt =
+                               core::MonitorReviewPrompt{}) {
   auto model = core::BuildTrayMenuModel(state->session, std::move(trigger));
   UpdateTrayTooltip(window, state, model);
-  PublishEvent(state->observer, model, tray_menu_visible);
+  PublishEvent(state->observer, model, tray_menu_visible, prompt);
+  ShowReviewNotification(window, state, prompt);
 }
 
 bool AddTrayIcon(HWND window, BackgroundSessionState* state) {
@@ -174,7 +218,7 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state) {
     return;
   }
 
-  const auto model = RefreshTrayModel(window, state, "tray-click", true);
+  const auto model = RefreshTrayModel(window, state, "tray-click", true, false);
   HMENU menu = CreatePopupMenu();
   if (menu == nullptr) {
     return;
@@ -221,7 +265,7 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state) {
   }
 
   if (command == kMenuCommandRefresh) {
-    RefreshTrayModel(window, state, "tray-refresh", false);
+    RefreshTrayModel(window, state, "tray-refresh", false, true);
     return;
   }
 
@@ -251,7 +295,7 @@ LRESULT CALLBACK BackgroundWindowProc(HWND window, UINT message, WPARAM w_param,
   switch (message) {
     case WM_DISPLAYCHANGE:
       if (state != nullptr) {
-        RefreshTrayModel(window, state, "WM_DISPLAYCHANGE", false);
+        RefreshTrayModel(window, state, "WM_DISPLAYCHANGE", false, true);
       }
       return 0;
     case kTrayIconMessage:
@@ -315,7 +359,8 @@ int RunWindowsTraySession(const BackgroundSessionObserver& observer) {
     ShowWindow(console, SW_HIDE);
   }
 
-  RepublishCurrentModel(window, state.get(), "startup", false);
+  RepublishCurrentModel(window, state.get(), "startup", false,
+                        core::BuildMonitorReviewPrompt(state->session));
 
   MSG message{};
   while (GetMessageW(&message, nullptr, 0, 0) > 0) {
@@ -510,7 +555,8 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
         session = session_store.Restore(current_monitors);
         has_session = true;
         PublishEvent(observer,
-                     core::BuildTrayMenuModel(session, step.trigger), false);
+                     core::BuildTrayMenuModel(session, step.trigger), false,
+                     core::BuildMonitorReviewPrompt(session));
         break;
       case TrayScriptStepType::kClick:
         if (!has_session) {
@@ -540,7 +586,8 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
         session = session_store.Restore(current_monitors);
         has_session = true;
         PublishEvent(observer,
-                     core::BuildTrayMenuModel(session, "tray-refresh"), false);
+                     core::BuildTrayMenuModel(session, "tray-refresh"), false,
+                     core::BuildMonitorReviewPrompt(session));
         break;
       case TrayScriptStepType::kExit:
         PublishEvent(observer,
@@ -560,14 +607,14 @@ class BackgroundSessionImpl final : public BackgroundSession {
         .component = "background-session",
         .status = locking_glass::integration::CapabilityStatus::kReady,
         .detail =
-            "Background startup enters a hidden Win32 message loop, registers a Shell_NotifyIcon tray entry, and exposes monitor lock toggles through a popup menu.",
+            "Background startup enters a hidden Win32 message loop, registers a Shell_NotifyIcon tray entry, shows review prompts for newly added monitors, and exposes monitor lock toggles through a popup menu.",
     };
 #else
     return locking_glass::integration::CapabilityReport{
         .component = "background-session",
         .status = locking_glass::integration::CapabilityStatus::kStubbed,
         .detail =
-            "Tray session is stubbed on non-Windows hosts; LOCKING_GLASS_TRAY_SCRIPT can still replay tray clicks and monitor toggles for local verification.",
+            "Tray session is stubbed on non-Windows hosts; LOCKING_GLASS_TRAY_SCRIPT can still replay tray clicks, monitor toggles, and new-monitor review prompts for local verification.",
     };
 #endif
   }

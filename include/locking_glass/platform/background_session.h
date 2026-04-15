@@ -16,10 +16,18 @@ struct BackgroundSessionMenuItem {
   bool requires_confirmation = false;
 };
 
+struct BackgroundSessionPrompt {
+  bool visible = false;
+  std::string title;
+  std::string message;
+  std::vector<MonitorDescriptor> monitors;
+};
+
 struct BackgroundSessionEvent {
   std::string trigger;
   bool tray_menu_visible = false;
   std::vector<BackgroundSessionMenuItem> monitors;
+  BackgroundSessionPrompt prompt;
 };
 
 using BackgroundSessionObserver =

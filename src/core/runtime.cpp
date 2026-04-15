@@ -5,6 +5,8 @@
 #include <utility>
 #include <vector>
 
+#include "locking_glass/core/tray_ui.h"
+
 namespace locking_glass::core {
 
 namespace {
@@ -204,6 +206,13 @@ std::string FormatMonitorRefreshReport(const MonitorRefreshReport& report) {
   if (!report.session.invalid_storage_backup_path.empty()) {
     builder << "  - rejected backup: "
             << report.session.invalid_storage_backup_path.string() << '\n';
+  }
+
+  const auto prompt = BuildMonitorReviewPrompt(report.session);
+  if (prompt.visible) {
+    builder << "Prompt:\n";
+    builder << "  - title: " << prompt.title << '\n';
+    builder << "  - message: " << prompt.message << '\n';
   }
 
   builder << "Monitors:\n";

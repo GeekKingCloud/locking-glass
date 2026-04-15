@@ -26,9 +26,9 @@ make prototype
 
 `make test` also manually edits the stored session data to verify that malformed monitor rows and unsupported format versions are rejected, backed up to a `.invalid` file, and rebuilt from live monitor state without crashing the app.
 
-`make test` now also replays a scripted tray session: it opens the tray UI, toggles a monitor lock, refreshes the monitor list after a scripted topology change, and verifies that the saved session and tray-visible lock state stay in sync.
+`make test` now also replays a scripted tray session: it opens the tray UI, locks a monitor, simulates that monitor disconnecting, simulates it reconnecting beside a brand-new monitor, and verifies that the saved lock is restored while only the new hardware emits a review prompt.
 
-`build/bin/locking_glass --watch-monitors` prints monitor refresh events. On Windows it waits for live `WM_DISPLAYCHANGE` updates; on non-Windows hosts set `LOCKING_GLASS_MONITOR_SCRIPT` to a scripted event file so the same reporting path can be verified locally.
+`build/bin/locking_glass --watch-monitors` prints monitor refresh events. On Windows it waits for live `WM_DISPLAYCHANGE` updates; on non-Windows hosts set `LOCKING_GLASS_MONITOR_SCRIPT` to a scripted event file so the same reporting path can be verified locally. When a refresh introduces brand-new monitors, the report now includes the review prompt text that the tray flow will surface.
 
 `make prototype` runs `locking_glass --prototype-windows-apis`, which prints the Windows integration boundary contract and a simple interaction trace for virtual desktop control plus monitor enumeration.
 
@@ -44,8 +44,9 @@ make prototype
 - The Win32 background session keeps a hidden tool window alive, adds a tray icon with the default application icon, and uses a popup menu as the monitor-lock UI.
 - Clicking the tray icon rebuilds the current monitor list from `MonitorGateway`, reconciles it through `SessionStore`, and shows each active monitor as a checked or unchecked menu item.
 - Selecting a monitor entry toggles its persisted lock state immediately and clears any outstanding review requirement for that monitor.
+- Startup, `WM_DISPLAYCHANGE`, and manual tray refreshes now emit a lightweight review prompt when brand-new monitors appear, while disconnected monitors stay silent and simply retain their saved lock state until they return.
 - The tray tooltip summarizes the current lock count and pending-review count so topology changes are visible even before the menu is opened.
-- On non-Windows hosts, set `LOCKING_GLASS_TRAY_SCRIPT` to a scripted event file if you want to replay tray clicks and monitor toggles through the same `--background` code path for local verification.
+- On non-Windows hosts, set `LOCKING_GLASS_TRAY_SCRIPT` to a scripted event file if you want to replay tray clicks, disconnect/reconnect cycles, and new-monitor review prompts through the same `--background` code path for local verification.
 
 ## Session State
 
@@ -54,6 +55,7 @@ make prototype
 - Set `LOCKING_GLASS_SESSION_PATH` to override the storage file during tests or local inspection.
 - The on-disk format is versioned: the first row is `version<TAB>1`, followed by one `monitor` row per saved monitor record.
 - The model keeps disconnected monitors in the saved session, restores their lock state when they return, and adds brand-new monitors as unlocked records that still require user confirmation.
+- Review prompts are tied to the refresh that first discovers a brand-new monitor, so reopening the tray menu later does not keep re-emitting the same add-monitor notification.
 - If the app finds malformed or unsupported session data on startup, it treats the file as rejected input, copies the original contents to `<session-path>.invalid`, and writes a clean snapshot based on the currently visible monitors.
 
 ## Monitor Enumeration

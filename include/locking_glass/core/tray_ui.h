@@ -20,8 +20,17 @@ struct TrayMenuModel {
   std::size_t review_monitors = 0;
 };
 
+struct MonitorReviewPrompt {
+  bool visible = false;
+  std::string title;
+  std::string message;
+  std::vector<platform::MonitorDescriptor> monitors;
+};
+
 TrayMenuModel BuildTrayMenuModel(const SessionRefreshResult& session,
                                  std::string trigger);
+MonitorReviewPrompt BuildMonitorReviewPrompt(
+    const SessionRefreshResult& session);
 std::string BuildTrayMonitorLabel(const TrayMonitorState& monitor);
 std::string FormatTrayMenuModel(const TrayMenuModel& model);
 bool ToggleMonitorLock(const SessionStore& store, SessionSnapshot* snapshot,

@@ -114,6 +114,17 @@ const locking_glass::platform::BackgroundSessionMenuItem* FindBackgroundMonitor(
   return nullptr;
 }
 
+const locking_glass::platform::MonitorDescriptor* FindPromptMonitor(
+    const locking_glass::platform::BackgroundSessionPrompt& prompt,
+    const std::string& label) {
+  for (const auto& monitor : prompt.monitors) {
+    if (monitor.label == label) {
+      return &monitor;
+    }
+  }
+  return nullptr;
+}
+
 bool RunSessionStoreChecks() {
   int failures = 0;
 
@@ -384,6 +395,12 @@ bool RunMonitorWatchChecks() {
         formatted.find("new monitors: 1") != std::string::npos,
         "formatted monitor refresh output should summarize added monitors");
     failures += !Expect(
+        formatted.find("Prompt:") != std::string::npos,
+        "formatted monitor refresh output should include a prompt section for new monitors");
+    failures += !Expect(
+        formatted.find("Review new monitor lock state") != std::string::npos,
+        "formatted monitor refresh output should explain that the user needs to review the new monitor");
+    failures += !Expect(
         formatted.find("Display 3") != std::string::npos,
         "formatted monitor refresh output should include the added monitor label");
   }
@@ -414,10 +431,13 @@ bool RunTraySessionChecks() {
       "monitor\tstable-left\tDISPLAY#LEFT\tSERIAL-LEFT\tDell U2720Q\tDisplay 1\t0\t0\t2560\t1440\t1\n"
       "monitor\tstable-right\tDISPLAY#RIGHT\tSERIAL-RIGHT\tDell U2720Q\tDisplay 2\t2560\t0\t5120\t1440\t0\n"
       "action\tclick\n"
-      "action\ttoggle\tDisplay 1\n"
+      "action\ttoggle\tDisplay 2\n"
+      "event\tWM_DISPLAYCHANGE\n"
+      "monitor\tstable-left\tDISPLAY#LEFT\tSERIAL-LEFT\tDell U2720Q\tDisplay 1\t0\t0\t2560\t1440\t1\n"
       "action\tclick\n"
       "event\tWM_DISPLAYCHANGE\n"
       "monitor\tstable-left\tDISPLAY#LEFT\tSERIAL-LEFT\tDell U2720Q\tDisplay 1\t0\t0\t2560\t1440\t1\n"
+      "monitor\tstable-right\tDISPLAY#RIGHT\tSERIAL-RIGHT\tDell U2720Q\tDisplay 2\t2560\t0\t5120\t1440\t0\n"
       "monitor\tstable-new\tDISPLAY#NEW\tSERIAL-NEW\tLG UltraFine\tDisplay 3\t-1920\t0\t0\t1080\t0\n"
       "action\tclick\n"
       "action\texit\n");
@@ -434,13 +454,15 @@ bool RunTraySessionChecks() {
 
   failures += !Expect(run_result == 0,
                       "scripted tray session should exit successfully");
-  failures += !Expect(events.size() == 7U,
-                      "scripted tray session should emit startup, click, toggle, refresh, and exit events");
-  if (events.size() == 7U) {
+  failures += !Expect(events.size() == 8U,
+                      "scripted tray session should emit startup, disconnect, reconnect, prompt, and exit events");
+  if (events.size() == 8U) {
     failures += !Expect(events[0].trigger == "startup",
                         "tray session should publish the startup snapshot first");
     failures += !Expect(!events[0].tray_menu_visible,
                         "startup snapshot should not mark the tray menu as visible");
+    failures += !Expect(events[0].prompt.visible,
+                        "startup snapshot should prompt for first-run monitor review");
     failures += !Expect(events[1].trigger == "tray-click",
                         "first tray interaction should open the monitor menu");
     failures += !Expect(events[1].tray_menu_visible,
@@ -449,13 +471,15 @@ bool RunTraySessionChecks() {
                         "monitor toggle should publish an updated tray snapshot");
     failures += !Expect(!events[2].tray_menu_visible,
                         "toggle result should reflect the post-selection closed menu");
-    failures += !Expect(events[3].trigger == "tray-click",
-                        "second click should reopen the tray UI");
-    failures += !Expect(events[4].trigger == "WM_DISPLAYCHANGE",
-                        "topology updates should republish tray state");
-    failures += !Expect(events[5].trigger == "tray-click",
+    failures += !Expect(events[3].trigger == "WM_DISPLAYCHANGE",
+                        "disconnect event should republish tray state");
+    failures += !Expect(events[4].trigger == "tray-click",
+                        "tray UI should still open after a monitor disconnects");
+    failures += !Expect(events[5].trigger == "WM_DISPLAYCHANGE",
+                        "reconnect event should republish tray state");
+    failures += !Expect(events[6].trigger == "tray-click",
                         "topology changes should still leave the tray UI accessible");
-    failures += !Expect(events[6].trigger == "exit",
+    failures += !Expect(events[7].trigger == "exit",
                         "scripted tray exit should publish a terminal event");
 
     const auto* opened_left = FindBackgroundMonitor(events[1], "Display 1");
@@ -468,25 +492,45 @@ bool RunTraySessionChecks() {
                           "new monitors should still be marked for review in the tray UI");
     }
 
-    const auto* toggled_left = FindBackgroundMonitor(events[2], "Display 1");
-    failures += !Expect(toggled_left != nullptr,
-                        "toggle update should still include Display 1");
-    if (toggled_left != nullptr) {
-      failures += !Expect(toggled_left->locked,
+    const auto* toggled_right = FindBackgroundMonitor(events[2], "Display 2");
+    failures += !Expect(toggled_right != nullptr,
+                        "toggle update should still include Display 2");
+    if (toggled_right != nullptr) {
+      failures += !Expect(toggled_right->locked,
                           "tray toggle should persist the new lock state");
-      failures += !Expect(!toggled_left->requires_confirmation,
+      failures += !Expect(!toggled_right->requires_confirmation,
                           "toggling a monitor should confirm it and clear review state");
     }
 
-    const auto* reopened_left = FindBackgroundMonitor(events[3], "Display 1");
+    const auto* disconnected_right = FindBackgroundMonitor(events[3], "Display 2");
+    failures += !Expect(disconnected_right == nullptr,
+                        "disconnect refresh should remove the missing monitor from the active tray model");
+    failures += !Expect(!events[3].prompt.visible,
+                        "disconnect refresh should not prompt when no new monitor was added");
+
+    const auto* reopened_left = FindBackgroundMonitor(events[4], "Display 1");
     failures += !Expect(reopened_left != nullptr,
-                        "reopened tray menu should still include Display 1");
-    if (reopened_left != nullptr) {
-      failures += !Expect(reopened_left->locked,
-                          "reopened tray UI should reflect the saved locked state");
+                        "tray menu should still include Display 1 after a disconnect");
+
+    const auto* restored_right = FindBackgroundMonitor(events[5], "Display 2");
+    failures += !Expect(restored_right != nullptr,
+                        "reconnect refresh should restore the returning monitor");
+    if (restored_right != nullptr) {
+      failures += !Expect(restored_right->locked,
+                          "reconnected monitor should recover its saved lock state");
     }
 
-    const auto* added_monitor = FindBackgroundMonitor(events[4], "Display 3");
+    failures += !Expect(events[5].prompt.visible,
+                        "adding a new monitor should emit a review prompt");
+    failures += !Expect(events[5].prompt.title == "Review new monitor lock state",
+                        "single-monitor additions should use the singular review prompt");
+    failures += !Expect(
+        events[5].prompt.message.find("Display 3 - LG UltraFine") != std::string::npos,
+        "review prompt should name the newly added monitor");
+    failures += !Expect(FindPromptMonitor(events[5].prompt, "Display 3") != nullptr,
+                        "review prompt should track the new monitor explicitly");
+
+    const auto* added_monitor = FindBackgroundMonitor(events[5], "Display 3");
     failures += !Expect(added_monitor != nullptr,
                         "topology refresh should expose new monitors in the tray snapshot");
     if (added_monitor != nullptr) {
@@ -495,18 +539,41 @@ bool RunTraySessionChecks() {
       failures += !Expect(added_monitor->requires_confirmation,
                           "new tray monitors should require review");
     }
+
+    const auto* reopened_right = FindBackgroundMonitor(events[6], "Display 2");
+    failures += !Expect(reopened_right != nullptr,
+                        "reopened tray UI should still include the reconnected monitor");
+    if (reopened_right != nullptr) {
+      failures += !Expect(reopened_right->locked,
+                          "reopened tray UI should reflect the restored locked state");
+    }
+    failures += !Expect(!events[6].prompt.visible,
+                        "reopening the tray UI should not re-emit the one-time add-monitor prompt");
   }
 
   const auto left_monitor =
       MakeMonitor("stable-left", "DISPLAY#LEFT", "SERIAL-LEFT", "Dell U2720Q",
                   "Display 1", 0, 0, 2560, 1440, true);
+  const auto right_monitor =
+      MakeMonitor("stable-right", "DISPLAY#RIGHT", "SERIAL-RIGHT",
+                  "Dell U2720Q", "Display 2", 2560, 0, 5120, 1440, false);
   const auto new_monitor =
       MakeMonitor("stable-new", "DISPLAY#NEW", "SERIAL-NEW", "LG UltraFine",
                   "Display 3", -1920, 0, 0, 1080, false);
   auto preview =
-      locking_glass::core::SessionStore(session_path).Preview({left_monitor, new_monitor});
+      locking_glass::core::SessionStore(session_path)
+          .Preview({left_monitor, right_monitor, new_monitor});
   failures += !Expect(preview.restored_locked_monitors == 1U,
-                      "tray toggles should persist lock state into the session store");
+                      "tray toggles should restore the reconnected monitor lock from the session store");
+  const auto* persisted_right = FindMonitorState(preview.snapshot, right_monitor);
+  failures += !Expect(persisted_right != nullptr,
+                      "persisted session should still contain the reconnected monitor");
+  if (persisted_right != nullptr) {
+    failures += !Expect(persisted_right->is_present,
+                        "persisted session should mark the reconnected monitor active");
+    failures += !Expect(persisted_right->locked,
+                        "persisted session should keep the reconnected monitor locked");
+  }
   const auto formatted =
       locking_glass::core::FormatTrayMenuModel(
           locking_glass::core::BuildTrayMenuModel(preview, "verification"));

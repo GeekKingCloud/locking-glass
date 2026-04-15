@@ -1,11 +1,22 @@
 #include "locking_glass/core/tray_ui.h"
 
+#include <algorithm>
 #include <sstream>
 #include <utility>
 
 namespace locking_glass::core {
 
 namespace {
+
+std::string BuildMonitorDisplayLabel(
+    const platform::MonitorDescriptor& monitor) {
+  std::ostringstream builder;
+  builder << monitor.label;
+  if (!monitor.display_name.empty()) {
+    builder << " - " << monitor.display_name;
+  }
+  return builder.str();
+}
 
 SessionMonitorState* FindPresentMonitorState(
     SessionSnapshot* snapshot, const platform::MonitorDescriptor& monitor) {
@@ -47,6 +58,52 @@ SessionMonitorState* FindPresentMonitorState(
   return nullptr;
 }
 
+std::vector<platform::MonitorDescriptor> CollectPromptMonitors(
+    const SessionRefreshResult& session) {
+  std::vector<platform::MonitorDescriptor> monitors;
+  if (session.new_monitors == 0U || session.snapshot.monitors.empty()) {
+    return monitors;
+  }
+
+  const std::size_t prompt_count =
+      std::min(session.new_monitors, session.snapshot.monitors.size());
+  const std::size_t start_index =
+      session.snapshot.monitors.size() - prompt_count;
+  monitors.reserve(prompt_count);
+
+  for (std::size_t index = start_index; index < session.snapshot.monitors.size();
+       ++index) {
+    const auto& monitor_state = session.snapshot.monitors[index];
+    if (!monitor_state.is_present || !monitor_state.requires_confirmation) {
+      continue;
+    }
+    monitors.push_back(monitor_state.monitor);
+  }
+
+  return monitors;
+}
+
+std::string BuildPromptMonitorList(
+    const std::vector<platform::MonitorDescriptor>& monitors) {
+  constexpr std::size_t kMaxListedMonitors = 3U;
+
+  std::ostringstream builder;
+  const std::size_t listed_monitors =
+      std::min(monitors.size(), kMaxListedMonitors);
+  for (std::size_t index = 0; index < listed_monitors; ++index) {
+    if (index > 0U) {
+      builder << ", ";
+    }
+    builder << BuildMonitorDisplayLabel(monitors[index]);
+  }
+
+  if (monitors.size() > listed_monitors) {
+    builder << ", +" << (monitors.size() - listed_monitors) << " more";
+  }
+
+  return builder.str();
+}
+
 }  // namespace
 
 TrayMenuModel BuildTrayMenuModel(const SessionRefreshResult& session,
@@ -79,12 +136,41 @@ TrayMenuModel BuildTrayMenuModel(const SessionRefreshResult& session,
   return model;
 }
 
+MonitorReviewPrompt BuildMonitorReviewPrompt(
+    const SessionRefreshResult& session) {
+  auto monitors = CollectPromptMonitors(session);
+  if (monitors.empty()) {
+    return {};
+  }
+
+  MonitorReviewPrompt prompt{
+      .visible = true,
+      .title = {},
+      .message = {},
+      .monitors = std::move(monitors),
+  };
+
+  if (prompt.monitors.size() == 1U) {
+    prompt.title = "Review new monitor lock state";
+    prompt.message =
+        BuildMonitorDisplayLabel(prompt.monitors.front()) +
+        " was added unlocked. Open the LockingGlass tray icon to review its "
+        "lock state.";
+    return prompt;
+  }
+
+  prompt.title = "Review new monitor lock states";
+  prompt.message = std::to_string(prompt.monitors.size()) +
+                   " monitors were added unlocked: " +
+                   BuildPromptMonitorList(prompt.monitors) +
+                   ". Open the LockingGlass tray icon to review their lock "
+                   "states.";
+  return prompt;
+}
+
 std::string BuildTrayMonitorLabel(const TrayMonitorState& monitor) {
   std::ostringstream builder;
-  builder << monitor.monitor.label;
-  if (!monitor.monitor.display_name.empty()) {
-    builder << " - " << monitor.monitor.display_name;
-  }
+  builder << BuildMonitorDisplayLabel(monitor.monitor);
   if (monitor.requires_confirmation) {
     builder << " [review]";
   }
