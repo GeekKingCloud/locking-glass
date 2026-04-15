@@ -779,6 +779,20 @@ bool RunDesktopLockingChecks() {
       "window\tright-alpha\tEditor\tstable-right\tDisplay 2\tdesktop-alpha\t1\t1\n");
 
   SetEnvironmentVariable("LOCKING_GLASS_SESSION_PATH", session_path.string());
+
+#if !defined(_WIN32)
+  SetEnvironmentVariable("LOCKING_GLASS_DESKTOP_SCRIPT", "");
+  {
+    auto runtime_without_script = locking_glass::core::BuildRuntime();
+    const int no_script_result = runtime_without_script.virtual_desktop_controller->WatchSwitches(
+        runtime_without_script.session_store,
+        [&](const locking_glass::integration::DesktopSwitchReport&) { return true; });
+    failures += !Expect(
+        no_script_result == 1,
+        "desktop watch should stay unavailable on non-Windows hosts until an explicit replay script is configured");
+  }
+#endif
+
   SetEnvironmentVariable("LOCKING_GLASS_DESKTOP_SCRIPT", script_path.string());
 
   const auto left_monitor =

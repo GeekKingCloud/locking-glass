@@ -1,5 +1,6 @@
 #include "locking_glass/platform/background_session.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -13,14 +14,22 @@
 #include "locking_glass/platform/monitor_gateway.h"
 
 #if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
-#include <shellapi.h>
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
+#include <shellapi.h>
 #endif
 
 namespace locking_glass::platform {
 
 namespace {
+
+using std::max;
+using std::min;
 
 BackgroundSessionPrompt BuildBackgroundPrompt(
     const core::MonitorReviewPrompt& prompt) {
@@ -1058,6 +1067,7 @@ int RunWindowsTraySession(const BackgroundSessionObserver& observer) {
 }
 #endif
 
+#if !defined(_WIN32)
 std::vector<std::string> SplitFields(const std::string& line) {
   std::vector<std::string> fields;
   std::size_t start = 0;
@@ -1349,6 +1359,7 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
 
   return 0;
 }
+#endif
 
 class BackgroundSessionImpl final : public BackgroundSession {
  public:

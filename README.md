@@ -32,7 +32,7 @@ make prototype
 
 `build/bin/locking_glass --watch-monitors` prints monitor refresh events. On Windows it waits for live `WM_DISPLAYCHANGE` updates; on non-Windows hosts set `LOCKING_GLASS_MONITOR_SCRIPT` to a scripted event file so the same reporting path can be verified locally. When a refresh introduces brand-new monitors, the report now includes the review prompt text that the tray flow will surface.
 
-`build/bin/locking_glass --watch-virtual-desktops` prints the desktop-locking plan and replayed move results. On non-Windows hosts, set `LOCKING_GLASS_DESKTOP_SCRIPT` to a scripted switch file so the same policy path is locally verifiable.
+`build/bin/locking_glass --watch-virtual-desktops` now has two explicit modes. On Windows, if `LOCKING_GLASS_DESKTOP_SCRIPT` is unset, it launches the live helper-backed watch path, waits for two real desktop-switch notifications, and prints the controller report with source and target desktop context from the live shell event stream. On non-Windows hosts, or whenever you intentionally set `LOCKING_GLASS_DESKTOP_SCRIPT`, it replays the scripted switch file for deterministic policy verification.
 
 `make prototype` runs `locking_glass --prototype-windows-apis`, which prints the Windows integration boundary contract and a simple interaction trace for virtual desktop control plus monitor enumeration.
 
@@ -70,12 +70,12 @@ For the real Windows hook proof, run `scripts/run-live-desktop-probe.ps1` from a
 ## Desktop Locking
 
 - `src/core/monitor_locking.cpp` builds the per-switch policy: it restores persisted monitor locks, identifies which live monitors are locked, and plans only the top-level movable windows that need to swap desktops to keep a locked monitor visually fixed.
-- `src/integration/virtual_desktop_controller.cpp` owns the desktop-switch replay seam and formats the resulting move report, but it now explicitly fails closed unless the live Windows helper path is available.
+- `src/integration/virtual_desktop_controller.cpp` owns both the explicit replay seam and the Windows live-watch bridge. On Windows it prefers the real helper-backed event stream when `LOCKING_GLASS_DESKTOP_SCRIPT` is unset, and only uses replay when that env var is configured on purpose.
 - `docs/windows-live-desktop-hook.md` records the chosen live boundary: `VirtualDesktopAccessor.dll:RegisterPostMessageHook` for real desktop-switch notifications and `VirtualDesktopAccessor.dll:MoveWindowToDesktopNumber` for isolated top-level window moves.
 - The Windows proof probe for ticket `#15` also showed that direct `IVirtualDesktopManager.MoveWindowToDesktop` is not the supported move path on this runtime; the helper move export succeeded while COM remained useful for readiness and desktop-id verification.
 - In the replay format, each `event	desktop-switch	<trigger>	<from>	<to>` block can include `monitor` rows plus `window` rows (`window_id`, `title`, `monitor_id`, `monitor_label`, `desktop_id`, `is_top_level`, `can_move`).
 - `LOCKING_GLASS_DESKTOP_SCRIPT` remains a replay seam for local policy verification only. It is not valid completion evidence for the live Windows desktop hook path.
-- `scripts/run-live-desktop-probe.ps1` and `tools/windows_live_desktop_probe/Program.cs` are the real-runtime feasibility gate for ticket `#15`: they capture at least two live desktop-switch notifications and a move-path exercise on Windows without relying on replay.
+- `scripts/run-live-desktop-probe.ps1` and `tools/windows_live_desktop_probe/Program.cs` now serve two roles on Windows: the existing proof probe for ticket `#15`, and the live watch backend that `locking_glass --watch-virtual-desktops` launches when replay is not explicitly requested.
 
 ## Monitor Enumeration
 

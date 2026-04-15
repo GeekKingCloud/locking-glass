@@ -11,8 +11,11 @@
 #include <system_error>
 #include <utility>
 
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(NOMINMAX)
 #define NOMINMAX
+#endif
+
+#if defined(_WIN32)
 #include <windows.h>
 #endif
 

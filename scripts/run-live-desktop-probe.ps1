@@ -3,6 +3,7 @@ param(
     [string]$LogPath,
     [int]$TimeoutSeconds = 20,
     [int]$RequiredEvents = 2,
+    [switch]$WatchStream,
     [switch]$NoAutoCycle,
     [switch]$SkipMoveExercise
 )
@@ -21,7 +22,8 @@ if ([string]::IsNullOrWhiteSpace($HelperDllPath)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($LogPath)) {
-    $LogPath = Join-Path $probeBuildDir ('live-desktop-proof-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.log')
+    $logPrefix = if ($WatchStream) { 'live-desktop-watch-' } else { 'live-desktop-proof-' }
+    $LogPath = Join-Path $probeBuildDir ($logPrefix + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.log')
 }
 
 if (-not (Test-Path $HelperDllPath)) {
@@ -41,10 +43,22 @@ $arguments = @(
     '--framework', 'netcoreapp3.1',
     '--',
     '--helper-dll', $HelperDllPath,
-    '--log', $LogPath,
-    '--required-events', $RequiredEvents,
-    '--timeout-seconds', $TimeoutSeconds
+    '--log', $LogPath
 )
+
+if ($RequiredEvents -ge 0) {
+    $arguments += '--required-events'
+    $arguments += $RequiredEvents
+}
+
+if ($TimeoutSeconds -ge 0) {
+    $arguments += '--timeout-seconds'
+    $arguments += $TimeoutSeconds
+}
+
+if ($WatchStream) {
+    $arguments += '--watch-stream'
+}
 
 if (-not $NoAutoCycle) {
     $arguments += '--auto-cycle'

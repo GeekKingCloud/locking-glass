@@ -17,7 +17,11 @@ namespace LockingGlass.WindowsLiveDesktopProbe
                 var options = ProbeOptions.Parse(args);
                 using (var logger = new ProbeLogger(options.LogPath))
                 {
-                    logger.Info("LockingGlass live desktop probe starting.");
+                    logger.Info(
+                        options.WatchStream
+                            ? "LockingGlass live desktop watch starting."
+                            : "LockingGlass live desktop probe starting.");
+                    logger.Info("Mode: " + (options.WatchStream ? "watch-stream" : "probe"));
                     logger.Info("Helper DLL: " + options.HelperDllPath);
                     logger.Info("Required desktop events: " + options.RequiredEvents);
                     logger.Info("Timeout seconds: " + options.TimeoutSeconds);
@@ -26,10 +30,20 @@ namespace LockingGlass.WindowsLiveDesktopProbe
                     logger.Info("Windows version: " + Environment.OSVersion.VersionString);
 
                     using (var controller = new VirtualDesktopAccessor(options.HelperDllPath))
-                    using (var desktopManager = new VirtualDesktopManagerClient())
                     {
-                        var runtime = new ProbeRuntime(options, logger, controller, desktopManager);
-                        return runtime.Run();
+                        if (options.WatchStream)
+                        {
+                            var runtime =
+                                new ProbeRuntime(options, logger, controller, desktopManager: null);
+                            return runtime.Run();
+                        }
+
+                        using (var desktopManager = new VirtualDesktopManagerClient())
+                        {
+                            var runtime =
+                                new ProbeRuntime(options, logger, controller, desktopManager);
+                            return runtime.Run();
+                        }
                     }
                 }
             }
@@ -49,7 +63,8 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             int requiredEvents,
             int timeoutSeconds,
             bool autoCycle,
-            bool exerciseMovePath)
+            bool exerciseMovePath,
+            bool watchStream)
         {
             HelperDllPath = helperDllPath;
             LogPath = logPath;
@@ -57,6 +72,7 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             TimeoutSeconds = timeoutSeconds;
             AutoCycle = autoCycle;
             ExerciseMovePath = exerciseMovePath;
+            WatchStream = watchStream;
         }
 
         public string HelperDllPath { get; }
@@ -71,6 +87,8 @@ namespace LockingGlass.WindowsLiveDesktopProbe
 
         public bool ExerciseMovePath { get; }
 
+        public bool WatchStream { get; }
+
         public static ProbeOptions Parse(string[] args)
         {
             string? helperDllPath = null;
@@ -79,6 +97,7 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             var timeoutSeconds = 20;
             var autoCycle = false;
             var exerciseMovePath = false;
+            var watchStream = false;
 
             for (var index = 0; index < args.Length; index += 1)
             {
@@ -92,17 +111,20 @@ namespace LockingGlass.WindowsLiveDesktopProbe
                         break;
                     case "--required-events":
                         requiredEvents =
-                            ParsePositiveInt("--required-events", RequireValue(args, ref index));
+                            ParseNonNegativeInt("--required-events", RequireValue(args, ref index));
                         break;
                     case "--timeout-seconds":
                         timeoutSeconds =
-                            ParsePositiveInt("--timeout-seconds", RequireValue(args, ref index));
+                            ParseNonNegativeInt("--timeout-seconds", RequireValue(args, ref index));
                         break;
                     case "--auto-cycle":
                         autoCycle = true;
                         break;
                     case "--exercise-move":
                         exerciseMovePath = true;
+                        break;
+                    case "--watch-stream":
+                        watchStream = true;
                         break;
                     default:
                         throw new InvalidOperationException("Unknown argument: " + args[index]);
@@ -125,7 +147,8 @@ namespace LockingGlass.WindowsLiveDesktopProbe
                 requiredEvents,
                 timeoutSeconds,
                 autoCycle,
-                exerciseMovePath);
+                exerciseMovePath,
+                watchStream);
         }
 
         private static string RequireValue(string[] args, ref int index)
@@ -139,13 +162,13 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             return args[index];
         }
 
-        private static int ParsePositiveInt(string argument, string value)
+        private static int ParseNonNegativeInt(string argument, string value)
         {
             int parsed;
-            if (!int.TryParse(value, out parsed) || parsed <= 0)
+            if (!int.TryParse(value, out parsed) || parsed < 0)
             {
                 throw new InvalidOperationException(
-                    argument + " expects a positive integer, received '" + value + "'.");
+                    argument + " expects a non-negative integer, received '" + value + "'.");
             }
 
             return parsed;
@@ -457,7 +480,7 @@ namespace LockingGlass.WindowsLiveDesktopProbe
         private readonly ProbeOptions _options;
         private readonly ProbeLogger _logger;
         private readonly VirtualDesktopAccessor _controller;
-        private readonly VirtualDesktopManagerClient _desktopManager;
+        private readonly VirtualDesktopManagerClient? _desktopManager;
         private readonly WndProc _windowProc;
         private readonly string _className;
         private IntPtr _windowHandle;
@@ -475,7 +498,7 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             ProbeOptions options,
             ProbeLogger logger,
             VirtualDesktopAccessor controller,
-            VirtualDesktopManagerClient desktopManager)
+            VirtualDesktopManagerClient? desktopManager)
         {
             _options = options;
             _logger = logger;
@@ -514,12 +537,16 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             _windowHandle = CreateWindowEx(
                 WS_EX_TOOLWINDOW,
                 _className,
-                "LockingGlass Live Desktop Probe",
-                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE,
+                _options.WatchStream
+                    ? "LockingGlass Live Desktop Watch"
+                    : "LockingGlass Live Desktop Probe",
+                _options.WatchStream
+                    ? WS_OVERLAPPED
+                    : WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE,
                 32,
                 32,
-                360,
-                140,
+                _options.WatchStream ? 1 : 360,
+                _options.WatchStream ? 1 : 140,
                 IntPtr.Zero,
                 IntPtr.Zero,
                 instance,
@@ -531,10 +558,17 @@ namespace LockingGlass.WindowsLiveDesktopProbe
                     Marshal.GetLastWin32Error() + ".");
             }
 
-            ShowWindow(_windowHandle, SW_SHOW);
-            UpdateWindow(_windowHandle);
-            _logger.Info("Waiting 1000 ms for the probe window to settle on the shell.");
-            Thread.Sleep(1000);
+            if (!_options.WatchStream)
+            {
+                ShowWindow(_windowHandle, SW_SHOW);
+                UpdateWindow(_windowHandle);
+                _logger.Info("Waiting 1000 ms for the probe window to settle on the shell.");
+                Thread.Sleep(1000);
+            }
+            else
+            {
+                _logger.Info("Using a hidden message-only watch window for live desktop events.");
+            }
             StartProbe();
 
             MSG message;
@@ -595,10 +629,13 @@ namespace LockingGlass.WindowsLiveDesktopProbe
                 return;
             }
 
-            var desktopName = _controller.GetDesktopName(newDesktop);
-            var suffix = string.IsNullOrEmpty(desktopName)
+            var oldDesktopName = oldDesktop >= 0 ? _controller.GetDesktopName(oldDesktop) : string.Empty;
+            var newDesktopName = newDesktop >= 0 ? _controller.GetDesktopName(newDesktop) : string.Empty;
+            var suffix = string.IsNullOrEmpty(newDesktopName)
                 ? string.Empty
-                : " name='" + desktopName + "'";
+                : " name='" + newDesktopName + "'";
+            var oldDesktopId = oldDesktop >= 0 ? _controller.GetDesktopIdByNumber(oldDesktop) : Guid.Empty;
+            var newDesktopId = newDesktop >= 0 ? _controller.GetDesktopIdByNumber(newDesktop) : Guid.Empty;
 
             _observedEvents += 1;
             _logger.Info(
@@ -606,6 +643,16 @@ namespace LockingGlass.WindowsLiveDesktopProbe
                 ": raw " + oldDesktop + " -> " + newDesktop +
                 "; user-facing " + (oldDesktop + 1) + " -> " + (newDesktop + 1) +
                 "." + suffix);
+            if (_options.WatchStream)
+            {
+                EmitWatchEvent(
+                    oldDesktop,
+                    oldDesktopId,
+                    oldDesktopName,
+                    newDesktop,
+                    newDesktopId,
+                    newDesktopName);
+            }
 
             if (_options.AutoCycle &&
                 !_switchBackScheduled &&
@@ -615,7 +662,7 @@ namespace LockingGlass.WindowsLiveDesktopProbe
                 ScheduleDesktopSwitch(_initialDesktopNumber, 1200);
             }
 
-            if (_observedEvents >= _options.RequiredEvents)
+            if (_options.RequiredEvents > 0 && _observedEvents >= _options.RequiredEvents)
             {
                 Succeed("Captured the required number of live desktop-switch notifications.");
             }
@@ -686,13 +733,22 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             _logger.Info(
                 "Registered VirtualDesktopAccessor post-message hook on message 0x" +
                 DesktopChangedMessage.ToString("X") + ".");
+            if (_options.WatchStream)
+            {
+                EmitWatchReady(
+                    desktopCount,
+                    _initialDesktopNumber,
+                    _controller.GetDesktopIdByNumber(_initialDesktopNumber),
+                    _controller.GetDesktopName(_initialDesktopNumber));
+            }
 
-            if (_options.ExerciseMovePath && !ExerciseMovePath())
+            if (!_options.WatchStream && _options.ExerciseMovePath && !ExerciseMovePath())
             {
                 return;
             }
 
-            if (SetTimer(
+            if (_options.TimeoutSeconds > 0 &&
+                SetTimer(
                     _windowHandle,
                     TimeoutTimerId,
                     (uint)(_options.TimeoutSeconds * 1000),
@@ -717,6 +773,13 @@ namespace LockingGlass.WindowsLiveDesktopProbe
 
         private bool ExerciseMovePath()
         {
+            if (_desktopManager == null)
+            {
+                FailClosed(
+                    "The move-path exercise requires IVirtualDesktopManager, but the desktop manager client was unavailable.");
+                return false;
+            }
+
             IntPtr moveTargetHandle;
             string moveTargetLabel;
             if (!TryAcquireMoveTarget(out moveTargetHandle, out moveTargetLabel))
@@ -941,6 +1004,46 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             _logger.Info(
                 "Scheduled GoToDesktopNumber(" + desktopNumber + ") in " +
                 delayMilliseconds + " ms to produce a live switch event.");
+        }
+
+        private void EmitWatchReady(
+            int desktopCount,
+            int currentDesktopNumber,
+            Guid currentDesktopId,
+            string currentDesktopName)
+        {
+            Console.WriteLine(
+                "watch-ready\t" +
+                desktopCount + "\t" +
+                currentDesktopNumber + "\t" +
+                currentDesktopId + "\t" +
+                SanitizeWatchField(currentDesktopName));
+        }
+
+        private void EmitWatchEvent(
+            int oldDesktop,
+            Guid oldDesktopId,
+            string oldDesktopName,
+            int newDesktop,
+            Guid newDesktopId,
+            string newDesktopName)
+        {
+            Console.WriteLine(
+                "watch-event\t" +
+                oldDesktop + "\t" +
+                oldDesktopId + "\t" +
+                SanitizeWatchField(oldDesktopName) + "\t" +
+                newDesktop + "\t" +
+                newDesktopId + "\t" +
+                SanitizeWatchField(newDesktopName));
+        }
+
+        private static string SanitizeWatchField(string value)
+        {
+            return value
+                .Replace('\t', ' ')
+                .Replace('\r', ' ')
+                .Replace('\n', ' ');
         }
 
         private void IssueDesktopSwitch(int desktopNumber)

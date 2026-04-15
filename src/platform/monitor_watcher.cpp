@@ -16,6 +16,7 @@ namespace locking_glass::platform {
 
 namespace {
 
+#if !defined(_WIN32)
 std::vector<std::string> SplitFields(const std::string& line) {
   std::vector<std::string> fields;
   std::size_t start = 0;
@@ -112,6 +113,7 @@ std::vector<MonitorWatchEvent> LoadScriptedEvents(
 
   return events;
 }
+#endif
 
 #if defined(_WIN32)
 struct MonitorWatchContext {

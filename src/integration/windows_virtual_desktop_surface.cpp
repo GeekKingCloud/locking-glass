@@ -3,7 +3,15 @@
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <objbase.h>
+#if defined(__has_include)
+#if __has_include(<shobjidl_core.h>)
 #include <shobjidl_core.h>
+#else
+#include <shobjidl.h>
+#endif
+#else
+#include <shobjidl_core.h>
+#endif
 #include <windows.h>
 #endif
 
