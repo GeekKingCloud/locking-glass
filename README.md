@@ -28,7 +28,11 @@ make prototype
 
 `make test` now also replays a scripted tray session: it opens the tray UI, hovers monitors to trigger the identify overlay, clears that hover while the menu stays open, locks a monitor, simulates that monitor disconnecting, simulates it reconnecting beside a brand-new monitor, and verifies that the saved lock is restored while only the new hardware emits a review prompt.
 
+`make test` also replays scripted virtual desktop switches through `LOCKING_GLASS_DESKTOP_SCRIPT`, proving that locked-monitor windows are swapped across desktops while unlocked monitors keep following the normal desktop change.
+
 `build/bin/locking_glass --watch-monitors` prints monitor refresh events. On Windows it waits for live `WM_DISPLAYCHANGE` updates; on non-Windows hosts set `LOCKING_GLASS_MONITOR_SCRIPT` to a scripted event file so the same reporting path can be verified locally. When a refresh introduces brand-new monitors, the report now includes the review prompt text that the tray flow will surface.
+
+`build/bin/locking_glass --watch-virtual-desktops` prints the desktop-locking plan and replayed move results. On non-Windows hosts, set `LOCKING_GLASS_DESKTOP_SCRIPT` to a scripted switch file so the same policy path is locally verifiable.
 
 `make prototype` runs `locking_glass --prototype-windows-apis`, which prints the Windows integration boundary contract and a simple interaction trace for virtual desktop control plus monitor enumeration.
 
@@ -61,6 +65,13 @@ make prototype
 - Review prompts are tied to the refresh that first discovers a brand-new monitor, so reopening the tray menu later does not keep re-emitting the same add-monitor notification.
 - If the app finds malformed or unsupported session data on startup, it treats the file as rejected input, copies the original contents to `<session-path>.invalid`, and writes a clean snapshot based on the currently visible monitors.
 
+## Desktop Locking
+
+- `src/core/monitor_locking.cpp` builds the per-switch policy: it restores persisted monitor locks, identifies which live monitors are locked, and plans only the top-level movable windows that need to swap desktops to keep a locked monitor visually fixed.
+- `src/integration/virtual_desktop_controller.cpp` owns the desktop-switch replay seam and formats the resulting move report. The same boundary is where the Windows COM and helper-based live notification path will plug in.
+- In the replay format, each `event	desktop-switch	<trigger>	<from>	<to>` block can include `monitor` rows plus `window` rows (`window_id`, `title`, `monitor_id`, `monitor_label`, `desktop_id`, `is_top_level`, `can_move`).
+- Local verification on this Linux worker uses that scripted replay path. Direct live COM notification handling and per-monitor desktop behavior still need final confirmation on a real Windows shell.
+
 ## Monitor Enumeration
 
 - `src/platform/monitor_gateway.cpp` enumerates live monitors with `EnumDisplayMonitors` and `GetMonitorInfoW`, then enriches each screen with `QueryDisplayConfig` and `DisplayConfigGetDeviceInfo` data when Windows exposes a persistent device path.
@@ -73,6 +84,7 @@ make prototype
 - `src/platform/monitor_gateway.cpp` is where Win32 monitor enumeration is wired with `EnumDisplayMonitors`, `GetMonitorInfoW`, `QueryDisplayConfig`, and `DisplayConfigGetDeviceInfo`.
 - `src/platform/monitor_watcher.cpp` is where foreground monitor-watch sessions react to startup and `WM_DISPLAYCHANGE` refresh events.
 - `src/integration/windows_api_probe.cpp` is where tray and monitor entry points are probed with `user32.dll`, `shell32.dll`, COM initialization, and the base `IVirtualDesktopManager` seam.
+- `src/integration/virtual_desktop_controller.cpp` is where desktop switch replay, COM availability probing, and the future live virtual-desktop notification/move boundary are isolated.
 - `src/platform/background_session.cpp` is where background launches enter the hidden Win32 tray session, handle tray clicks, and expose the scripted non-Windows verification path.
 - `src/integration/autostart.cpp` is where current-user Run-key registration is built and installed for sign-in autostart.
 - `src/integration/ffmpeg_probe.cpp` uses runtime loading instead of static linkage so future Windows packaging can decide where FFmpeg DLLs live without changing the call site contract.

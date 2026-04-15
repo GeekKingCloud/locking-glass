@@ -71,6 +71,7 @@ Runtime BuildRuntime() {
       .monitor_watcher = platform::CreateMonitorWatcher(),
       .background_session = platform::CreateBackgroundSession(),
       .ffmpeg_probe = integration::CreateFfmpegProbe(),
+      .virtual_desktop_controller = integration::CreateVirtualDesktopController(),
       .windows_api_probe = integration::CreateWindowsApiProbe(),
       .autostart_manager = integration::CreateAutostartManager(),
   };
@@ -82,6 +83,7 @@ StartupDiagnostics CollectStartupDiagnostics(const Runtime& runtime,
   diagnostics.monitors = runtime.monitor_gateway->Enumerate();
   diagnostics.session = runtime.session_store.Preview(diagnostics.monitors);
   diagnostics.capabilities.push_back(runtime.background_session->Probe());
+  diagnostics.capabilities.push_back(runtime.virtual_desktop_controller->Probe());
   diagnostics.capabilities.push_back(runtime.windows_api_probe->Probe());
   diagnostics.capabilities.push_back(runtime.autostart_manager->Probe());
   diagnostics.capabilities.push_back(runtime.ffmpeg_probe->Probe());

@@ -12,6 +12,7 @@ struct ParsedArguments {
   bool prototype_windows_apis = false;
   bool install_autostart = false;
   bool watch_monitors = false;
+  bool watch_virtual_desktops = false;
   bool background = false;
   bool help = false;
 };
@@ -30,6 +31,8 @@ ParsedArguments ParseArguments(int argc, char** argv, bool* valid) {
       parsed.install_autostart = true;
     } else if (argument == "--watch-monitors") {
       parsed.watch_monitors = true;
+    } else if (argument == "--watch-virtual-desktops") {
+      parsed.watch_virtual_desktops = true;
     } else if (argument == "--background") {
       parsed.background = true;
     } else if (argument == "--help") {
@@ -50,7 +53,8 @@ std::string ResolveExecutablePath(char** argv) {
 
 void PrintUsage() {
   std::cout << "Usage: locking_glass [--self-check] [--install-autostart] "
-               "[--prototype-windows-apis] [--watch-monitors] [--background]\n";
+               "[--prototype-windows-apis] [--watch-monitors] "
+               "[--watch-virtual-desktops] [--background]\n";
 }
 
 }  // namespace
@@ -99,6 +103,16 @@ int main(int argc, char** argv) {
               runtime, event.monitors, event.trigger, previous_fingerprint);
           previous_fingerprint = report.topology_fingerprint;
           std::cout << locking_glass::core::FormatMonitorRefreshReport(report);
+          return true;
+        });
+  }
+
+  if (arguments.watch_virtual_desktops) {
+    return runtime.virtual_desktop_controller->WatchSwitches(
+        runtime.session_store,
+        [&](const locking_glass::integration::DesktopSwitchReport& report) {
+          std::cout
+              << locking_glass::integration::FormatDesktopSwitchReport(report);
           return true;
         });
   }
