@@ -1,2 +1,4 @@
 .atoshell/*.env
 .atoshell/archive.json
+build/
+*.dSYM/
