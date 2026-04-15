@@ -45,9 +45,10 @@ make prototype
 - Clicking the tray icon rebuilds the current monitor list from `MonitorGateway`, reconciles it through `SessionStore`, and shows a structured popup menu with a title, live summary line, hover guidance, and one rendered padlock icon per active monitor entry.
 - Monitor entries now use a filled emerald padlock for locked displays, a hollow slate padlock for unlocked displays, and an amber review-badged padlock for newly added monitors that still need confirmation.
 - Hovering a monitor entry now paints a full-monitor topmost highlight overlay with a centered identify card, making it clear which physical screen is being referenced before toggling.
-- Selecting a monitor entry toggles its persisted lock state immediately and clears any outstanding review requirement for that monitor.
+- Selecting a monitor entry toggles its persisted lock state immediately, clears any outstanding review requirement for that monitor, and reopens the tray menu with refreshed lock counts and padlock indicators so the change is visible without another click.
 - Startup, `WM_DISPLAYCHANGE`, and manual tray refreshes now emit a lightweight review prompt when brand-new monitors appear, while disconnected monitors stay silent and simply retain their saved lock state until they return.
 - The tray tooltip summarizes the current lock count and pending-review count so topology changes are visible even before the menu is opened, and the scripted event model exposes the same tray/menu and per-monitor padlock state for host verification.
+- Win32 padlock menu bitmaps are recreated from the current `SM_CXMENUCHECK` and `SM_CYMENUCHECK` metrics on each refresh so the indicators stay aligned with system menu sizing across DPI scales and theme variants.
 - On non-Windows hosts, set `LOCKING_GLASS_TRAY_SCRIPT` to a scripted event file if you want to replay tray clicks, hover-identify steps, explicit `hover-clear` transitions, disconnect/reconnect cycles, and new-monitor review prompts through the same `--background` code path for local verification.
 
 ## Session State

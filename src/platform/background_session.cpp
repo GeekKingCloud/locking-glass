@@ -798,93 +798,101 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state) {
     return;
   }
 
-  auto model = RefreshTrayModel(window, state, "tray-click", true, false);
-  HMENU menu = CreatePopupMenu();
-  if (menu == nullptr) {
-    return;
-  }
-
-  state->active_menu_model = model;
-  state->tray_menu_open = true;
-  HideIdentifyOverlay(state);
-
-  std::vector<std::wstring> labels;
-  std::vector<HBITMAP> menu_bitmaps;
-  labels.reserve(model.monitors.size() + 8U);
-  menu_bitmaps.reserve(model.monitors.size());
-  labels.push_back(Widen(model.header.title));
-  AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
-  labels.push_back(Widen(model.header.subtitle));
-  AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
-  AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-
-  if (model.monitors.empty()) {
-    AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, L"No monitors detected");
-  } else {
-    for (std::size_t index = 0; index < model.monitors.size(); ++index) {
-      const UINT command =
-          kMenuCommandMonitorBase + static_cast<UINT>(index);
-      labels.push_back(Widen(model.monitors[index].menu_label));
-      AppendMenuW(menu, MF_STRING, command, labels.back().c_str());
-
-      HBITMAP bitmap =
-          CreateMenuPadlockBitmap(model.monitors[index].padlock_icon);
-      if (bitmap == nullptr) {
-        continue;
-      }
-
-      MENUITEMINFOW item_info{};
-      item_info.cbSize = sizeof(item_info);
-      item_info.fMask = MIIM_BITMAP;
-      item_info.hbmpItem = bitmap;
-      if (!SetMenuItemInfoW(menu, command, FALSE, &item_info)) {
-        DeleteObject(bitmap);
-        continue;
-      }
-      menu_bitmaps.push_back(bitmap);
+  std::string trigger = "tray-click";
+  while (true) {
+    const auto model = RefreshTrayModel(window, state, trigger, true, false);
+    HMENU menu = CreatePopupMenu();
+    if (menu == nullptr) {
+      state->tray_menu_open = false;
+      state->active_menu_model = {};
+      HideIdentifyOverlay(state);
+      return;
     }
-  }
 
-  AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-  labels.push_back(Widen(model.header.instruction));
-  AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
-  AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-  AppendMenuW(menu, MF_STRING, kMenuCommandRefresh, L"Refresh monitor list");
-  AppendMenuW(menu, MF_STRING, kMenuCommandExit, L"Exit LockingGlass");
+    state->active_menu_model = model;
+    state->tray_menu_open = true;
+    HideIdentifyOverlay(state);
 
-  POINT cursor{};
-  GetCursorPos(&cursor);
-  SetForegroundWindow(window);
-  const UINT command = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
-                                      cursor.x, cursor.y, 0, window, nullptr);
-  DestroyMenu(menu);
-  for (const HBITMAP bitmap : menu_bitmaps) {
-    DeleteObject(bitmap);
-  }
-  PostMessageW(window, WM_NULL, 0, 0);
-  state->tray_menu_open = false;
-  state->active_menu_model = {};
-  HideIdentifyOverlay(state);
+    std::vector<std::wstring> labels;
+    std::vector<HBITMAP> menu_bitmaps;
+    labels.reserve(model.monitors.size() + 8U);
+    menu_bitmaps.reserve(model.monitors.size());
+    labels.push_back(Widen(model.header.title));
+    AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
+    labels.push_back(Widen(model.header.subtitle));
+    AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
-  if (command >= kMenuCommandMonitorBase &&
-      command < kMenuCommandMonitorBase + model.monitors.size()) {
-    const auto monitor = model.monitors[command - kMenuCommandMonitorBase].monitor;
-    if (core::ToggleMonitorLock(state->session_store, &state->session.snapshot,
-                                monitor)) {
-      state->session =
-          state->session_store.Preview(state->monitor_gateway->Enumerate());
-      RepublishCurrentModel(window, state, "tray-toggle", false);
+    if (model.monitors.empty()) {
+      AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, L"No monitors detected");
+    } else {
+      for (std::size_t index = 0; index < model.monitors.size(); ++index) {
+        const UINT command =
+            kMenuCommandMonitorBase + static_cast<UINT>(index);
+        labels.push_back(Widen(model.monitors[index].menu_label));
+        AppendMenuW(menu, MF_STRING, command, labels.back().c_str());
+
+        HBITMAP bitmap =
+            CreateMenuPadlockBitmap(model.monitors[index].padlock_icon);
+        if (bitmap == nullptr) {
+          continue;
+        }
+
+        MENUITEMINFOW item_info{};
+        item_info.cbSize = sizeof(item_info);
+        item_info.fMask = MIIM_BITMAP;
+        item_info.hbmpItem = bitmap;
+        if (!SetMenuItemInfoW(menu, command, FALSE, &item_info)) {
+          DeleteObject(bitmap);
+          continue;
+        }
+        menu_bitmaps.push_back(bitmap);
+      }
+    }
+
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    labels.push_back(Widen(model.header.instruction));
+    AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, kMenuCommandRefresh, L"Refresh monitor list");
+    AppendMenuW(menu, MF_STRING, kMenuCommandExit, L"Exit LockingGlass");
+
+    POINT cursor{};
+    GetCursorPos(&cursor);
+    SetForegroundWindow(window);
+    const UINT command =
+        TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, cursor.x,
+                       cursor.y, 0, window, nullptr);
+    DestroyMenu(menu);
+    for (const HBITMAP bitmap : menu_bitmaps) {
+      DeleteObject(bitmap);
+    }
+    PostMessageW(window, WM_NULL, 0, 0);
+    state->tray_menu_open = false;
+    state->active_menu_model = {};
+    HideIdentifyOverlay(state);
+
+    if (command >= kMenuCommandMonitorBase &&
+        command < kMenuCommandMonitorBase + model.monitors.size()) {
+      const auto monitor =
+          model.monitors[command - kMenuCommandMonitorBase].monitor;
+      if (!core::ToggleMonitorLock(state->session_store, &state->session.snapshot,
+                                   monitor)) {
+        return;
+      }
+      trigger = "tray-toggle";
+      continue;
+    }
+
+    if (command == kMenuCommandRefresh) {
+      RefreshTrayModel(window, state, "tray-refresh", false, true);
+      return;
+    }
+
+    if (command == kMenuCommandExit) {
+      DestroyWindow(window);
     }
     return;
-  }
-
-  if (command == kMenuCommandRefresh) {
-    RefreshTrayModel(window, state, "tray-refresh", false, true);
-    return;
-  }
-
-  if (command == kMenuCommandExit) {
-    DestroyWindow(window);
   }
 }
 
@@ -1318,9 +1326,9 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
           return 1;
         }
         session = session_store.Preview(current_monitors);
-        tray_menu_visible = false;
+        tray_menu_visible = true;
         PublishEvent(observer,
-                     core::BuildTrayMenuModel(session, "tray-toggle"), false);
+                     core::BuildTrayMenuModel(session, "tray-toggle"), true);
         break;
       }
       case TrayScriptStepType::kRefresh:
