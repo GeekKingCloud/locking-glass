@@ -1,9 +1,29 @@
+param(
+    [string]$RepoRoot,
+    [string]$WatchExePath,
+    [string]$HelperDllPath
+)
+
 $ErrorActionPreference = 'Stop'
 
-$repoRoot = 'C:\Users\thete\Documents\Code\Tools\locking-glass\.reef\octopush\worktrees\004\17-implement-real-pinned-monitor-window-mov'
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    $RepoRoot = Split-Path -Parent $PSScriptRoot
+}
+
+$repoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
 $proofDir = Join-Path $repoRoot 'build\windows-live-pin-proof'
-$watchExe = Join-Path $repoRoot 'build-win\bin\locking_glass.exe'
-$helperDllPath = Join-Path $repoRoot 'build\windows-live-desktop-probe\VirtualDesktopAccessor.dll'
+$watchExe = if ([string]::IsNullOrWhiteSpace($WatchExePath)) {
+    Join-Path $repoRoot 'build-win\bin\locking_glass.exe'
+}
+else {
+    [System.IO.Path]::GetFullPath($WatchExePath)
+}
+$helperDllPath = if ([string]::IsNullOrWhiteSpace($HelperDllPath)) {
+    Join-Path $repoRoot 'build\windows-live-desktop-probe\VirtualDesktopAccessor.dll'
+}
+else {
+    [System.IO.Path]::GetFullPath($HelperDllPath)
+}
 $watchStdout = Join-Path $proofDir 'locking-glass-watch.stdout.txt'
 $watchStderr = Join-Path $proofDir 'locking-glass-watch.stderr.txt'
 $sessionPath = Join-Path $proofDir 'proof-session-state.tsv'
@@ -16,6 +36,10 @@ Remove-Item $watchStdout, $watchStderr, $sessionPath, ($sessionPath + '.invalid'
 if (-not (Test-Path $helperDllPath)) {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $helperDllPath) | Out-Null
     Invoke-WebRequest -Uri $helperReleaseUrl -OutFile $helperDllPath
+}
+
+if (-not (Test-Path $watchExe)) {
+    throw "Missing locking_glass.exe at '$watchExe'. Build the Windows binary for the current checkout before running the pinned-monitor proof."
 }
 
 Add-Type -TypeDefinition @"
@@ -227,11 +251,20 @@ function Parse-Monitors {
         }
 
         $status = $Matches[8]
+        $devicePath = $Matches[3]
+        $serial = ''
+        if ($status -match '(^|\s)path=([^\s]+)') {
+            $devicePath = $Matches[2]
+        }
+        if ($status -match '(^|\s)serial=([^\s]+)') {
+            $serial = $Matches[2]
+        }
         $monitors += [pscustomobject]@{
             Label = $Matches[1]
             DisplayName = $Matches[2]
             StableId = $Matches[3]
-            DevicePath = $Matches[3]
+            DevicePath = $devicePath
+            EdidSerial = $serial
             Left = [int]$Matches[4]
             Top = [int]$Matches[5]
             Right = [int]$Matches[6]
@@ -256,7 +289,7 @@ function Write-SessionFile([array]$monitors, [string]$lockedLabel, [string]$path
             'monitor',
             $monitor.StableId,
             $monitor.DevicePath,
-            '',
+            $monitor.EdidSerial,
             $monitor.DisplayName,
             $monitor.Label,
             [string]$monitor.Left,
