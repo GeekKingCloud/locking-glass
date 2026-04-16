@@ -24,6 +24,12 @@ struct DesktopSwitchReport {
   std::vector<core::DesktopWindow> resulting_windows;
 };
 
+struct DesktopWatchOptions {
+  bool allow_script_replay = true;
+  int required_events = 2;
+  int timeout_seconds = 0;
+};
+
 using DesktopSwitchCallback = std::function<bool(const DesktopSwitchReport&)>;
 
 class VirtualDesktopController {
@@ -31,7 +37,9 @@ class VirtualDesktopController {
   virtual ~VirtualDesktopController() = default;
   virtual CapabilityReport Probe() const = 0;
   virtual int WatchSwitches(const core::SessionStore& store,
-                            const DesktopSwitchCallback& callback) const = 0;
+                            const DesktopSwitchCallback& callback,
+                            DesktopWatchOptions options =
+                                DesktopWatchOptions{}) const = 0;
 };
 
 std::string FormatDesktopSwitchReport(const DesktopSwitchReport& report);

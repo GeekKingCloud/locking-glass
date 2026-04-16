@@ -46,6 +46,9 @@ struct BackgroundSessionEvent {
   std::string tray_icon_variant;
   std::string tray_icon_tooltip;
   bool tray_icon_review_badge = false;
+  bool live_controller_available = true;
+  bool live_controller_watcher_started = false;
+  std::string live_controller_detail;
   std::vector<BackgroundSessionMenuItem> monitors;
   BackgroundSessionPrompt prompt;
   BackgroundSessionHighlight highlight;

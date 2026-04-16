@@ -202,7 +202,8 @@ std::filesystem::path ResolveWindowsPowerShellPath() {
 
 std::filesystem::path BuildLiveWatchCommandScript(
     const std::filesystem::path& repository_root,
-    const std::filesystem::path& log_path) {
+    const std::filesystem::path& log_path,
+    const DesktopWatchOptions& options) {
   const auto script_path = repository_root / "scripts" / "run-live-desktop-probe.ps1";
   const auto powershell_path = ResolveWindowsPowerShellPath();
   const auto helper_dll_path = ResolvePreferredHelperDllPath(repository_root);
@@ -219,8 +220,8 @@ std::filesystem::path BuildLiveWatchCommandScript(
          << " -HelperDllPath "
          << QuoteCommandArgument(helper_dll_path.string())
          << " -LogPath " << QuoteCommandArgument(log_path.string())
-         << " -RequiredEvents 2"
-         << " -TimeoutSeconds 0"
+         << " -RequiredEvents " << options.required_events
+         << " -TimeoutSeconds " << options.timeout_seconds
          << " -NoAutoCycle"
          << " -SkipMoveExercise\r\n";
   return command_script_path;
@@ -843,7 +844,8 @@ DesktopSwitchReport BuildWindowsLiveDesktopSwitchReport(
 }
 
 int WatchWindowsLiveSwitches(const core::SessionStore& store,
-                             const DesktopSwitchCallback& callback) {
+                             const DesktopSwitchCallback& callback,
+                             const DesktopWatchOptions& options) {
   const auto repository_root = FindRepositoryRoot();
   if (repository_root.empty()) {
     std::cerr
@@ -855,7 +857,7 @@ int WatchWindowsLiveSwitches(const core::SessionStore& store,
 
   const auto log_path = BuildLiveWatchLogPath();
   const auto command_script_path =
-      BuildLiveWatchCommandScript(repository_root, log_path);
+      BuildLiveWatchCommandScript(repository_root, log_path, options);
   const std::string command = command_script_path.string() + " 2>&1";
   FILE* pipe = _popen(command.c_str(), "r");
   if (pipe == nullptr) {
@@ -1068,9 +1070,11 @@ class VirtualDesktopControllerImpl final : public VirtualDesktopController {
   }
 
   int WatchSwitches(const core::SessionStore& store,
-                    const DesktopSwitchCallback& callback) const override {
+                    const DesktopSwitchCallback& callback,
+                    const DesktopWatchOptions options) const override {
     const char* script_path = std::getenv("LOCKING_GLASS_DESKTOP_SCRIPT");
-    if (script_path != nullptr && script_path[0] != '\0') {
+    if (options.allow_script_replay && script_path != nullptr &&
+        script_path[0] != '\0') {
       const auto scenarios = LoadDesktopScript(script_path);
       if (scenarios.empty()) {
         return 1;
@@ -1086,7 +1090,7 @@ class VirtualDesktopControllerImpl final : public VirtualDesktopController {
     }
 
 #if defined(_WIN32)
-    return WatchWindowsLiveSwitches(store, callback);
+    return WatchWindowsLiveSwitches(store, callback, options);
 #else
     return 1;
 #endif

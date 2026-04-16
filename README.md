@@ -38,11 +38,15 @@ make prototype
 
 For the real Windows hook proof, run `scripts/run-live-desktop-probe.ps1` from a Windows shell. That wrapper downloads the current `VirtualDesktopAccessor.dll` release when needed, builds `tools/windows_live_desktop_probe`, exercises the live move path on a real top-level probe window, and records live desktop-switch notifications without using `LOCKING_GLASS_DESKTOP_SCRIPT`.
 
+For the Windows background-session proof path, run `scripts/run-live-background-proof.ps1` after building `build-win/bin/locking_glass.exe`. It launches `--background`, drives a real tray monitor toggle against the live popup menu, switches real Windows desktops, and records the observed lock-state plus window-desktop evidence under `build/windows-live-background-proof/`.
+
+To prove the honest fail-closed path on Windows, run `scripts/run-background-unavailable-proof.ps1`. It launches `--background` with a missing helper path and captures the background-session stderr diagnostic under `build/windows-background-unavailable-proof/`.
+
 ## Autostart
 
 - `locking_glass --install-autostart` writes a `LockingGlass` entry under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 - The Run entry launches the binary with `--background`, which is wired to a hidden Win32 message loop on Windows so the process can stay resident after sign-in without foreground UI.
-- On Windows, `--background` now registers a status-aware `Shell_NotifyIconW` tray icon, refreshes monitor state on `WM_DISPLAYCHANGE`, and opens a popup monitor-toggle menu when the tray icon is clicked.
+- On Windows, `--background` now registers a status-aware `Shell_NotifyIconW` tray icon, starts the live desktop watcher when the controller is available, refreshes monitor state on `WM_DISPLAYCHANGE`, and opens a popup monitor-toggle menu when the tray icon is clicked.
 - `locking_glass --self-check` prints the exact autostart command that the Windows registration path will install, which keeps the contract host-verifiable from Linux workers.
 
 ## Tray Session
@@ -53,7 +57,8 @@ For the real Windows hook proof, run `scripts/run-live-desktop-probe.ps1` from a
 - Hovering a monitor entry now paints a full-monitor topmost highlight overlay with a centered identify card, making it clear which physical screen is being referenced before toggling; the overlay text also echoes the monitor's placement metadata for easier verification in scripted runs.
 - Selecting a monitor entry toggles its persisted lock state immediately, clears any outstanding review requirement for that monitor, and reopens the tray menu with refreshed lock counts and padlock indicators so the change is visible without another click.
 - Startup, `WM_DISPLAYCHANGE`, and manual tray refreshes now emit a lightweight review prompt when brand-new monitors appear, while disconnected monitors stay silent and simply retain their saved lock state until they return.
-- The tray tooltip summarizes the current lock count and pending-review count so topology changes are visible even before the menu is opened, and the scripted event model exposes the same tray/menu and per-monitor padlock state for host verification.
+- The tray tooltip summarizes the current lock count and pending-review count so topology changes are visible even before the menu is opened. If the live desktop controller is unavailable, the tray subtitle, instruction text, tooltip, and a startup warning notification all say so explicitly instead of implying that desktop locking is active.
+- When the live controller cannot start, the Windows `--background` path also writes an explicit `stderr` diagnostic so unavailable-controller runs can be captured honestly without relying on replay.
 - Win32 padlock menu bitmaps are recreated from the current `SM_CXMENUCHECK` and `SM_CYMENUCHECK` metrics on each refresh so the indicators stay aligned with system menu sizing across DPI scales and theme variants.
 - On non-Windows hosts, set `LOCKING_GLASS_TRAY_SCRIPT` to a scripted event file if you want to replay tray clicks, hover-identify steps, explicit `hover-clear` transitions, disconnect/reconnect cycles, and new-monitor review prompts through the same `--background` code path for local verification.
 
@@ -74,6 +79,7 @@ For the real Windows hook proof, run `scripts/run-live-desktop-probe.ps1` from a
 - On live Windows desktop switches, the controller now enumerates real top-level HWNDs, resolves their current monitor and desktop through the existing monitor model plus `VirtualDesktopAccessor.dll:GetWindowDesktopNumber`, and applies `MoveWindowToDesktopNumber` only to windows on locked monitors whose source/target desktop context is known.
 - The live path fails closed for windows it cannot classify safely. If a window spans multiple monitors, has no live monitor intersection, is an owned/tool window on a locked monitor, or its desktop cannot be resolved, LockingGlass reports that skip in the desktop-switch report instead of guessing.
 - The controller now looks for `VirtualDesktopAccessor.dll` through `LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER`, the repo-local `build/windows-live-desktop-probe/` download location, the executable directory, and the current working directory so the Windows readiness probe and the live move path stay aligned during local proof runs.
+- The Windows background tray session now launches the same controller in a long-running watch mode (`required_events=0`, `allow_script_replay=false`), so persisted tray lock changes are reread from `SessionStore` and applied to subsequent real desktop switches instead of only the proof-oriented two-event CLI watch mode.
 - `docs/windows-live-desktop-hook.md` records the chosen live boundary: `VirtualDesktopAccessor.dll:RegisterPostMessageHook` for real desktop-switch notifications and `VirtualDesktopAccessor.dll:MoveWindowToDesktopNumber` for isolated top-level window moves.
 - The Windows proof probe for ticket `#15` also showed that direct `IVirtualDesktopManager.MoveWindowToDesktop` is not the supported move path on this runtime; the helper move export succeeded while COM remained useful for readiness and desktop-id verification.
 - In the replay format, each `event	desktop-switch	<trigger>	<from>	<to>` block can include `monitor` rows plus `window` rows (`window_id`, `title`, `monitor_id`, `monitor_label`, `desktop_id`, `is_top_level`, `can_move`).

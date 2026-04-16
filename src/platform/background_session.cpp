@@ -4,11 +4,15 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
+#include "locking_glass/integration/virtual_desktop_controller.h"
 #include "locking_glass/core/session_store.h"
 #include "locking_glass/core/tray_ui.h"
 #include "locking_glass/platform/monitor_gateway.h"
@@ -31,6 +35,93 @@ namespace {
 using std::max;
 using std::min;
 
+constexpr char kBackgroundControllerStatusOverrideEnv[] =
+    "LOCKING_GLASS_BACKGROUND_CONTROLLER_STATUS";
+
+locking_glass::integration::CapabilityReport MakeReadyControllerCapability() {
+  return locking_glass::integration::CapabilityReport{
+      .component = "desktop-locking",
+      .status = locking_glass::integration::CapabilityStatus::kReady,
+      .detail =
+          "The live desktop controller is active for the background tray session.",
+  };
+}
+
+locking_glass::integration::CapabilityReport MakeUnavailableControllerCapability(
+    std::string detail) {
+  if (detail.empty()) {
+    detail =
+        "The live desktop controller is unavailable for the background tray "
+        "session.";
+  }
+
+  return locking_glass::integration::CapabilityReport{
+      .component = "desktop-locking",
+      .status = locking_glass::integration::CapabilityStatus::kUnavailable,
+      .detail = std::move(detail),
+  };
+}
+
+std::optional<locking_glass::integration::CapabilityReport>
+ResolveBackgroundControllerCapabilityOverride() {
+  const char* raw_value = std::getenv(kBackgroundControllerStatusOverrideEnv);
+  if (raw_value == nullptr || raw_value[0] == '\0') {
+    return std::nullopt;
+  }
+
+  const std::string value(raw_value);
+  if (value == "ready") {
+    return MakeReadyControllerCapability();
+  }
+
+  constexpr char kUnavailablePrefix[] = "unavailable:";
+  if (value == "unavailable") {
+    return MakeUnavailableControllerCapability({});
+  }
+  if (value.rfind(kUnavailablePrefix, 0) == 0) {
+    return MakeUnavailableControllerCapability(
+        value.substr(sizeof(kUnavailablePrefix) - 1U));
+  }
+
+  return MakeUnavailableControllerCapability(
+      "Background-session controller override: " + value);
+}
+
+bool IsLiveControllerAvailable(
+    const locking_glass::integration::CapabilityReport& capability) {
+  return capability.status ==
+         locking_glass::integration::CapabilityStatus::kReady;
+}
+
+void ApplyLiveControllerStatus(
+    const locking_glass::integration::CapabilityReport& capability,
+    const bool watcher_started, core::TrayMenuModel* model) {
+  if (model == nullptr ||
+      (IsLiveControllerAvailable(capability) && watcher_started)) {
+    return;
+  }
+
+  if (!model->header.subtitle.empty()) {
+    model->header.subtitle += " | ";
+  }
+  model->header.subtitle += "live controller unavailable";
+  model->header.instruction =
+      "Live desktop control unavailable. Tray lock toggles are still saved, "
+      "but subsequent Windows desktop switches will not follow them.";
+
+  if (model->icon.tooltip.empty()) {
+    model->icon.tooltip = "LockingGlass - Live desktop control unavailable";
+  } else {
+    model->icon.tooltip += " | live desktop control unavailable";
+  }
+
+  if (model->icon.accessibility_label.empty()) {
+    model->icon.accessibility_label = "live desktop control unavailable";
+  } else {
+    model->icon.accessibility_label += ", live desktop control unavailable";
+  }
+}
+
 BackgroundSessionPrompt BuildBackgroundPrompt(
     const core::MonitorReviewPrompt& prompt) {
   return BackgroundSessionPrompt{
@@ -51,7 +142,11 @@ BackgroundSessionHighlight BuildBackgroundHighlight(
   };
 }
 
-BackgroundSessionEvent BuildSessionEvent(const core::TrayMenuModel& model,
+BackgroundSessionEvent BuildSessionEvent(
+                                         const core::TrayMenuModel& model,
+                                         const locking_glass::integration::CapabilityReport&
+                                             live_controller_capability,
+                                         const bool live_controller_watcher_started,
                                          const bool tray_menu_visible,
                                          const core::MonitorReviewPrompt& prompt =
                                              core::MonitorReviewPrompt{},
@@ -66,6 +161,10 @@ BackgroundSessionEvent BuildSessionEvent(const core::TrayMenuModel& model,
       .tray_icon_variant = model.icon.variant,
       .tray_icon_tooltip = model.icon.tooltip,
       .tray_icon_review_badge = model.icon.review_badge,
+      .live_controller_available =
+          IsLiveControllerAvailable(live_controller_capability),
+      .live_controller_watcher_started = live_controller_watcher_started,
+      .live_controller_detail = live_controller_capability.detail,
       .monitors = {},
       .prompt = BuildBackgroundPrompt(prompt),
       .highlight = BuildBackgroundHighlight(highlight),
@@ -89,18 +188,24 @@ BackgroundSessionEvent BuildSessionEvent(const core::TrayMenuModel& model,
 
 void PublishEvent(const BackgroundSessionObserver& observer,
                   const core::TrayMenuModel& model,
+                  const locking_glass::integration::CapabilityReport&
+                      live_controller_capability,
+                  const bool live_controller_watcher_started,
                   const bool tray_menu_visible,
                   const core::MonitorReviewPrompt& prompt =
                       core::MonitorReviewPrompt{},
                   const core::TrayIdentifyOverlay& highlight =
                       core::TrayIdentifyOverlay{}) {
   if (observer) {
-    observer(BuildSessionEvent(model, tray_menu_visible, prompt, highlight));
+    observer(BuildSessionEvent(model, live_controller_capability,
+                               live_controller_watcher_started,
+                               tray_menu_visible, prompt, highlight));
   }
 }
 
 #if defined(_WIN32)
 constexpr UINT kTrayIconMessage = WM_APP + 1;
+constexpr UINT kLiveControllerWatchFailedMessage = WM_APP + 2;
 constexpr UINT kMenuCommandMonitorBase = 1000;
 constexpr UINT kMenuCommandRefresh = 9000;
 constexpr UINT kMenuCommandExit = 9001;
@@ -152,6 +257,10 @@ struct BackgroundSessionState {
   std::string highlighted_monitor_key;
   bool tray_menu_open = false;
   UINT taskbar_created_message = 0;
+  locking_glass::integration::CapabilityReport live_controller_capability =
+      MakeReadyControllerCapability();
+  bool live_controller_watcher_started = true;
+  bool live_controller_notification_shown = false;
 };
 
 std::string BuildMonitorIdentityKey(const MonitorDescriptor& monitor) {
@@ -682,6 +791,14 @@ void ShowIdentifyOverlay(BackgroundSessionState* state,
   UpdateWindow(state->identify_overlay_window);
 }
 
+core::TrayMenuModel BuildBackgroundTrayMenuModel(BackgroundSessionState* state,
+                                                 std::string trigger) {
+  auto model = core::BuildTrayMenuModel(state->session, std::move(trigger));
+  ApplyLiveControllerStatus(state->live_controller_capability,
+                            state->live_controller_watcher_started, &model);
+  return model;
+}
+
 void PublishHoverClearEvent(BackgroundSessionState* state) {
   if (state == nullptr) {
     return;
@@ -689,7 +806,8 @@ void PublishHoverClearEvent(BackgroundSessionState* state) {
 
   auto hover_model = state->active_menu_model;
   hover_model.trigger = "tray-hover-clear";
-  PublishEvent(state->observer, hover_model, true);
+  PublishEvent(state->observer, hover_model, state->live_controller_capability,
+               state->live_controller_watcher_started, true);
 }
 
 void ShowReviewNotification(HWND window, BackgroundSessionState* state,
@@ -713,14 +831,51 @@ void ShowReviewNotification(HWND window, BackgroundSessionState* state,
   Shell_NotifyIconW(NIM_MODIFY, &notification);
 }
 
+void ShowControllerUnavailableNotification(HWND window,
+                                           BackgroundSessionState* state) {
+  if (window == nullptr || state == nullptr ||
+      state->live_controller_notification_shown ||
+      (IsLiveControllerAvailable(state->live_controller_capability) &&
+       state->live_controller_watcher_started)) {
+    return;
+  }
+
+  auto notification = state->tray_icon;
+  notification.cbSize = sizeof(notification);
+  notification.hWnd = window;
+  notification.uID = 1;
+  notification.uFlags = NIF_INFO;
+  notification.dwInfoFlags = NIIF_WARNING;
+  notification.uTimeout = 10000;
+
+  const auto title =
+      Widen("LockingGlass live desktop control unavailable");
+  const auto message = Widen(
+      "Tray lock toggles are still saved, but Windows desktop switches will "
+      "not follow them until the live controller is available.");
+  wcsncpy_s(notification.szInfoTitle, title.c_str(), _TRUNCATE);
+  wcsncpy_s(notification.szInfo, message.c_str(), _TRUNCATE);
+  Shell_NotifyIconW(NIM_MODIFY, &notification);
+  state->live_controller_notification_shown = true;
+}
+
+void LogControllerUnavailable(
+    const locking_glass::integration::CapabilityReport& capability) {
+  if (IsLiveControllerAvailable(capability)) {
+    return;
+  }
+
+  std::cerr << "LockingGlass background live desktop control unavailable: "
+            << capability.detail << '\n';
+}
+
 core::TrayMenuModel RefreshTrayModel(HWND window, BackgroundSessionState* state,
                                      std::string trigger,
                                      const bool tray_menu_visible,
                                      const bool emit_prompt) {
   state->session =
       state->session_store.Restore(state->monitor_gateway->Enumerate());
-  const auto model =
-      core::BuildTrayMenuModel(state->session, std::move(trigger));
+  const auto model = BuildBackgroundTrayMenuModel(state, std::move(trigger));
   const auto prompt = emit_prompt
                           ? core::BuildMonitorReviewPrompt(state->session)
                           : core::MonitorReviewPrompt{};
@@ -728,8 +883,14 @@ core::TrayMenuModel RefreshTrayModel(HWND window, BackgroundSessionState* state,
     HideIdentifyOverlay(state);
   }
   UpdateTrayVisuals(window, state, model);
-  PublishEvent(state->observer, model, tray_menu_visible, prompt);
-  ShowReviewNotification(window, state, prompt);
+  PublishEvent(state->observer, model, state->live_controller_capability,
+               state->live_controller_watcher_started, tray_menu_visible,
+               prompt);
+  ShowControllerUnavailableNotification(window, state);
+  if (IsLiveControllerAvailable(state->live_controller_capability) &&
+      state->live_controller_watcher_started) {
+    ShowReviewNotification(window, state, prompt);
+  }
   return model;
 }
 
@@ -740,13 +901,19 @@ void RepublishCurrentModel(HWND window, BackgroundSessionState* state,
                                core::MonitorReviewPrompt{},
                            const core::TrayIdentifyOverlay& highlight =
                                core::TrayIdentifyOverlay{}) {
-  auto model = core::BuildTrayMenuModel(state->session, std::move(trigger));
+  auto model = BuildBackgroundTrayMenuModel(state, std::move(trigger));
   if (!tray_menu_visible) {
     HideIdentifyOverlay(state);
   }
   UpdateTrayVisuals(window, state, model);
-  PublishEvent(state->observer, model, tray_menu_visible, prompt, highlight);
-  ShowReviewNotification(window, state, prompt);
+  PublishEvent(state->observer, model, state->live_controller_capability,
+               state->live_controller_watcher_started, tray_menu_visible,
+               prompt, highlight);
+  ShowControllerUnavailableNotification(window, state);
+  if (IsLiveControllerAvailable(state->live_controller_capability) &&
+      state->live_controller_watcher_started) {
+    ShowReviewNotification(window, state, prompt);
+  }
 }
 
 bool AddTrayIcon(HWND window, BackgroundSessionState* state) {
@@ -761,7 +928,7 @@ bool AddTrayIcon(HWND window, BackgroundSessionState* state) {
   state->tray_icon.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
   state->tray_icon.uCallbackMessage = kTrayIconMessage;
 
-  const auto model = core::BuildTrayMenuModel(state->session, "startup");
+  const auto model = BuildBackgroundTrayMenuModel(state, "startup");
   state->tray_icon_handle = CreateTrayStatusIcon(model.icon);
   state->tray_icon_handle_owned = state->tray_icon_handle != nullptr;
   if (state->tray_icon_handle == nullptr) {
@@ -941,8 +1108,44 @@ void UpdateHoverOverlay(BackgroundSessionState* state, const UINT command,
   ShowIdentifyOverlay(state, overlay);
   auto hover_model = state->active_menu_model;
   hover_model.trigger = "tray-hover";
-  PublishEvent(state->observer, hover_model, true, core::MonitorReviewPrompt{},
-               overlay);
+  PublishEvent(state->observer, hover_model, state->live_controller_capability,
+               state->live_controller_watcher_started, true,
+               core::MonitorReviewPrompt{}, overlay);
+}
+
+bool StartLiveControllerWatcher(
+    HWND window, BackgroundSessionState* state,
+    std::unique_ptr<locking_glass::integration::VirtualDesktopController>
+        live_controller) {
+  if (window == nullptr || state == nullptr || live_controller == nullptr ||
+      !IsLiveControllerAvailable(state->live_controller_capability)) {
+    return false;
+  }
+
+  const auto session_store = state->session_store;
+  try {
+    std::thread(
+        [window, session_store,
+         live_controller = std::move(live_controller)]() mutable {
+          (void)live_controller->WatchSwitches(
+              session_store,
+              [](const locking_glass::integration::DesktopSwitchReport&) {
+                return true;
+              },
+              locking_glass::integration::DesktopWatchOptions{
+                  .allow_script_replay = false,
+                  .required_events = 0,
+                  .timeout_seconds = 0,
+              });
+          PostMessageW(window, kLiveControllerWatchFailedMessage, 0, 0);
+        })
+        .detach();
+    state->live_controller_watcher_started = true;
+    return true;
+  } catch (...) {
+    state->live_controller_watcher_started = false;
+    return false;
+  }
 }
 
 LRESULT CALLBACK BackgroundWindowProc(HWND window, UINT message, WPARAM w_param,
@@ -974,6 +1177,18 @@ LRESULT CALLBACK BackgroundWindowProc(HWND window, UINT message, WPARAM w_param,
         UpdateHoverOverlay(state, LOWORD(w_param), HIWORD(w_param), l_param);
       }
       return 0;
+    case kLiveControllerWatchFailedMessage:
+      if (state != nullptr) {
+        state->live_controller_capability = MakeUnavailableControllerCapability(
+            "The live desktop watcher stopped, so tray lock toggles are saved "
+            "but no longer drive Windows desktop switches.");
+        state->live_controller_watcher_started = false;
+        state->live_controller_notification_shown = false;
+        LogControllerUnavailable(state->live_controller_capability);
+        RepublishCurrentModel(window, state, "live-controller-unavailable",
+                              false);
+      }
+      return 0;
     case kTrayIconMessage:
       if (state != nullptr &&
           (l_param == WM_CONTEXTMENU || l_param == WM_RBUTTONUP ||
@@ -1003,6 +1218,8 @@ LRESULT CALLBACK BackgroundWindowProc(HWND window, UINT message, WPARAM w_param,
 
 int RunWindowsTraySession(const BackgroundSessionObserver& observer) {
   HINSTANCE instance = GetModuleHandleW(nullptr);
+  auto live_controller =
+      locking_glass::integration::CreateVirtualDesktopController();
 
   WNDCLASSW window_class{};
   window_class.lpfnWndProc = BackgroundWindowProc;
@@ -1028,6 +1245,13 @@ int RunWindowsTraySession(const BackgroundSessionObserver& observer) {
   auto state = std::make_unique<BackgroundSessionState>();
   state->observer = observer;
   state->taskbar_created_message = RegisterWindowMessageW(L"TaskbarCreated");
+  if (const auto override = ResolveBackgroundControllerCapabilityOverride();
+      override.has_value()) {
+    state->live_controller_capability = *override;
+  } else {
+    state->live_controller_capability = live_controller->Probe();
+  }
+  state->live_controller_watcher_started = false;
   state->session =
       state->session_store.Restore(state->monitor_gateway->Enumerate());
 
@@ -1042,6 +1266,14 @@ int RunWindowsTraySession(const BackgroundSessionObserver& observer) {
     DestroyWindow(window);
     return 1;
   }
+
+  if (IsLiveControllerAvailable(state->live_controller_capability) &&
+      !StartLiveControllerWatcher(window, state.get(),
+                                  std::move(live_controller))) {
+    state->live_controller_capability = MakeUnavailableControllerCapability(
+        "LockingGlass failed to start the live desktop watcher thread.");
+  }
+  LogControllerUnavailable(state->live_controller_capability);
 
   if (!AddTrayIcon(window, state.get())) {
     DestroyWindow(window);
@@ -1253,6 +1485,17 @@ const platform::MonitorDescriptor* FindScriptMonitor(
   return nullptr;
 }
 
+core::TrayMenuModel BuildScriptTrayMenuModel(
+    const core::SessionRefreshResult& session, std::string trigger,
+    const locking_glass::integration::CapabilityReport&
+        live_controller_capability,
+    const bool live_controller_watcher_started) {
+  auto model = core::BuildTrayMenuModel(session, std::move(trigger));
+  ApplyLiveControllerStatus(live_controller_capability,
+                            live_controller_watcher_started, &model);
+  return model;
+}
+
 int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
   const char* script_path = std::getenv("LOCKING_GLASS_TRAY_SCRIPT");
   if (script_path == nullptr || script_path[0] == '\0') {
@@ -1269,6 +1512,11 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
   std::vector<MonitorDescriptor> current_monitors;
   bool has_session = false;
   bool tray_menu_visible = false;
+  const auto live_controller_capability =
+      ResolveBackgroundControllerCapabilityOverride().value_or(
+          MakeReadyControllerCapability());
+  const bool live_controller_watcher_started =
+      IsLiveControllerAvailable(live_controller_capability);
 
   for (const auto& step : steps) {
     switch (step.type) {
@@ -1278,7 +1526,11 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
         has_session = true;
         tray_menu_visible = false;
         PublishEvent(observer,
-                     core::BuildTrayMenuModel(session, step.trigger), false,
+                     BuildScriptTrayMenuModel(
+                         session, step.trigger, live_controller_capability,
+                         live_controller_watcher_started),
+                     live_controller_capability,
+                     live_controller_watcher_started, false,
                      core::BuildMonitorReviewPrompt(session));
         break;
       case TrayScriptStepType::kClick:
@@ -1288,13 +1540,19 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
         }
         tray_menu_visible = true;
         PublishEvent(observer,
-                     core::BuildTrayMenuModel(session, "tray-click"), true);
+                     BuildScriptTrayMenuModel(
+                         session, "tray-click", live_controller_capability,
+                         live_controller_watcher_started),
+                     live_controller_capability,
+                     live_controller_watcher_started, true);
         break;
       case TrayScriptStepType::kHover: {
         if (!has_session || !tray_menu_visible) {
           return 1;
         }
-        const auto model = core::BuildTrayMenuModel(session, "tray-hover");
+        const auto model = BuildScriptTrayMenuModel(
+            session, "tray-hover", live_controller_capability,
+            live_controller_watcher_started);
         const auto* monitor = FindScriptMonitor(model, step.target);
         if (monitor == nullptr) {
           return 1;
@@ -1305,7 +1563,9 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
           if (menu_monitor.monitor.label == monitor->label &&
               menu_monitor.monitor.stable_id == monitor->stable_id &&
               menu_monitor.monitor.device_path == monitor->device_path) {
-            PublishEvent(observer, model, true, core::MonitorReviewPrompt{},
+            PublishEvent(observer, model, live_controller_capability,
+                         live_controller_watcher_started, true,
+                         core::MonitorReviewPrompt{},
                          core::BuildTrayIdentifyOverlay(menu_monitor));
             published = true;
             break;
@@ -1321,15 +1581,20 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
           return 1;
         }
         PublishEvent(observer,
-                     core::BuildTrayMenuModel(session, "tray-hover-clear"),
-                     true);
+                     BuildScriptTrayMenuModel(
+                         session, "tray-hover-clear", live_controller_capability,
+                         live_controller_watcher_started),
+                     live_controller_capability,
+                     live_controller_watcher_started, true);
         break;
       case TrayScriptStepType::kToggle: {
         if (!has_session) {
           session = session_store.Restore(current_monitors);
           has_session = true;
         }
-        const auto model = core::BuildTrayMenuModel(session, "tray-click");
+        const auto model = BuildScriptTrayMenuModel(
+            session, "tray-click", live_controller_capability,
+            live_controller_watcher_started);
         const auto* monitor = FindScriptMonitor(model, step.target);
         if (monitor == nullptr ||
             !core::ToggleMonitorLock(session_store, &session.snapshot, *monitor)) {
@@ -1338,7 +1603,11 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
         session = session_store.Preview(current_monitors);
         tray_menu_visible = true;
         PublishEvent(observer,
-                     core::BuildTrayMenuModel(session, "tray-toggle"), true);
+                     BuildScriptTrayMenuModel(
+                         session, "tray-toggle", live_controller_capability,
+                         live_controller_watcher_started),
+                     live_controller_capability,
+                     live_controller_watcher_started, true);
         break;
       }
       case TrayScriptStepType::kRefresh:
@@ -1346,13 +1615,21 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
         has_session = true;
         tray_menu_visible = false;
         PublishEvent(observer,
-                     core::BuildTrayMenuModel(session, "tray-refresh"), false,
+                     BuildScriptTrayMenuModel(
+                         session, "tray-refresh", live_controller_capability,
+                         live_controller_watcher_started),
+                     live_controller_capability,
+                     live_controller_watcher_started, false,
                      core::BuildMonitorReviewPrompt(session));
         break;
       case TrayScriptStepType::kExit:
         tray_menu_visible = false;
         PublishEvent(observer,
-                     core::BuildTrayMenuModel(session, "exit"), false);
+                     BuildScriptTrayMenuModel(
+                         session, "exit", live_controller_capability,
+                         live_controller_watcher_started),
+                     live_controller_capability,
+                     live_controller_watcher_started, false);
         return 0;
     }
   }
@@ -1369,7 +1646,7 @@ class BackgroundSessionImpl final : public BackgroundSession {
         .component = "background-session",
         .status = locking_glass::integration::CapabilityStatus::kReady,
         .detail =
-            "Background startup enters a hidden Win32 message loop, renders a status-aware Shell_NotifyIcon tray icon, shows full-monitor hover highlight overlays for monitors, and exposes per-monitor padlock toggles through a structured popup menu.",
+            "Background startup enters a hidden Win32 message loop, renders a status-aware Shell_NotifyIcon tray icon, starts the live desktop watcher when the controller is available, and fails closed in the tray UI when live desktop control is unavailable.",
     };
 #else
     return locking_glass::integration::CapabilityReport{
