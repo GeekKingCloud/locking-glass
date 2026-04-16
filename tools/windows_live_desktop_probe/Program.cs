@@ -476,6 +476,8 @@ namespace LockingGlass.WindowsLiveDesktopProbe
         private const int SW_SHOW = 5;
         private const uint TimeoutTimerId = 1;
         private const uint SwitchTimerId = 2;
+        private const int MoveVerificationMaxPolls = 60;
+        private const int MoveVerificationSleepMilliseconds = 50;
 
         private readonly ProbeOptions _options;
         private readonly ProbeLogger _logger;
@@ -834,27 +836,24 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             }
 
             Guid movedDesktopId;
-            try
-            {
-                movedDesktopId = _desktopManager.GetWindowDesktopId(moveTargetHandle);
-            }
-            catch (Exception ex)
+            int movedDesktopNumber;
+            if (!TryWaitForDesktopAssignment(
+                    moveTargetHandle,
+                    alternateDesktopId,
+                    _alternateDesktopNumber,
+                    "alternate move",
+                    out movedDesktopId,
+                    out movedDesktopNumber))
             {
                 FailClosed(
-                    "IVirtualDesktopManager.GetWindowDesktopId failed after the alternate move: " +
-                    ex.Message);
+                    "MoveWindowToDesktop succeeded but the probe window landed on desktop GUID " +
+                    movedDesktopId + " with helper desktop " + movedDesktopNumber +
+                    " after polling for the alternate move.");
                 return false;
             }
             _logger.Info(
                 "Move-path check after alternate move: COM reports desktop GUID " +
-                movedDesktopId + ".");
-            if (movedDesktopId != alternateDesktopId)
-            {
-                FailClosed(
-                    "MoveWindowToDesktop succeeded but the probe window landed on desktop GUID " +
-                    movedDesktopId + " instead of " + alternateDesktopId + ".");
-                return false;
-            }
+                movedDesktopId + " with helper desktop " + movedDesktopNumber + ".");
 
             var moveBackResult =
                 _controller.MoveWindowToDesktopNumber(
@@ -869,31 +868,84 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             }
 
             Guid returnedDesktopId;
-            try
-            {
-                returnedDesktopId = _desktopManager.GetWindowDesktopId(moveTargetHandle);
-            }
-            catch (Exception ex)
+            int returnedDesktopNumber;
+            if (!TryWaitForDesktopAssignment(
+                    moveTargetHandle,
+                    initialDesktopId,
+                    _initialDesktopNumber,
+                    "return move",
+                    out returnedDesktopId,
+                    out returnedDesktopNumber))
             {
                 FailClosed(
-                    "IVirtualDesktopManager.GetWindowDesktopId failed after the return move: " +
-                    ex.Message);
+                    "MoveWindowToDesktop succeeded but the probe window returned to desktop GUID " +
+                    returnedDesktopId + " with helper desktop " + returnedDesktopNumber +
+                    " after polling for the return move.");
                 return false;
             }
             _logger.Info(
                 "Move-path check after return move: COM reports desktop GUID " +
-                returnedDesktopId + ".");
-            if (returnedDesktopId != initialDesktopId)
-            {
-                FailClosed(
-                    "MoveWindowToDesktop succeeded but the probe window returned to desktop GUID " +
-                    returnedDesktopId + " instead of " + initialDesktopId + ".");
-                return false;
-            }
+                returnedDesktopId + " with helper desktop " + returnedDesktopNumber + ".");
 
             _logger.Info(
                 "Move-path exercise succeeded with IVirtualDesktopManager plus the live helper's desktop lookup.");
             return true;
+        }
+
+        private bool TryWaitForDesktopAssignment(
+            IntPtr windowHandle,
+            Guid expectedDesktopId,
+            int expectedDesktopNumber,
+            string phase,
+            out Guid observedDesktopId,
+            out int observedDesktopNumber)
+        {
+            observedDesktopId = Guid.Empty;
+            observedDesktopNumber = -1;
+            string? lastDesktopManagerError = null;
+
+            for (var attempt = 1; attempt <= MoveVerificationMaxPolls; attempt += 1)
+            {
+                try
+                {
+                    observedDesktopId = _desktopManager!.GetWindowDesktopId(windowHandle);
+                    lastDesktopManagerError = null;
+                }
+                catch (Exception ex)
+                {
+                    lastDesktopManagerError = ex.Message;
+                    observedDesktopId = Guid.Empty;
+                }
+
+                observedDesktopNumber = _controller.GetWindowDesktopNumber(windowHandle);
+                if (observedDesktopId == expectedDesktopId)
+                {
+                    if (attempt > 1)
+                    {
+                        _logger.Info(
+                            "Move-path verification for " + phase + " settled after " +
+                            attempt + " poll(s); helper desktop " +
+                            observedDesktopNumber + ".");
+                    }
+
+                    return true;
+                }
+
+                if (attempt < MoveVerificationMaxPolls)
+                {
+                    Thread.Sleep(MoveVerificationSleepMilliseconds);
+                }
+            }
+
+            if (!string.IsNullOrEmpty(lastDesktopManagerError))
+            {
+                _logger.Info(
+                    "Move-path verification for " + phase +
+                    " never observed the expected COM desktop GUID; last COM error: " +
+                    lastDesktopManagerError + ".");
+            }
+
+            return false;
         }
 
         private bool TryAcquireMoveTarget(

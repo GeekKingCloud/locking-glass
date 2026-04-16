@@ -1,5 +1,7 @@
 #include "windows_virtual_desktop_surface.h"
 
+#include <filesystem>
+
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <objbase.h>
@@ -27,6 +29,31 @@ HMODULE LoadVirtualDesktopHelper() {
   if (length > 0 && length < MAX_PATH) {
     return LoadLibraryW(helper_path);
   }
+
+  wchar_t module_path[MAX_PATH];
+  const DWORD module_length = GetModuleFileNameW(nullptr, module_path, MAX_PATH);
+  if (module_length > 0 && module_length < MAX_PATH) {
+    const auto adjacent_path =
+        std::filesystem::path(module_path).parent_path() /
+        "VirtualDesktopAccessor.dll";
+    if (HMODULE library = LoadLibraryW(adjacent_path.c_str()); library != nullptr) {
+      return library;
+    }
+  }
+
+  const auto repo_build_path = std::filesystem::current_path() / "build" /
+                               "windows-live-desktop-probe" /
+                               "VirtualDesktopAccessor.dll";
+  if (HMODULE library = LoadLibraryW(repo_build_path.c_str()); library != nullptr) {
+    return library;
+  }
+
+  const auto cwd_path =
+      std::filesystem::current_path() / "VirtualDesktopAccessor.dll";
+  if (HMODULE library = LoadLibraryW(cwd_path.c_str()); library != nullptr) {
+    return library;
+  }
+
   return LoadLibraryW(L"VirtualDesktopAccessor.dll");
 }
 
@@ -40,11 +67,12 @@ WindowsVirtualDesktopSurfaceProbe ProbeWindowsVirtualDesktopSurface() {
   const HRESULT com_result = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
   probe.com_ready = SUCCEEDED(com_result) || com_result == RPC_E_CHANGED_MODE;
 
-  IVirtualDesktopManager* desktop_manager = nullptr;
+  IUnknown* desktop_manager = nullptr;
   if (probe.com_ready) {
     const HRESULT desktop_result =
         CoCreateInstance(CLSID_VirtualDesktopManager, nullptr, CLSCTX_ALL,
-                         IID_PPV_ARGS(&desktop_manager));
+                         IID_IUnknown,
+                         reinterpret_cast<void**>(&desktop_manager));
     probe.desktop_manager_ready =
         SUCCEEDED(desktop_result) && desktop_manager != nullptr;
   }
