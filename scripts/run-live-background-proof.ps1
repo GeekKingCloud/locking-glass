@@ -75,6 +75,9 @@ public static class LockingGlassBackgroundProofWin32
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hwnd);
 
+    [DllImport("user32.dll")]
+    private static extern void keybd_event(byte virtualKey, byte scanCode, uint flags, UIntPtr extraInfo);
+
     [DllImport("user32.dll", SetLastError = true)]
     private static extern int GetMenuItemCount(IntPtr hMenu);
 
@@ -106,6 +109,21 @@ public static class LockingGlassBackgroundProofWin32
     private const uint MF_BYPOSITION = 0x00000400;
     private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
     private const uint MOUSEEVENTF_LEFTUP = 0x0004;
+
+    public static void SwitchDesktop(bool moveRight)
+    {
+        const uint KEYEVENTF_KEYUP = 0x0002;
+        const byte VK_CONTROL = 0x11;
+        const byte VK_LWIN = 0x5B;
+        byte arrow = moveRight ? (byte)0x27 : (byte)0x25;
+
+        keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
+        keybd_event(VK_LWIN, 0, 0, UIntPtr.Zero);
+        keybd_event(arrow, 0, 0, UIntPtr.Zero);
+        keybd_event(arrow, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+        keybd_event(VK_LWIN, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+        keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+    }
 
     public static IntPtr FindBackgroundWindow()
     {
@@ -472,7 +490,21 @@ function Move-WindowToDesktop($helper, $window, [int]$desktopNumber, [string]$la
 }
 
 function Invoke-DesktopSwitch($helper, [int]$targetDesktop) {
-    $helper.GoToDesktopNumber($targetDesktop)
+    $currentDesktop = $helper.GetCurrentDesktopNumber()
+    if ($currentDesktop -eq $targetDesktop) {
+        return
+    }
+
+    if ($targetDesktop -eq ($currentDesktop + 1)) {
+        [LockingGlassBackgroundProofWin32]::SwitchDesktop($true)
+    }
+    elseif ($targetDesktop -eq ($currentDesktop - 1)) {
+        [LockingGlassBackgroundProofWin32]::SwitchDesktop($false)
+    }
+    else {
+        throw "Normal desktop switch proof only supports adjacent desktop transitions. Current=$currentDesktop target=$targetDesktop."
+    }
+
     for ($attempt = 0; $attempt -lt 40; $attempt += 1) {
         Start-Sleep -Milliseconds 250
         if ($helper.GetCurrentDesktopNumber() -eq $targetDesktop) {
@@ -666,7 +698,7 @@ try {
 
         $watcherEvidence = Get-WatcherProcessEvidence -parentProcessId $watchProcess.Id
         $initialDesktop = $helper.GetCurrentDesktopNumber()
-        $alternateDesktop = if ($initialDesktop -eq 0) { 1 } else { 0 }
+        $alternateDesktop = if ($initialDesktop -lt ($desktopCount - 1)) { $initialDesktop + 1 } else { $initialDesktop - 1 }
 
         $createdWindows += Start-NotepadWindow -titleFragment 'lg-bg-locked-source'
         Place-WindowOnMonitor -window $createdWindows[-1] -monitor $lockedMonitor

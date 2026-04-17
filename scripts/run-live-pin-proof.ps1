@@ -367,7 +367,21 @@ function Move-WindowToDesktop($helper, $window, [int]$desktopNumber, [string]$la
 }
 
 function Invoke-DesktopSwitch($helper, [int]$targetDesktop) {
-    $helper.GoToDesktopNumber($targetDesktop)
+    $currentDesktop = $helper.GetCurrentDesktopNumber()
+    if ($currentDesktop -eq $targetDesktop) {
+        return
+    }
+
+    if ($targetDesktop -eq ($currentDesktop + 1)) {
+        [LockingGlassProofWin32]::SwitchDesktop($true)
+    }
+    elseif ($targetDesktop -eq ($currentDesktop - 1)) {
+        [LockingGlassProofWin32]::SwitchDesktop($false)
+    }
+    else {
+        throw "Normal desktop switch proof only supports adjacent desktop transitions. Current=$currentDesktop target=$targetDesktop."
+    }
+
     for ($attempt = 0; $attempt -lt 40; $attempt += 1) {
         Start-Sleep -Milliseconds 250
         if ($helper.GetCurrentDesktopNumber() -eq $targetDesktop) {
@@ -414,7 +428,7 @@ try {
         }
 
         $initialDesktop = $helper.GetCurrentDesktopNumber()
-        $alternateDesktop = if ($initialDesktop -eq 0) { 1 } else { 0 }
+        $alternateDesktop = if ($initialDesktop -lt ($desktopCount - 1)) { $initialDesktop + 1 } else { $initialDesktop - 1 }
 
         $createdWindows += Start-NotepadWindow -titleFragment 'lg-locked-source'
         Place-WindowOnMonitor -window $createdWindows[-1] -monitor $lockedMonitor
