@@ -30,9 +30,10 @@ if (-not (Test-Path $HelperDllPath)) {
 
 $watchStdout = Join-Path $ProofDir 'background.stdout.txt'
 $watchStderr = Join-Path $ProofDir 'background.stderr.txt'
+$backgroundReportPath = Join-Path $ProofDir 'background.desktop-switch-reports.txt'
 $sessionPath = Join-Path $ProofDir 'session.tsv'
 $stateJson = Join-Path $ProofDir 'proof-state.json'
-Remove-Item $watchStdout, $watchStderr, $sessionPath, ($sessionPath + '.invalid'), $stateJson -ErrorAction SilentlyContinue
+Remove-Item $watchStdout, $watchStderr, $backgroundReportPath, $sessionPath, ($sessionPath + '.invalid'), $stateJson -ErrorAction SilentlyContinue
 
 Add-Type -TypeDefinition @"
 using System;
@@ -490,6 +491,74 @@ function Get-WindowDesktopMap($helper, [array]$windows) {
     return $result
 }
 
+function Get-BackgroundReportCount([string]$path) {
+    if (-not (Test-Path $path)) {
+        return 0
+    }
+
+    $content = [System.IO.File]::ReadAllText($path)
+    return ([regex]::Matches($content, [regex]::Escape('LockingGlass desktop switch policy'))).Count
+}
+
+function Wait-ForBackgroundReportCount([string]$path, [int]$expectedMinimum) {
+    for ($attempt = 0; $attempt -lt 120; $attempt += 1) {
+        if ((Get-BackgroundReportCount -path $path) -ge $expectedMinimum) {
+            return
+        }
+        Start-Sleep -Milliseconds 250
+    }
+
+    throw "Timed out waiting for $expectedMinimum background desktop switch report(s) in $path."
+}
+
+function Get-BackgroundReportSummary([string]$path, [array]$windowTitles) {
+    if (-not (Test-Path $path)) {
+        return [pscustomobject]@{
+            exists = $false
+            report_count = 0
+            size_bytes = 0
+            window_mentions = @{}
+            excerpt = @()
+        }
+    }
+
+    $item = Get-Item $path
+    $content = [System.IO.File]::ReadAllText($path)
+    $lines = [System.IO.File]::ReadAllLines($path)
+    $windowMentions = @{}
+    foreach ($title in $windowTitles) {
+        $windowMentions[$title] = ([regex]::Matches($content, [regex]::Escape($title))).Count
+    }
+
+    $excerpt = @(
+        $lines |
+            Where-Object {
+                $_ -eq 'LockingGlass desktop switch policy' -or
+                $_ -eq 'Locked monitors:' -or
+                $_ -eq 'Moves:' -or
+                $_ -eq 'Move results:' -or
+                $_ -eq 'Resulting windows:' -or
+                $_.Contains('  - restored locks:') -or
+                $_.Contains('  - locked monitors:') -or
+                $_.Contains('  - planned moves:') -or
+                $_.Contains('  - from desktop:') -or
+                $_.Contains('  - to desktop:') -or
+                $_.Contains('lg-bg-') -or
+                $_ -match ' : (moved|failed) \('
+            } |
+            Select-Object -First 160
+    )
+
+    return [pscustomobject]@{
+        exists = $true
+        path = $path
+        report_count = ([regex]::Matches($content, [regex]::Escape('LockingGlass desktop switch policy'))).Count
+        size_bytes = $item.Length
+        window_mentions = $windowMentions
+        excerpt = $excerpt
+    }
+}
+
 function Get-WatcherProcessEvidence([int]$parentProcessId) {
     $all = Get-CimInstance Win32_Process
     $children = $all | Where-Object { $_.ParentProcessId -eq $parentProcessId }
@@ -591,6 +660,7 @@ try {
 
         $env:LOCKING_GLASS_SESSION_PATH = $sessionPath
         $env:LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER = $HelperDllPath
+        $env:LOCKING_GLASS_BACKGROUND_REPORT_PATH = $backgroundReportPath
         $watchProcess = Start-Process -FilePath $watchExe -ArgumentList '--background' -WorkingDirectory $repoRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $watchStdout -RedirectStandardError $watchStderr
         Start-Sleep -Seconds 7
 
@@ -627,7 +697,8 @@ try {
         $switchStates = @()
 
         Invoke-DesktopSwitch -helper $helper -targetDesktop $alternateDesktop
-        Start-Sleep -Seconds 6
+        Wait-ForBackgroundReportCount -path $backgroundReportPath -expectedMinimum 1
+        Start-Sleep -Seconds 1
         $switchStates += [pscustomobject]@{
             label = 'after-tray-lock'
             from = $initialDesktop
@@ -636,7 +707,8 @@ try {
         }
 
         Invoke-DesktopSwitch -helper $helper -targetDesktop $initialDesktop
-        Start-Sleep -Seconds 6
+        Wait-ForBackgroundReportCount -path $backgroundReportPath -expectedMinimum 2
+        Start-Sleep -Seconds 1
         $switchStates += [pscustomobject]@{
             label = 'after-tray-lock-return'
             from = $alternateDesktop
@@ -649,7 +721,8 @@ try {
         Start-Sleep -Seconds 2
 
         Invoke-DesktopSwitch -helper $helper -targetDesktop $alternateDesktop
-        Start-Sleep -Seconds 6
+        Wait-ForBackgroundReportCount -path $backgroundReportPath -expectedMinimum 3
+        Start-Sleep -Seconds 1
         $switchStates += [pscustomobject]@{
             label = 'after-tray-unlock'
             from = $initialDesktop
@@ -669,12 +742,19 @@ try {
             background_pid = $watchProcess.Id
             background_stdout = $watchStdout
             background_stderr = $watchStderr
+            background_desktop_reports = Get-BackgroundReportSummary -path $backgroundReportPath -windowTitles @(
+                'lg-bg-locked-source',
+                'lg-bg-unlocked-source',
+                'lg-bg-locked-target',
+                'lg-bg-unlocked-target'
+            )
         }
         $proofState | ConvertTo-Json -Depth 6 | Set-Content -Path $stateJson -Encoding UTF8
 
         Write-Host ('proof state: ' + $stateJson)
         Write-Host ('background stdout: ' + $watchStdout)
         Write-Host ('background stderr: ' + $watchStderr)
+        Write-Host ('background desktop reports: ' + $backgroundReportPath)
     }
     finally {
         if ($helper) {
@@ -690,6 +770,7 @@ finally {
 
     Remove-Item Env:LOCKING_GLASS_SESSION_PATH -ErrorAction SilentlyContinue
     Remove-Item Env:LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER -ErrorAction SilentlyContinue
+    Remove-Item Env:LOCKING_GLASS_BACKGROUND_REPORT_PATH -ErrorAction SilentlyContinue
 
     foreach ($window in $createdWindows) {
         try {

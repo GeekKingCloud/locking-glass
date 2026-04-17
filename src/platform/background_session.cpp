@@ -37,6 +37,10 @@ using std::min;
 
 constexpr char kBackgroundControllerStatusOverrideEnv[] =
     "LOCKING_GLASS_BACKGROUND_CONTROLLER_STATUS";
+#if defined(_WIN32)
+constexpr char kBackgroundDesktopReportPathEnv[] =
+    "LOCKING_GLASS_BACKGROUND_REPORT_PATH";
+#endif
 
 locking_glass::integration::CapabilityReport MakeReadyControllerCapability() {
   return locking_glass::integration::CapabilityReport{
@@ -121,6 +125,44 @@ void ApplyLiveControllerStatus(
     model->icon.accessibility_label += ", live desktop control unavailable";
   }
 }
+
+#if defined(_WIN32)
+std::string ReadBackgroundDesktopReportPathFromEnv() {
+  const char* raw_value = std::getenv(kBackgroundDesktopReportPathEnv);
+  if (raw_value == nullptr) {
+    return {};
+  }
+
+  return raw_value;
+}
+
+void EmitBackgroundDesktopSwitchReport(
+    const std::string& report_path,
+    const locking_glass::integration::DesktopSwitchReport& report) {
+  const std::string formatted =
+      locking_glass::integration::FormatDesktopSwitchReport(report);
+  std::cout << formatted << std::flush;
+
+  if (report_path.empty()) {
+    return;
+  }
+
+  std::ofstream output(report_path,
+                       std::ios::out | std::ios::app | std::ios::binary);
+  if (!output.is_open()) {
+    std::cerr << "LockingGlass could not append the background desktop switch "
+                 "report to "
+              << report_path << '\n';
+    return;
+  }
+
+  output << formatted;
+  if (!formatted.empty() && formatted.back() != '\n') {
+    output << '\n';
+  }
+  output.flush();
+}
+#endif
 
 BackgroundSessionPrompt BuildBackgroundPrompt(
     const core::MonitorReviewPrompt& prompt) {
@@ -1123,13 +1165,17 @@ bool StartLiveControllerWatcher(
   }
 
   const auto session_store = state->session_store;
+  const auto report_path = ReadBackgroundDesktopReportPathFromEnv();
   try {
     std::thread(
-        [window, session_store,
+        [window, session_store, report_path,
          live_controller = std::move(live_controller)]() mutable {
           (void)live_controller->WatchSwitches(
               session_store,
-              [](const locking_glass::integration::DesktopSwitchReport&) {
+              [report_path](
+                  const locking_glass::integration::DesktopSwitchReport&
+                      report) {
+                EmitBackgroundDesktopSwitchReport(report_path, report);
                 return true;
               },
               locking_glass::integration::DesktopWatchOptions{
