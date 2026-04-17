@@ -1,6 +1,6 @@
 # LockingGlass
 
-Initial scaffold for a Windows-resident tray utility that will keep selected monitors pinned while other displays continue following Windows virtual desktop changes.
+Windows-resident tray utility for keeping selected monitors visually pinned while other displays continue following real Windows virtual desktop changes. The shipped Windows package now targets the proven live-controller path and fails closed when the helper-backed live controller cannot start.
 
 ## Layout
 
@@ -42,16 +42,29 @@ For the Windows background-session proof path, run `scripts/run-live-background-
 
 To prove the honest fail-closed path on Windows, run `scripts/run-background-unavailable-proof.ps1`. It launches `--background` with a missing helper path and captures the background-session stderr diagnostic under `build/windows-background-unavailable-proof/`.
 
+## Windows Install
+
+`scripts/stage-windows-install.ps1` stages a Windows install package under `build/windows-install-stage/LockingGlass/`. That staged package bundles the proven `LockingGlass.exe` build, the published Windows live desktop probe, `run-live-desktop-probe.ps1`, `VirtualDesktopAccessor.dll`, a launcher cmd file, and an install README that states the current limits honestly.
+
+`scripts/install-staged-windows-build.ps1` installs that staged package into `%LOCALAPPDATA%\\Programs\\LockingGlass` by default, writes Start Menu shortcuts for the launcher and README, and can optionally run `LockingGlass.exe --install-autostart` or launch the background tray app immediately after install.
+When refreshing an existing install, that script now stops any already-running LockingGlass or bundled probe processes from the install directory before replacing files, so the helper DLL does not stay locked from the previous installed run.
+
+`scripts/run-installed-background-proof.ps1` stages the package, installs it, then reruns the live Windows background proof from the installed path instead of `build-win/bin`. That proof is the target-runtime check for the install flow: the installed app must launch `--background` and spawn the same helper-backed watch path used during acceptance proof.
+
+`docs/windows-installed-background-proof.md` records the 2026-04-16 installed-path proof and points at the durable artifacts under `build/windows-installed-background-proof/`.
+
 ## Autostart
 
 - `locking_glass --install-autostart` writes a `LockingGlass` entry under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 - The Run entry launches the binary with `--background`, which is wired to a hidden Win32 message loop on Windows so the process can stay resident after sign-in without foreground UI.
 - On Windows, `--background` now registers a status-aware `Shell_NotifyIconW` tray icon, starts the live desktop watcher when the controller is available, refreshes monitor state on `WM_DISPLAYCHANGE`, and opens a popup monitor-toggle menu when the tray icon is clicked.
 - `locking_glass --self-check` prints the exact autostart command that the Windows registration path will install, which keeps the contract host-verifiable from Linux workers.
+- The staged Windows install flow does not silently claim startup success. It only enables autostart when `LockingGlass.exe --install-autostart` is run explicitly, whether by the user or the installer script.
 
 ## Tray Session
 
 - The Win32 background session keeps a hidden tool window alive, renders a custom tray icon that changes between unlocked, mixed, locked, and review-needed states, and uses the same model to drive the menu header and tooltip copy.
+- The tray header copy now says exactly what the proven build does: you choose which monitors stay pinned while other monitors follow Windows desktop switches.
 - Clicking the tray icon rebuilds the current monitor list from `MonitorGateway`, reconciles it through `SessionStore`, and shows a structured popup menu with a title, live summary line, hover guidance, one rendered padlock icon per active monitor entry, and layout metadata in each monitor label (`resolution @ x,y`, plus `primary` when applicable) so identical panels stay distinguishable before hover.
 - Monitor entries now use a filled emerald padlock for locked displays, a hollow slate padlock for unlocked displays, and an amber review-badged padlock for newly added monitors that still need confirmation.
 - Hovering a monitor entry now paints a full-monitor topmost highlight overlay with a centered identify card, making it clear which physical screen is being referenced before toggling; the overlay text also echoes the monitor's placement metadata for easier verification in scripted runs.
@@ -79,13 +92,14 @@ To prove the honest fail-closed path on Windows, run `scripts/run-background-una
 - On live Windows desktop switches, the controller now enumerates real top-level HWNDs, resolves their current monitor and desktop through the existing monitor model plus `VirtualDesktopAccessor.dll:GetWindowDesktopNumber`, and applies `MoveWindowToDesktopNumber` only to windows on locked monitors whose source/target desktop context is known.
 - The live path fails closed for windows it cannot classify safely. If a window spans multiple monitors, has no live monitor intersection, is an owned/tool window on a locked monitor, or its desktop cannot be resolved, LockingGlass reports that skip in the desktop-switch report instead of guessing.
 - The controller now looks for `VirtualDesktopAccessor.dll` through `LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER`, the repo-local `build/windows-live-desktop-probe/` download location, the executable directory, and the current working directory so the Windows readiness probe and the live move path stay aligned during local proof runs.
+- The live desktop watcher now resolves `run-live-desktop-probe.ps1` and its probe assets from either the current checkout or a bundled install directory beside the executable, so the installed app launches the same helper-backed controller path instead of depending on repo-only source files.
 - The Windows background tray session now launches the same controller in a long-running watch mode (`required_events=0`, `allow_script_replay=false`), so persisted tray lock changes are reread from `SessionStore` and applied to subsequent real desktop switches instead of only the proof-oriented two-event CLI watch mode.
 - That background watcher now emits the same formatted `DesktopSwitchReport` evidence as direct `--watch-virtual-desktops`, and if `LOCKING_GLASS_BACKGROUND_REPORT_PATH` is set it also appends those reports to that file for Windows proof capture.
 - `docs/windows-live-desktop-hook.md` records the chosen live boundary: `VirtualDesktopAccessor.dll:RegisterPostMessageHook` for real desktop-switch notifications and `VirtualDesktopAccessor.dll:MoveWindowToDesktopNumber` for isolated top-level window moves.
 - The Windows proof probe for ticket `#15` also showed that direct `IVirtualDesktopManager.MoveWindowToDesktop` is not the supported move path on this runtime; the helper move export succeeded while COM remained useful for readiness and desktop-id verification.
 - In the replay format, each `event	desktop-switch	<trigger>	<from>	<to>` block can include `monitor` rows plus `window` rows (`window_id`, `title`, `monitor_id`, `monitor_label`, `desktop_id`, `is_top_level`, `can_move`).
 - `LOCKING_GLASS_DESKTOP_SCRIPT` remains a replay seam for local policy verification only. It is not valid completion evidence for the live Windows desktop hook path.
-- `scripts/run-live-desktop-probe.ps1` and `tools/windows_live_desktop_probe/Program.cs` now serve two roles on Windows: the existing proof probe for ticket `#15`, and the live watch backend that `locking_glass --watch-virtual-desktops` launches when replay is not explicitly requested.
+- `scripts/run-live-desktop-probe.ps1` and `tools/windows_live_desktop_probe/Program.cs` now serve two roles on Windows: the existing proof probe for ticket `#15`, and the live watch backend that `locking_glass --watch-virtual-desktops` launches when replay is not explicitly requested. The staged install package bundles the published probe output so installed launches do not require the source checkout.
 
 ## Monitor Enumeration
 
@@ -107,6 +121,7 @@ To prove the honest fail-closed path on Windows, run `scripts/run-background-una
 - `src/core/session_store.cpp` is where monitor lock state is serialized, restored, and reconciled against live monitor topology.
 - `src/core/tray_ui.cpp` is where active monitor session state is projected into the tray menu model, including the per-monitor padlock icon state, and where tray-driven lock toggles are persisted.
 - `scripts/run-live-desktop-probe.ps1` is the Windows-side wrapper that downloads the maintained helper DLL release, runs the .NET probe, and writes proof logs under `build/windows-live-desktop-probe/`.
+- `scripts/stage-windows-install.ps1` builds the staged Windows package, while `scripts/install-staged-windows-build.ps1` and `scripts/run-installed-background-proof.ps1` handle install-time launch and installed-path proof.
 
 ## Windows Integration Boundaries
 

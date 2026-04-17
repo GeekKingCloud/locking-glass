@@ -1,0 +1,68 @@
+param(
+    [string]$OutputDir,
+    [string]$HelperDllPath
+)
+
+$ErrorActionPreference = 'Stop'
+
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$windowsBuild = Join-Path $repoRoot 'build-win\bin\locking_glass.exe'
+$probeProject = Join-Path $repoRoot 'tools\windows_live_desktop_probe\LockingGlass.WindowsLiveDesktopProbe.csproj'
+$probePublishDir = Join-Path $repoRoot 'build\windows-live-desktop-probe\publish'
+$readmeSource = Join-Path $repoRoot 'docs\windows-install-package-readme.txt'
+$installerSource = Join-Path $repoRoot 'scripts\install-staged-windows-build.ps1'
+$launcherSource = Join-Path $repoRoot 'scripts\Start-LockingGlass.cmd'
+$probeScriptSource = Join-Path $repoRoot 'scripts\run-live-desktop-probe.ps1'
+$helperReleaseUrl = 'https://github.com/Ciantic/VirtualDesktopAccessor/releases/download/2024-12-16-windows11/VirtualDesktopAccessor.dll'
+
+if ([string]::IsNullOrWhiteSpace($OutputDir)) {
+    $OutputDir = Join-Path $repoRoot 'build\windows-install-stage\LockingGlass'
+}
+
+if (-not (Test-Path $windowsBuild)) {
+    throw "Missing Windows build at '$windowsBuild'. Build the proven Windows binary before staging the install package."
+}
+
+if (-not (Test-Path $probeProject)) {
+    throw "Missing Windows live desktop probe project at '$probeProject'."
+}
+
+if (-not (Test-Path $readmeSource)) {
+    throw "Missing install README source at '$readmeSource'."
+}
+
+if ([string]::IsNullOrWhiteSpace($HelperDllPath)) {
+    $HelperDllPath = Join-Path $repoRoot 'build\windows-live-desktop-probe\VirtualDesktopAccessor.dll'
+}
+
+if (-not (Test-Path $HelperDllPath)) {
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $HelperDllPath) | Out-Null
+    Invoke-WebRequest -Uri $helperReleaseUrl -OutFile $HelperDllPath
+}
+
+$dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
+if ($null -eq $dotnet) {
+    throw 'dotnet.exe is required to publish the bundled Windows live desktop probe.'
+}
+
+New-Item -ItemType Directory -Force -Path $probePublishDir | Out-Null
+& $dotnet.Source publish $probeProject -c Release -f netcoreapp3.1 -r win-x64 --self-contained false -o $probePublishDir
+if ($LASTEXITCODE -ne 0) {
+    throw 'dotnet publish failed for the Windows live desktop probe.'
+}
+
+Remove-Item -Recurse -Force $OutputDir -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+
+Copy-Item -Path $windowsBuild -Destination (Join-Path $OutputDir 'LockingGlass.exe') -Force
+Copy-Item -Path $probeScriptSource -Destination (Join-Path $OutputDir 'run-live-desktop-probe.ps1') -Force
+Copy-Item -Path $HelperDllPath -Destination (Join-Path $OutputDir 'VirtualDesktopAccessor.dll') -Force
+Copy-Item -Path $readmeSource -Destination (Join-Path $OutputDir 'README.txt') -Force
+Copy-Item -Path $installerSource -Destination (Join-Path $OutputDir 'Install-LockingGlass.ps1') -Force
+Copy-Item -Path $launcherSource -Destination (Join-Path $OutputDir 'Start-LockingGlass.cmd') -Force
+Copy-Item -Path (Join-Path $probePublishDir 'LockingGlass.WindowsLiveDesktopProbe*') -Destination $OutputDir -Force
+
+Write-Host ('Staged LockingGlass Windows install package: ' + $OutputDir)
+Write-Host ('Bundled app: ' + (Join-Path $OutputDir 'LockingGlass.exe'))
+Write-Host ('Bundled live watch script: ' + (Join-Path $OutputDir 'run-live-desktop-probe.ps1'))
+Write-Host ('Bundled helper: ' + (Join-Path $OutputDir 'VirtualDesktopAccessor.dll'))

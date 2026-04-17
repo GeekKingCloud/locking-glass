@@ -126,12 +126,34 @@ std::filesystem::path BuildLiveWatchLogPath() {
 }
 
 bool HasHelperWatchAssets(const std::filesystem::path& root) {
-  return std::filesystem::exists(root / "scripts" / "run-live-desktop-probe.ps1") &&
-         std::filesystem::exists(root / "tools" / "windows_live_desktop_probe" /
-                                 "LockingGlass.WindowsLiveDesktopProbe.csproj");
+  return (std::filesystem::exists(root / "scripts" /
+                                  "run-live-desktop-probe.ps1") &&
+          std::filesystem::exists(root / "tools" / "windows_live_desktop_probe" /
+                                  "LockingGlass.WindowsLiveDesktopProbe.csproj")) ||
+         (std::filesystem::exists(root / "run-live-desktop-probe.ps1") &&
+          (std::filesystem::exists(
+               root / "LockingGlass.WindowsLiveDesktopProbe.exe") ||
+           std::filesystem::exists(
+               root / "LockingGlass.WindowsLiveDesktopProbe.dll")));
 }
 
-std::filesystem::path FindRepositoryRoot(const std::filesystem::path& start) {
+std::filesystem::path ResolveLiveWatchScriptPath(
+    const std::filesystem::path& root) {
+  const auto bundled_script = root / "run-live-desktop-probe.ps1";
+  if (std::filesystem::exists(bundled_script)) {
+    return bundled_script;
+  }
+
+  const auto repository_script =
+      root / "scripts" / "run-live-desktop-probe.ps1";
+  if (std::filesystem::exists(repository_script)) {
+    return repository_script;
+  }
+
+  return {};
+}
+
+std::filesystem::path FindLiveWatchAssetRoot(const std::filesystem::path& start) {
   if (start.empty()) {
     return {};
   }
@@ -152,8 +174,9 @@ std::filesystem::path FindRepositoryRoot(const std::filesystem::path& start) {
   return {};
 }
 
-std::filesystem::path FindRepositoryRoot() {
-  if (const auto from_cwd = FindRepositoryRoot(std::filesystem::current_path());
+std::filesystem::path FindLiveWatchAssetRoot() {
+  if (const auto from_cwd =
+          FindLiveWatchAssetRoot(std::filesystem::current_path());
       !from_cwd.empty()) {
     return from_cwd;
   }
@@ -164,7 +187,7 @@ std::filesystem::path FindRepositoryRoot() {
     return {};
   }
 
-  return FindRepositoryRoot(std::filesystem::path(module_path).parent_path());
+  return FindLiveWatchAssetRoot(std::filesystem::path(module_path).parent_path());
 }
 
 std::string QuoteCommandArgument(const std::string& value) {
@@ -172,7 +195,7 @@ std::string QuoteCommandArgument(const std::string& value) {
 }
 
 std::filesystem::path ResolvePreferredHelperDllPath(
-    const std::filesystem::path& repository_root) {
+    const std::filesystem::path& asset_root) {
   wchar_t helper_path[MAX_PATH];
   const DWORD length = GetEnvironmentVariableW(
       L"LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER", helper_path, MAX_PATH);
@@ -180,9 +203,18 @@ std::filesystem::path ResolvePreferredHelperDllPath(
     return std::filesystem::path(helper_path);
   }
 
-  if (!repository_root.empty()) {
-    return repository_root / "build" / "windows-live-desktop-probe" /
-           "VirtualDesktopAccessor.dll";
+  if (!asset_root.empty()) {
+    const auto repository_helper =
+        asset_root / "build" / "windows-live-desktop-probe" /
+        "VirtualDesktopAccessor.dll";
+    if (std::filesystem::exists(repository_helper)) {
+      return repository_helper;
+    }
+
+    const auto bundled_helper = asset_root / "VirtualDesktopAccessor.dll";
+    if (std::filesystem::exists(bundled_helper)) {
+      return bundled_helper;
+    }
   }
 
   return std::filesystem::path("VirtualDesktopAccessor.dll");
@@ -201,12 +233,12 @@ std::filesystem::path ResolveWindowsPowerShellPath() {
 }
 
 std::filesystem::path BuildLiveWatchCommandScript(
-    const std::filesystem::path& repository_root,
+    const std::filesystem::path& asset_root,
     const std::filesystem::path& log_path,
     const DesktopWatchOptions& options) {
-  const auto script_path = repository_root / "scripts" / "run-live-desktop-probe.ps1";
+  const auto script_path = ResolveLiveWatchScriptPath(asset_root);
   const auto powershell_path = ResolveWindowsPowerShellPath();
-  const auto helper_dll_path = ResolvePreferredHelperDllPath(repository_root);
+  const auto helper_dll_path = ResolvePreferredHelperDllPath(asset_root);
   const auto command_script_path =
       std::filesystem::temp_directory_path() /
       ("locking-glass-live-desktop-watch-" +
@@ -846,18 +878,19 @@ DesktopSwitchReport BuildWindowsLiveDesktopSwitchReport(
 int WatchWindowsLiveSwitches(const core::SessionStore& store,
                              const DesktopSwitchCallback& callback,
                              const DesktopWatchOptions& options) {
-  const auto repository_root = FindRepositoryRoot();
-  if (repository_root.empty()) {
+  const auto asset_root = FindLiveWatchAssetRoot();
+  if (asset_root.empty()) {
     std::cerr
-        << "LockingGlass could not locate scripts/run-live-desktop-probe.ps1 or "
-           "tools/windows_live_desktop_probe from the current checkout, so the "
-           "live Windows desktop watch path cannot start.\n";
+        << "LockingGlass could not locate bundled live desktop watch assets "
+           "beside the executable or the repo-backed proof assets from the "
+           "current checkout, so the live Windows desktop watch path cannot "
+           "start.\n";
     return 1;
   }
 
   const auto log_path = BuildLiveWatchLogPath();
   const auto command_script_path =
-      BuildLiveWatchCommandScript(repository_root, log_path, options);
+      BuildLiveWatchCommandScript(asset_root, log_path, options);
   const std::string command = command_script_path.string() + " 2>&1";
   FILE* pipe = _popen(command.c_str(), "r");
   if (pipe == nullptr) {
@@ -882,7 +915,7 @@ int WatchWindowsLiveSwitches(const core::SessionStore& store,
     LiveDesktopSwitchEvent event;
     if (ParseLiveDesktopSwitchEvent(line, &event)) {
       if (helper == nullptr) {
-        helper = WindowsVirtualDesktopHelper::Load(repository_root,
+        helper = WindowsVirtualDesktopHelper::Load(asset_root,
                                                    &helper_library_detail);
         if (helper == nullptr) {
           std::cerr << "LockingGlass could not load VirtualDesktopAccessor.dll "

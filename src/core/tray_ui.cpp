@@ -152,11 +152,12 @@ std::string BuildMonitorIdentifyLabel(const TrayMonitorState& monitor) {
 
 TrayMenuHeader BuildTrayMenuHeader(const TrayMenuModel& model) {
   TrayMenuHeader header{
-      .title = "Lock monitors from the tray",
+      .title = "Keep selected monitors pinned",
       .subtitle = {},
       .instruction =
-          "Hover a monitor to reveal its on-screen label, then click to "
-          "toggle its padlock.",
+          "Hover a monitor to identify it, then click to choose whether it "
+          "stays pinned while other monitors follow Windows desktop "
+          "switches.",
   };
 
   std::ostringstream subtitle;

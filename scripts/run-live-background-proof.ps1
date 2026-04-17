@@ -1,4 +1,6 @@
 param(
+    [string]$WatchExe,
+    [string]$WorkingDirectory,
     [string]$HelperDllPath,
     [string]$ProofDir
 )
@@ -6,8 +8,15 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$watchExe = Join-Path $repoRoot 'build-win\bin\locking_glass.exe'
 $helperReleaseUrl = 'https://github.com/Ciantic/VirtualDesktopAccessor/releases/download/2024-12-16-windows11/VirtualDesktopAccessor.dll'
+
+if ([string]::IsNullOrWhiteSpace($WatchExe)) {
+    $watchExe = Join-Path $repoRoot 'build-win\bin\locking_glass.exe'
+}
+
+if ([string]::IsNullOrWhiteSpace($WorkingDirectory)) {
+    $WorkingDirectory = Split-Path -Parent $WatchExe
+}
 
 if (-not (Test-Path $watchExe)) {
     throw "Missing Windows build: $watchExe. Build it first with mingw."
@@ -693,7 +702,7 @@ try {
         $env:LOCKING_GLASS_SESSION_PATH = $sessionPath
         $env:LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER = $HelperDllPath
         $env:LOCKING_GLASS_BACKGROUND_REPORT_PATH = $backgroundReportPath
-        $watchProcess = Start-Process -FilePath $watchExe -ArgumentList '--background' -WorkingDirectory $repoRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $watchStdout -RedirectStandardError $watchStderr
+        $watchProcess = Start-Process -FilePath $watchExe -ArgumentList '--background' -WorkingDirectory $WorkingDirectory -WindowStyle Hidden -PassThru -RedirectStandardOutput $watchStdout -RedirectStandardError $watchStderr
         Start-Sleep -Seconds 7
 
         $watcherEvidence = Get-WatcherProcessEvidence -parentProcessId $watchProcess.Id
@@ -772,6 +781,8 @@ try {
             lock_state_after_tray_unlock = $lockStateAfterTrayUnlock
             watcher_processes = $watcherEvidence
             background_pid = $watchProcess.Id
+            background_executable = $watchExe
+            background_working_directory = $WorkingDirectory
             background_stdout = $watchStdout
             background_stderr = $watchStderr
             background_desktop_reports = Get-BackgroundReportSummary -path $backgroundReportPath -windowTitles @(

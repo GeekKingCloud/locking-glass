@@ -497,7 +497,7 @@ bool RunTraySessionChecks() {
                         "startup snapshot should not mark the tray menu as visible");
     failures += !Expect(events[0].prompt.visible,
                         "startup snapshot should prompt for first-run monitor review");
-    failures += !Expect(events[0].menu_title == "Lock monitors from the tray",
+    failures += !Expect(events[0].menu_title == "Keep selected monitors pinned",
                         "tray model should expose the tray menu title");
     failures += !Expect(events[0].tray_icon_variant == "review",
                         "new monitors should place the tray icon in review mode");
@@ -725,7 +725,7 @@ bool RunTraySessionChecks() {
           locking_glass::core::BuildTrayMenuModel(preview, "verification"));
   failures += !Expect(formatted.find("LockingGlass tray menu") != std::string::npos,
                       "formatted tray menu output should include the tray heading");
-  failures += !Expect(formatted.find("title: Lock monitors from the tray") !=
+  failures += !Expect(formatted.find("title: Keep selected monitors pinned") !=
                           std::string::npos,
                       "formatted tray menu output should include the tray title");
   failures += !Expect(formatted.find("variant: review") != std::string::npos,
