@@ -1,5 +1,5 @@
 .atoshell/*.env
-.atoshell/archive.json
+.atoshell/meta.json
 build/
 *.dSYM/
 tools/windows_live_desktop_probe/bin/
