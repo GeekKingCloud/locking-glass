@@ -15,7 +15,9 @@ $scriptRoot = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent $scriptRoot
 $probeProject = Join-Path $repoRoot 'tools\windows_live_desktop_probe\LockingGlass.WindowsLiveDesktopProbe.csproj'
 $probeBuildDir = Join-Path $repoRoot 'build\windows-live-desktop-probe'
-$helperReleaseUrl = 'https://github.com/Ciantic/VirtualDesktopAccessor/releases/download/2024-12-16-windows11/VirtualDesktopAccessor.dll'
+$helperResolverPath = Join-Path $scriptRoot 'resolve-virtual-desktop-helper.ps1'
+
+. $helperResolverPath
 
 $usesRepoProject = Test-Path $probeProject
 $artifactRoot = if ($usesRepoProject) { $probeBuildDir } else { $scriptRoot }
@@ -30,10 +32,7 @@ if ([string]::IsNullOrWhiteSpace($LogPath)) {
     $LogPath = Join-Path $artifactRoot ($logPrefix + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.log')
 }
 
-if (-not (Test-Path $HelperDllPath)) {
-    Write-Host "Downloading VirtualDesktopAccessor.dll from $helperReleaseUrl"
-    Invoke-WebRequest -Uri $helperReleaseUrl -OutFile $HelperDllPath
-}
+$HelperDllPath = Resolve-LockingGlassVirtualDesktopHelper -HelperDllPath $HelperDllPath
 
 if ([string]::IsNullOrWhiteSpace($ProbeExecutablePath)) {
     $candidateProbePaths = @(

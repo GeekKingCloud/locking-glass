@@ -56,7 +56,7 @@ Remove-Item -Recurse -Force $publishDir -ErrorAction SilentlyContinue
 Remove-Item -Force $payloadZip -ErrorAction SilentlyContinue
 Remove-Item -Force $targetExe -ErrorAction SilentlyContinue
 
-Compress-Archive -Path (Join-Path $StageDir '*') -DestinationPath $payloadZip -Force
+Compress-Archive -Path $stagedFiles.FullName -DestinationPath $payloadZip -Force
 
 & $dotnet.Source publish $bootstrapperProject `
     -c Release `

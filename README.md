@@ -77,7 +77,7 @@ Unlock return memory is separate from the session store. LockingGlass only remem
 ## Live Windows Proof Scripts
 
 - `scripts/run-live-desktop-probe.ps1`
-  Downloads `VirtualDesktopAccessor.dll` when needed, builds the .NET probe, and proves the live Windows hook path on a real desktop shell.
+  Downloads the pinned `VirtualDesktopAccessor.dll` release when needed, verifies its SHA-256, builds the .NET probe, and proves the live Windows hook path on a real desktop shell.
 - `scripts/run-live-background-proof.ps1`
   Launches the real tray app, toggles a monitor lock through the live menu, switches desktops, and records the resulting desktop-switch reports.
 - `scripts/run-installed-background-proof.ps1`
@@ -138,3 +138,7 @@ If the helper DLL or required exports are missing, LockingGlass marks live deskt
 LockingGlass is licensed under `GPL-3.0-only`. See [LICENSE](LICENSE).
 
 Windows release packages currently bundle `VirtualDesktopAccessor.dll` under the MIT License. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contributor workflow and validation notes.

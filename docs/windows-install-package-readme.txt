@@ -22,6 +22,7 @@ Files that must stay together
 - Install-LockingGlass.ps1
 - Start-LockingGlass.cmd
 - run-live-desktop-probe.ps1
+- resolve-virtual-desktop-helper.ps1
 - VirtualDesktopAccessor.dll
 - VERSION.txt
 - LockingGlass.WindowsLiveDesktopProbe publish output

@@ -9,7 +9,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $stageDir = Join-Path $repoRoot 'build\windows-install-stage\LockingGlass'
 
 if ([string]::IsNullOrWhiteSpace($InstallDir)) {
-    $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\LockingGlass-OctopushProof'
+    $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\LockingGlassInstalledProof'
 }
 
 if ([string]::IsNullOrWhiteSpace($ProofDir)) {

@@ -16,7 +16,9 @@ $thirdPartySource = Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md'
 $installerSource = Join-Path $repoRoot 'scripts\install-staged-windows-build.ps1'
 $launcherSource = Join-Path $repoRoot 'scripts\Start-LockingGlass.cmd'
 $probeScriptSource = Join-Path $repoRoot 'scripts\run-live-desktop-probe.ps1'
-$helperReleaseUrl = 'https://github.com/Ciantic/VirtualDesktopAccessor/releases/download/2024-12-16-windows11/VirtualDesktopAccessor.dll'
+$helperResolverSource = Join-Path $repoRoot 'scripts\resolve-virtual-desktop-helper.ps1'
+
+. $helperResolverSource
 
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
     $OutputDir = Join-Path $repoRoot 'build\windows-install-stage\LockingGlass'
@@ -50,10 +52,7 @@ if ([string]::IsNullOrWhiteSpace($HelperDllPath)) {
     $HelperDllPath = Join-Path $repoRoot 'build\windows-live-desktop-probe\VirtualDesktopAccessor.dll'
 }
 
-if (-not (Test-Path $HelperDllPath)) {
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $HelperDllPath) | Out-Null
-    Invoke-WebRequest -Uri $helperReleaseUrl -OutFile $HelperDllPath
-}
+$HelperDllPath = Resolve-LockingGlassVirtualDesktopHelper -HelperDllPath $HelperDllPath
 
 $dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
 if ($null -eq $dotnet) {
@@ -71,6 +70,7 @@ New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
 Copy-Item -Path $windowsBuild -Destination (Join-Path $OutputDir 'LockingGlass.exe') -Force
 Copy-Item -Path $probeScriptSource -Destination (Join-Path $OutputDir 'run-live-desktop-probe.ps1') -Force
+Copy-Item -Path $helperResolverSource -Destination (Join-Path $OutputDir 'resolve-virtual-desktop-helper.ps1') -Force
 Copy-Item -Path $HelperDllPath -Destination (Join-Path $OutputDir 'VirtualDesktopAccessor.dll') -Force
 Copy-Item -Path $readmeSource -Destination (Join-Path $OutputDir 'README.txt') -Force
 Copy-Item -Path $versionSource -Destination (Join-Path $OutputDir 'VERSION.txt') -Force

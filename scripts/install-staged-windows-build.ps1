@@ -64,6 +64,7 @@ $requiredFiles = @(
     'LockingGlass.exe',
     'Install-LockingGlass.ps1',
     'run-live-desktop-probe.ps1',
+    'resolve-virtual-desktop-helper.ps1',
     'VirtualDesktopAccessor.dll',
     'Start-LockingGlass.cmd',
     'README.txt',
@@ -98,6 +99,7 @@ New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 $filesToCopy = @(
     'LockingGlass.exe',
     'run-live-desktop-probe.ps1',
+    'resolve-virtual-desktop-helper.ps1',
     'VirtualDesktopAccessor.dll',
     'Start-LockingGlass.cmd',
     'README.txt',

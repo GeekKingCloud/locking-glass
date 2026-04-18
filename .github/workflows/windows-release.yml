@@ -109,6 +109,7 @@ jobs:
             'LockingGlass.exe',
             'Install-LockingGlass.ps1',
             'run-live-desktop-probe.ps1',
+            'resolve-virtual-desktop-helper.ps1',
             'VirtualDesktopAccessor.dll',
             'VERSION.txt',
             'LICENSE.txt',

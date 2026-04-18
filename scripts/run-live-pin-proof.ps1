@@ -10,6 +10,8 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
     $RepoRoot = Split-Path -Parent $PSScriptRoot
 }
 
+. (Join-Path $PSScriptRoot 'resolve-virtual-desktop-helper.ps1')
+
 $repoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
 $proofDir = Join-Path $repoRoot 'build\windows-live-pin-proof'
 $watchExe = if ([string]::IsNullOrWhiteSpace($WatchExePath)) {
@@ -28,15 +30,11 @@ $watchStdout = Join-Path $proofDir 'locking-glass-watch.stdout.txt'
 $watchStderr = Join-Path $proofDir 'locking-glass-watch.stderr.txt'
 $sessionPath = Join-Path $proofDir 'proof-session-state.tsv'
 $stateJson = Join-Path $proofDir 'proof-state.json'
-$helperReleaseUrl = 'https://github.com/Ciantic/VirtualDesktopAccessor/releases/download/2024-12-16-windows11/VirtualDesktopAccessor.dll'
 
 New-Item -ItemType Directory -Force -Path $proofDir | Out-Null
 Remove-Item $watchStdout, $watchStderr, $sessionPath, ($sessionPath + '.invalid'), $stateJson -ErrorAction SilentlyContinue
 
-if (-not (Test-Path $helperDllPath)) {
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $helperDllPath) | Out-Null
-    Invoke-WebRequest -Uri $helperReleaseUrl -OutFile $helperDllPath
-}
+$helperDllPath = Resolve-LockingGlassVirtualDesktopHelper -HelperDllPath $helperDllPath
 
 if (-not (Test-Path $watchExe)) {
     throw "Missing locking_glass.exe at '$watchExe'. Build the Windows binary for the current checkout before running the pinned-monitor proof."

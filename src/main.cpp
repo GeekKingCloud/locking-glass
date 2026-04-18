@@ -140,7 +140,7 @@ int main(int argc, char** argv) {
 #if defined(_WIN32)
   return runtime.background_session->Run();
 #else
-  std::cout << "LockingGlass scaffold bootstrap\n";
+  std::cout << "LockingGlass diagnostics\n";
   std::cout << locking_glass::core::FormatDiagnostics(diagnostics);
   return 0;
 #endif

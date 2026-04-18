@@ -8,7 +8,8 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$helperReleaseUrl = 'https://github.com/Ciantic/VirtualDesktopAccessor/releases/download/2024-12-16-windows11/VirtualDesktopAccessor.dll'
+
+. (Join-Path $PSScriptRoot 'resolve-virtual-desktop-helper.ps1')
 
 if ([string]::IsNullOrWhiteSpace($WatchExe)) {
     $watchExe = Join-Path $repoRoot 'build-win\bin\locking_glass.exe'
@@ -32,10 +33,7 @@ if ([string]::IsNullOrWhiteSpace($HelperDllPath)) {
     $HelperDllPath = Join-Path $repoRoot 'build\windows-live-desktop-probe\VirtualDesktopAccessor.dll'
 }
 
-if (-not (Test-Path $HelperDllPath)) {
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $HelperDllPath) | Out-Null
-    Invoke-WebRequest -Uri $helperReleaseUrl -OutFile $HelperDllPath
-}
+$HelperDllPath = Resolve-LockingGlassVirtualDesktopHelper -HelperDllPath $HelperDllPath
 
 $watchStdout = Join-Path $ProofDir 'background.stdout.txt'
 $watchStderr = Join-Path $ProofDir 'background.stderr.txt'
