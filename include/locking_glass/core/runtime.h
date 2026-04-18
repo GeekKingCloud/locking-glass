@@ -6,7 +6,6 @@
 
 #include "locking_glass/integration/autostart.h"
 #include "locking_glass/integration/capability.h"
-#include "locking_glass/integration/ffmpeg_probe.h"
 #include "locking_glass/integration/virtual_desktop_controller.h"
 #include "locking_glass/integration/windows_api_probe.h"
 #include "locking_glass/core/session_store.h"
@@ -21,7 +20,6 @@ struct Runtime {
   std::unique_ptr<platform::MonitorGateway> monitor_gateway;
   std::unique_ptr<platform::MonitorWatcher> monitor_watcher;
   std::unique_ptr<platform::BackgroundSession> background_session;
-  std::unique_ptr<integration::FfmpegProbe> ffmpeg_probe;
   std::unique_ptr<integration::VirtualDesktopController> virtual_desktop_controller;
   std::unique_ptr<integration::WindowsApiProbe> windows_api_probe;
   std::unique_ptr<integration::AutostartManager> autostart_manager;

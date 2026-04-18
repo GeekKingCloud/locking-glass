@@ -1,22 +1,49 @@
 LockingGlass for Windows
 
-This package installs the proven background tray build from the live-controller branch.
+This package installs the LockingGlass background tray app.
 
-What this build does
+Audit note
+- This file describes the intended installed runtime contract.
+- The proof scripts and proof documents in the repository are the verification path for live Windows behavior.
+
+What it does
 - Keeps selected monitors visually pinned while other monitors follow real Windows virtual desktop switches.
+- When you unlock a monitor, it makes a best-effort attempt to return windows that LockingGlass moved for that lock back to their remembered original workspace if that workspace still exists.
 - Launches the same helper-backed live controller path that passed the Windows acceptance proof.
 - Fails closed when the live controller cannot start instead of pretending replay or prototype behavior is live.
 
-Current limits
+Requirements
 - Windows only.
-- Requires at least two monitors and at least two Windows virtual desktops to exercise the pinned-monitor behavior.
-- The bundled files in this folder must stay together: LockingGlass.exe, run-live-desktop-probe.ps1, VirtualDesktopAccessor.dll, and the LockingGlass.WindowsLiveDesktopProbe publish output.
+- At least two monitors.
+- At least two Windows virtual desktops.
 
-How to launch
-- Run Start-LockingGlass.cmd to start the background tray app from the installed folder.
-- Or run LockingGlass.exe --background directly from this folder.
+Files that must stay together
+- LockingGlass.exe
+- Install-LockingGlass.ps1
+- Start-LockingGlass.cmd
+- run-live-desktop-probe.ps1
+- VirtualDesktopAccessor.dll
+- VERSION.txt
+- LockingGlass.WindowsLiveDesktopProbe publish output
+
+How to use it
+- Double-click LockingGlass.exe to start the background tray app.
+- Run Start-LockingGlass.cmd to start the tray app from this folder.
+- Run LockingGlass.exe --version to confirm which build you have.
+- Run LockingGlass.exe --self-check to inspect startup diagnostics.
 - Run LockingGlass.exe --install-autostart if you want current-user startup after sign-in.
-- Re-running Install-LockingGlass.ps1 refreshes this install by stopping the existing installed LockingGlass runtime and bundled live probe before replacing files.
+- Re-run Install-LockingGlass.ps1 to refresh or upgrade an existing install. The installer script stops the current installed runtime before replacing files in place.
+- The supported public upgrade path is to run a newer LockingGlass setup executable over the existing install.
+
+Unlock return note
+- Remembered original workspaces are tracked only in memory for the current app run.
+- Only windows that LockingGlass itself moved successfully are eligible for automatic return on unlock.
+- If the remembered workspace no longer exists, the window stays where it is.
+
+Installer note
+- Public releases may also ship as LockingGlass-setup-x64.exe.
+- That setup executable is a wrapper around this same payload and still uses Install-LockingGlass.ps1 for the actual install logic.
+- The setup executable and installer script are upgrade-safe by design: they keep the stable install path and do not move the external session-state file.
 
 What this package does not claim
 - It is not a replay-only build.

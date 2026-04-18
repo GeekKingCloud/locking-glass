@@ -5,9 +5,14 @@
 #include <string>
 #include <string_view>
 
+#ifndef LOCKING_GLASS_VERSION_STR
+#define LOCKING_GLASS_VERSION_STR "0.0.0"
+#endif
+
 namespace {
 
 struct ParsedArguments {
+  bool version = false;
   bool self_check = false;
   bool prototype_windows_apis = false;
   bool install_autostart = false;
@@ -23,7 +28,9 @@ ParsedArguments ParseArguments(int argc, char** argv, bool* valid) {
 
   for (int index = 1; index < argc; ++index) {
     const std::string_view argument(argv[index]);
-    if (argument == "--self-check") {
+    if (argument == "--version") {
+      parsed.version = true;
+    } else if (argument == "--self-check") {
       parsed.self_check = true;
     } else if (argument == "--prototype-windows-apis") {
       parsed.prototype_windows_apis = true;
@@ -52,15 +59,18 @@ std::string ResolveExecutablePath(char** argv) {
 }
 
 void PrintUsage() {
-  std::cout << "Usage: locking_glass [--self-check] [--install-autostart] "
-               "[--prototype-windows-apis] [--watch-monitors] "
+  std::cout << "Usage: locking_glass [--version] [--self-check] "
+               "[--install-autostart] [--prototype-windows-apis] [--watch-monitors] "
                "[--watch-virtual-desktops] [--background]\n";
+#if defined(_WIN32)
+  std::cout << "On Windows, launching LockingGlass with no arguments starts the "
+               "background tray app.\n";
+#endif
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
-  const auto runtime = locking_glass::core::BuildRuntime();
   bool valid_arguments = true;
   const ParsedArguments arguments = ParseArguments(argc, argv, &valid_arguments);
   if (!valid_arguments) {
@@ -73,6 +83,12 @@ int main(int argc, char** argv) {
     return 0;
   }
 
+  if (arguments.version) {
+    std::cout << "LockingGlass " << LOCKING_GLASS_VERSION_STR << '\n';
+    return 0;
+  }
+
+  const auto runtime = locking_glass::core::BuildRuntime();
   const std::string executable_path = ResolveExecutablePath(argv);
   const auto diagnostics =
       locking_glass::core::CollectStartupDiagnostics(runtime, executable_path);
@@ -121,7 +137,11 @@ int main(int argc, char** argv) {
     return runtime.background_session->Run();
   }
 
+#if defined(_WIN32)
+  return runtime.background_session->Run();
+#else
   std::cout << "LockingGlass scaffold bootstrap\n";
   std::cout << locking_glass::core::FormatDiagnostics(diagnostics);
   return 0;
+#endif
 }

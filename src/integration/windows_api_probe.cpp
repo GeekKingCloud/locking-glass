@@ -7,7 +7,12 @@
 #include <string>
 
 #if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <objbase.h>
 #if defined(__has_include)
 #if __has_include(<shobjidl_core.h>)

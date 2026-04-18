@@ -2,6 +2,7 @@
 #include "locking_glass/core/session_store.h"
 #include "locking_glass/core/tray_ui.h"
 #include "locking_glass/integration/autostart.h"
+#include "locking_glass/platform/window_return_tracker.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -10,6 +11,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -21,6 +23,20 @@ bool Expect(const bool condition, const std::string& message) {
 
   std::cerr << "Expectation failed: " << message << '\n';
   return false;
+}
+
+void RunCheckGroup(const std::string_view label, bool (*check)(), int* failures) {
+  if (failures == nullptr) {
+    return;
+  }
+
+  std::cout << "wiring_test: running " << label << " checks...\n";
+  if (check()) {
+    return;
+  }
+
+  ++(*failures);
+  std::cerr << "wiring_test: " << label << " checks failed\n";
 }
 
 const locking_glass::integration::CapabilityReport* FindCapability(
@@ -88,15 +104,8 @@ const locking_glass::core::SessionMonitorState* FindMonitorState(
     const locking_glass::core::SessionSnapshot& snapshot,
     const locking_glass::platform::MonitorDescriptor& monitor) {
   for (const auto& monitor_state : snapshot.monitors) {
-    if (monitor_state.monitor.stable_id == monitor.stable_id &&
-        monitor_state.monitor.device_path == monitor.device_path &&
-        monitor_state.monitor.edid_serial == monitor.edid_serial &&
-        monitor_state.monitor.display_name == monitor.display_name &&
-        monitor_state.monitor.bounds.left == monitor.bounds.left &&
-        monitor_state.monitor.bounds.top == monitor.bounds.top &&
-        monitor_state.monitor.bounds.right == monitor.bounds.right &&
-        monitor_state.monitor.bounds.bottom == monitor.bounds.bottom &&
-        monitor_state.monitor.is_primary == monitor.is_primary) {
+    if (locking_glass::core::ExactMonitorIdentityEqual(monitor_state.monitor,
+                                                       monitor)) {
       return &monitor_state;
     }
   }
@@ -125,6 +134,28 @@ const locking_glass::integration::WindowMoveResult* FindMoveResult(
   return nullptr;
 }
 
+const locking_glass::integration::WindowMoveResult* FindUnlockMoveResult(
+    const locking_glass::integration::UnlockReturnReport& report,
+    const std::string& window_id) {
+  for (const auto& result : report.move_results) {
+    if (result.window.window_id == window_id) {
+      return &result;
+    }
+  }
+  return nullptr;
+}
+
+const locking_glass::integration::UnlockReturnSkip* FindUnlockSkip(
+    const locking_glass::integration::UnlockReturnReport& report,
+    const std::string& window_id) {
+  for (const auto& skipped : report.skipped_windows) {
+    if (skipped.window.window_id == window_id) {
+      return &skipped;
+    }
+  }
+  return nullptr;
+}
+
 const locking_glass::core::DesktopWindow* FindDesktopWindow(
     const std::vector<locking_glass::core::DesktopWindow>& windows,
     const std::string& window_id) {
@@ -134,6 +165,18 @@ const locking_glass::core::DesktopWindow* FindDesktopWindow(
     }
   }
   return nullptr;
+}
+
+locking_glass::integration::DesktopIdentity MakeDesktopIdentity(
+    const int number, std::string guid, std::string name) {
+  locking_glass::integration::DesktopIdentity desktop{
+      .number = number,
+      .guid = std::move(guid),
+      .name = std::move(name),
+      .display_id = {},
+  };
+  desktop.display_id = locking_glass::integration::FormatDesktopIdentity(desktop);
+  return desktop;
 }
 
 const locking_glass::platform::MonitorDescriptor* FindPromptMonitor(
@@ -151,6 +194,32 @@ bool HighlightTargets(
     const locking_glass::platform::BackgroundSessionEvent& event,
     const std::string& label) {
   return event.highlight.visible && event.highlight.monitor.label == label;
+}
+
+void ExpectWindowsAwareCapability(
+    const locking_glass::core::StartupDiagnostics& diagnostics,
+    const std::string& component, int* failures) {
+  if (failures == nullptr) {
+    return;
+  }
+
+  const auto* capability = FindCapability(diagnostics, component);
+  *failures += !Expect(capability != nullptr, component + " capability should exist");
+  if (capability == nullptr) {
+    return;
+  }
+
+#if defined(_WIN32)
+  *failures += !Expect(capability->status !=
+                           locking_glass::integration::CapabilityStatus::kStubbed,
+                       component + " should not be stubbed on Windows");
+#else
+  *failures += !Expect(capability->status ==
+                           locking_glass::integration::CapabilityStatus::kStubbed,
+                       component + " should be stubbed on non-Windows hosts");
+#endif
+  *failures += !Expect(!capability->detail.empty(),
+                       component + " should provide a diagnostic detail");
 }
 
 bool RunSessionStoreChecks() {
@@ -832,6 +901,370 @@ bool RunBackgroundControllerStatusChecks() {
   return failures == 0;
 }
 
+bool RunUnlockReturnChecks() {
+  int failures = 0;
+
+  const auto temp_directory = MakeTempDirectory();
+  const auto session_path = temp_directory / "unlock-return-session.tsv";
+  const auto desktop_script_path = temp_directory / "unlock-return-desktop.tsv";
+  const auto return_script_path = temp_directory / "unlock-return-state.tsv";
+  const auto tray_script_path = temp_directory / "unlock-return-tray.tsv";
+
+  const auto left_monitor =
+      MakeMonitor("stable-left", "DISPLAY#LEFT", "SERIAL-LEFT", "Dell U2720Q",
+                  "Display 1", 0, 0, 2560, 1440, true);
+  const auto right_monitor =
+      MakeMonitor("stable-right", "DISPLAY#RIGHT", "SERIAL-RIGHT", "Dell U2720Q",
+                  "Display 2", 2560, 0, 5120, 1440, false);
+  const auto desktop_alpha = MakeDesktopIdentity(0, "guid-alpha", "Alpha");
+  const auto desktop_beta = MakeDesktopIdentity(1, "guid-beta", "Beta");
+  const auto desktop_gamma = MakeDesktopIdentity(2, "guid-gamma", "Gamma");
+
+  {
+    locking_glass::platform::WindowReturnTracker tracker;
+    const auto left_window =
+        locking_glass::core::DesktopWindow{
+            .window_id = "left-doc",
+            .title = "Docs",
+            .monitor_id = left_monitor.stable_id,
+            .monitor_label = left_monitor.label,
+            .desktop_id = desktop_alpha.display_id,
+            .is_top_level = true,
+            .can_move = true,
+        };
+    const auto renamed_left_window =
+        locking_glass::core::DesktopWindow{
+            .window_id = "left-doc",
+            .title = "Docs Renamed",
+            .monitor_id = left_monitor.stable_id,
+            .monitor_label = left_monitor.label,
+            .desktop_id = desktop_beta.display_id,
+            .is_top_level = true,
+            .can_move = true,
+        };
+    const auto failed_window =
+        locking_glass::core::DesktopWindow{
+            .window_id = "left-failed",
+            .title = "Failed",
+            .monitor_id = left_monitor.stable_id,
+            .monitor_label = left_monitor.label,
+            .desktop_id = desktop_alpha.display_id,
+            .is_top_level = true,
+            .can_move = true,
+        };
+
+    const auto monitor_locked =
+        [&](const locking_glass::core::DesktopWindow& window) {
+          return window.monitor_id == left_monitor.stable_id;
+        };
+
+    tracker.RecordSuccessfulMoves(
+        locking_glass::integration::DesktopSwitchReport{
+            .plan = {},
+            .move_results =
+                {
+                    locking_glass::integration::WindowMoveResult{
+                        .window = left_window,
+                        .from_desktop = desktop_alpha,
+                        .to_desktop = desktop_beta,
+                        .from_desktop_id = desktop_alpha.display_id,
+                        .to_desktop_id = desktop_beta.display_id,
+                        .success = true,
+                        .detail = "first move",
+                    },
+                },
+            .resulting_windows = {},
+        },
+        monitor_locked);
+    tracker.RecordSuccessfulMoves(
+        locking_glass::integration::DesktopSwitchReport{
+            .plan = {},
+            .move_results =
+                {
+                    locking_glass::integration::WindowMoveResult{
+                        .window = renamed_left_window,
+                        .from_desktop = desktop_beta,
+                        .to_desktop = desktop_gamma,
+                        .from_desktop_id = desktop_beta.display_id,
+                        .to_desktop_id = desktop_gamma.display_id,
+                        .success = true,
+                        .detail = "second move",
+                    },
+                    locking_glass::integration::WindowMoveResult{
+                        .window = failed_window,
+                        .from_desktop = desktop_alpha,
+                        .to_desktop = desktop_beta,
+                        .from_desktop_id = desktop_alpha.display_id,
+                        .to_desktop_id = desktop_beta.display_id,
+                        .success = false,
+                        .detail = "failed move",
+                    },
+                },
+            .resulting_windows = {},
+        },
+        monitor_locked);
+    tracker.RecordSuccessfulMoves(
+        locking_glass::integration::DesktopSwitchReport{
+            .plan = {},
+            .move_results = {},
+            .resulting_windows = {},
+        },
+        monitor_locked);
+
+    const auto consumed = tracker.ConsumeMonitor(left_monitor);
+    failures += !Expect(
+        consumed.size() == 1U,
+        "return tracker should only keep successful moves on the locked monitor");
+    if (consumed.size() == 1U) {
+      failures += !Expect(
+          consumed.front().home_desktop.display_id == desktop_alpha.display_id,
+          "return tracker should preserve the first remembered home desktop");
+      failures += !Expect(
+          consumed.front().window.title == "Docs Renamed",
+          "return tracker should refresh the tracked window metadata without overwriting its home desktop");
+    }
+
+    tracker.RecordSuccessfulMoves(
+        locking_glass::integration::DesktopSwitchReport{
+            .plan = {},
+            .move_results =
+                {
+                    locking_glass::integration::WindowMoveResult{
+                        .window = left_window,
+                        .from_desktop = desktop_alpha,
+                        .to_desktop = desktop_beta,
+                        .from_desktop_id = desktop_alpha.display_id,
+                        .to_desktop_id = desktop_beta.display_id,
+                        .success = true,
+                        .detail = "fresh move",
+                    },
+                },
+            .resulting_windows = {},
+        },
+        monitor_locked);
+    tracker.ClearMonitor(left_monitor);
+    failures += !Expect(
+        tracker.ConsumeMonitor(left_monitor).empty(),
+        "clearing a monitor should reset the tracker so relocking starts fresh");
+  }
+
+  SetEnvironmentVariable("LOCKING_GLASS_DESKTOP_SCRIPT", "");
+  SetEnvironmentVariable("LOCKING_GLASS_TRAY_SCRIPT", "");
+  SetEnvironmentVariable("LOCKING_GLASS_DESKTOP_RETURN_SCRIPT",
+                         return_script_path.string());
+
+  {
+    auto runtime = locking_glass::core::BuildRuntime();
+    const locking_glass::integration::UnlockReturnRequest request{
+        .monitor = left_monitor,
+        .tracked_windows =
+            {
+                locking_glass::integration::TrackedWindowReturn{
+                    .window =
+                        locking_glass::core::DesktopWindow{
+                            .window_id = "left-doc",
+                            .title = "Docs",
+                            .monitor_id = left_monitor.stable_id,
+                            .monitor_label = left_monitor.label,
+                            .desktop_id = desktop_alpha.display_id,
+                            .is_top_level = true,
+                            .can_move = true,
+                        },
+                    .home_desktop = desktop_alpha,
+                },
+            },
+    };
+
+    WriteTextFile(
+        return_script_path,
+        "desktop\t0\tguid-alpha\tAlpha\n"
+        "desktop\t1\tguid-beta\tBeta\n"
+        "window\tleft-doc\tDocs\tstable-left\tDisplay 1\t1\tguid-beta\tBeta\t1\t1\n");
+    const auto success_report =
+        runtime.virtual_desktop_controller->ReturnTrackedWindows(request);
+    const auto* success_move =
+        FindUnlockMoveResult(success_report, "left-doc");
+    failures += !Expect(success_move != nullptr,
+                        "unlock return should report a replayed move when the remembered desktop still exists");
+    if (success_move != nullptr) {
+      failures += !Expect(success_move->success,
+                          "unlock return should succeed in the replay when the target desktop exists");
+      failures += !Expect(success_move->to_desktop_id == desktop_alpha.display_id,
+                          "unlock return should target the remembered desktop");
+      failures += !Expect(success_move->from_desktop.guid == "guid-beta",
+                          "unlock return should preserve structured source desktop identity");
+    }
+    const auto* success_window =
+        FindDesktopWindow(success_report.resulting_windows, "left-doc");
+    failures += !Expect(success_window != nullptr,
+                        "unlock return should report the resulting window snapshot");
+    if (success_window != nullptr) {
+      failures += !Expect(success_window->desktop_id == desktop_alpha.display_id,
+                          "successful unlock returns should update the resulting window desktop");
+    }
+
+    WriteTextFile(
+        return_script_path,
+        "desktop\t1\tguid-beta\tBeta\n"
+        "window\tleft-doc\tDocs\tstable-left\tDisplay 1\t1\tguid-beta\tBeta\t1\t1\n");
+    const auto missing_report =
+        runtime.virtual_desktop_controller->ReturnTrackedWindows(request);
+    const auto* missing_skip = FindUnlockSkip(missing_report, "left-doc");
+    failures += !Expect(missing_skip != nullptr,
+                        "unlock return should skip windows whose remembered desktop no longer exists");
+    if (missing_skip != nullptr) {
+      failures += !Expect(
+          missing_skip->reason.find("no longer exists") != std::string::npos,
+          "missing remembered desktops should produce an explicit skip reason");
+    }
+
+    WriteTextFile(
+        return_script_path,
+        "desktop\t0\tguid-alpha\tAlpha\n"
+        "desktop\t1\tguid-beta\tBeta\n"
+        "window\tleft-doc\tDocs\tstable-left\tDisplay 1\t0\tguid-alpha\tAlpha\t1\t1\n");
+    const auto already_home_report =
+        runtime.virtual_desktop_controller->ReturnTrackedWindows(request);
+    const auto* already_home_skip =
+        FindUnlockSkip(already_home_report, "left-doc");
+    failures += !Expect(already_home_skip != nullptr,
+                        "unlock return should skip windows that are already back on their remembered desktop");
+    if (already_home_skip != nullptr) {
+      failures += !Expect(
+          already_home_skip->reason.find("already on its remembered desktop") !=
+              std::string::npos,
+          "already-home windows should keep their explicit skip reason");
+    }
+
+    WriteTextFile(
+        return_script_path,
+        "desktop\t0\tguid-alpha\tAlpha\n"
+        "desktop\t1\tguid-beta\tBeta\n"
+        "window\tleft-doc\tDocs\tstable-right\tDisplay 2\t1\tguid-beta\tBeta\t1\t1\n");
+    const auto wrong_monitor_report =
+        runtime.virtual_desktop_controller->ReturnTrackedWindows(request);
+    const auto* wrong_monitor_skip =
+        FindUnlockSkip(wrong_monitor_report, "left-doc");
+    failures += !Expect(wrong_monitor_skip != nullptr,
+                        "unlock return should skip windows that no longer live on the unlocked monitor");
+    if (wrong_monitor_skip != nullptr) {
+      failures += !Expect(
+          wrong_monitor_skip->reason.find("no longer on the unlocked monitor") !=
+              std::string::npos,
+          "monitor drift should produce an explicit unlock-return skip reason");
+    }
+
+    WriteTextFile(
+        return_script_path,
+        "desktop\t0\tguid-alpha\tAlpha\n"
+        "desktop\t1\tguid-beta\tBeta\n"
+        "window\tleft-doc\tDocs\tstable-left\tDisplay 1\t1\tguid-beta\tBeta\t1\t1\n"
+        "failure\tleft-doc\tforced replay failure\n");
+    const auto failed_report =
+        runtime.virtual_desktop_controller->ReturnTrackedWindows(request);
+    const auto* failed_move = FindUnlockMoveResult(failed_report, "left-doc");
+    failures += !Expect(failed_move != nullptr,
+                        "unlock return should report failed replay moves");
+    if (failed_move != nullptr) {
+      failures += !Expect(!failed_move->success,
+                          "forced replay failures should surface as failed return moves");
+      failures += !Expect(failed_move->detail == "forced replay failure",
+                          "failed replay moves should preserve their failure detail");
+    }
+  }
+
+  WriteTextFile(
+      desktop_script_path,
+      "event\tdesktop-switch\tfirst\tdesktop-alpha\tdesktop-beta\n"
+      "monitor\tstable-left\tDISPLAY#LEFT\tSERIAL-LEFT\tDell U2720Q\tDisplay 1\t0\t0\t2560\t1440\t1\n"
+      "monitor\tstable-right\tDISPLAY#RIGHT\tSERIAL-RIGHT\tDell U2720Q\tDisplay 2\t2560\t0\t5120\t1440\t0\n"
+      "window\tleft-doc\tDocs\tstable-left\tDisplay 1\tdesktop-alpha\t1\t1\n"
+      "window\tright-editor\tEditor\tstable-right\tDisplay 2\tdesktop-alpha\t1\t1\n"
+      "event\tdesktop-switch\tsecond\tdesktop-beta\tdesktop-gamma\n"
+      "monitor\tstable-left\tDISPLAY#LEFT\tSERIAL-LEFT\tDell U2720Q\tDisplay 1\t0\t0\t2560\t1440\t1\n"
+      "monitor\tstable-right\tDISPLAY#RIGHT\tSERIAL-RIGHT\tDell U2720Q\tDisplay 2\t2560\t0\t5120\t1440\t0\n"
+      "window\tleft-doc\tDocs Renamed\tstable-left\tDisplay 1\tdesktop-beta\t1\t1\n"
+      "window\tleft-static\tTimer\tstable-left\tDisplay 1\tdesktop-beta\t1\t0\n"
+      "window\tright-editor\tEditor\tstable-right\tDisplay 2\tdesktop-beta\t1\t1\n");
+  WriteTextFile(
+      return_script_path,
+      "desktop\t0\tguid-alpha\tAlpha\tdesktop-alpha\n"
+      "desktop\t1\tguid-beta\tBeta\tdesktop-beta\n"
+      "desktop\t2\tguid-gamma\tGamma\tdesktop-gamma\n"
+      "window\tleft-doc\tDocs Renamed\tstable-left\tDisplay 1\t2\tguid-gamma\tGamma\tdesktop-gamma\t1\t1\n"
+      "window\tleft-static\tTimer\tstable-left\tDisplay 1\t2\tguid-gamma\tGamma\tdesktop-gamma\t1\t1\n");
+  WriteTextFile(
+      tray_script_path,
+      "event\tstartup\n"
+      "monitor\tstable-left\tDISPLAY#LEFT\tSERIAL-LEFT\tDell U2720Q\tDisplay 1\t0\t0\t2560\t1440\t1\n"
+      "monitor\tstable-right\tDISPLAY#RIGHT\tSERIAL-RIGHT\tDell U2720Q\tDisplay 2\t2560\t0\t5120\t1440\t0\n"
+      "action\tclick\n"
+      "action\ttoggle\tDisplay 1\n"
+      "action\texit\n");
+
+  SetEnvironmentVariable("LOCKING_GLASS_SESSION_PATH", session_path.string());
+  SetEnvironmentVariable("LOCKING_GLASS_DESKTOP_SCRIPT",
+                         desktop_script_path.string());
+  SetEnvironmentVariable("LOCKING_GLASS_TRAY_SCRIPT", tray_script_path.string());
+  {
+    auto initial_snapshot =
+        locking_glass::core::SessionStore(session_path)
+            .Restore({left_monitor, right_monitor})
+            .snapshot;
+    failures += !Expect(
+        locking_glass::core::SessionStore(session_path).SetLocked(
+            &initial_snapshot, left_monitor, true),
+        "unlock return setup should be able to lock Display 1 before the tray script runs");
+    failures += !Expect(
+        locking_glass::core::SessionStore(session_path).Save(initial_snapshot),
+        "unlock return setup should persist the initial locked monitor");
+  }
+
+  auto runtime = locking_glass::core::BuildRuntime();
+  std::vector<locking_glass::platform::BackgroundSessionEvent> events;
+  std::ostringstream captured_output;
+  auto* original_stdout = std::cout.rdbuf(captured_output.rdbuf());
+  const int background_run_result = runtime.background_session->Run(
+      [&](const locking_glass::platform::BackgroundSessionEvent& event) {
+        events.push_back(event);
+      });
+  std::cout.rdbuf(original_stdout);
+
+  failures += !Expect(background_run_result == 0,
+                      "scripted background unlock flow should exit successfully");
+  failures += !Expect(events.size() == 4U,
+                      "scripted background unlock flow should emit startup, click, toggle, and exit events");
+  if (events.size() == 4U) {
+    failures += !Expect(events[2].trigger == "tray-toggle",
+                        "unlock flow should publish the unlock result on the tray-toggle event");
+    failures += !Expect(events[2].unlock_return.attempted,
+                        "unlocking a monitor with tracked windows should attempt an immediate return");
+    failures += !Expect(events[2].unlock_return.moved_windows == 1U,
+                        "unlocking should return the tracked window once");
+    failures += !Expect(events[2].unlock_return.skipped_windows == 0U,
+                        "unlocking should not report skipped windows when the remembered desktop still exists");
+    failures += !Expect(events[2].unlock_return.failed_windows == 0U,
+                        "unlocking should not report failed windows in the happy path");
+  }
+
+  const auto output = captured_output.str();
+  failures += !Expect(
+      output.find("LockingGlass unlock return") != std::string::npos,
+      "background unlocks should log a formatted unlock-return report");
+  failures += !Expect(
+      output.find("desktop-gamma -> desktop-alpha") != std::string::npos,
+      "background unlock returns should preserve the first remembered home desktop across multiple follow moves");
+  failures += !Expect(
+      output.find("left-static") == std::string::npos,
+      "windows that were only skipped during switch replay should not be tracked for unlock return");
+
+  SetEnvironmentVariable("LOCKING_GLASS_DESKTOP_RETURN_SCRIPT", "");
+  SetEnvironmentVariable("LOCKING_GLASS_DESKTOP_SCRIPT", "");
+  SetEnvironmentVariable("LOCKING_GLASS_TRAY_SCRIPT", "");
+  std::filesystem::remove_all(temp_directory);
+  return failures == 0;
+}
+
 bool RunDesktopLockingChecks() {
   int failures = 0;
 
@@ -1027,8 +1460,8 @@ int main() {
       locking_glass::integration::FormatWindowsApiPrototype(
           windows_api_prototype);
 
-  failures += !Expect(diagnostics.capabilities.size() == 6U,
-                      "startup diagnostics should expose exactly six capability probes");
+  failures += !Expect(diagnostics.capabilities.size() == 5U,
+                      "startup diagnostics should expose exactly five capability probes");
   failures += !Expect(windows_api_prototype.boundaries.size() == 2U,
                       "windows API prototype should define the virtual desktop and monitor boundaries");
   failures += !Expect(formatted.find("background-session") != std::string::npos,
@@ -1039,8 +1472,6 @@ int main() {
                       "formatted diagnostics should mention the Windows API probe");
   failures += !Expect(formatted.find("autostart") != std::string::npos,
                       "formatted diagnostics should mention the autostart capability");
-  failures += !Expect(formatted.find("ffmpeg") != std::string::npos,
-                      "formatted diagnostics should mention the FFmpeg probe");
   failures += !Expect(formatted.find("session-store") != std::string::npos,
                       "formatted diagnostics should mention the session store capability");
   failures += !Expect(formatted.find("Session:") != std::string::npos,
@@ -1088,84 +1519,10 @@ int main() {
   failures += !Expect(formatted.find("storage issue: none") != std::string::npos,
                       "formatted diagnostics should show the persistence issue state");
 
-  const auto* background_session =
-      FindCapability(diagnostics, "background-session");
-  failures +=
-      !Expect(background_session != nullptr, "background-session capability should exist");
-  if (background_session != nullptr) {
-#if defined(_WIN32)
-    failures += !Expect(background_session->status !=
-                            locking_glass::integration::CapabilityStatus::kStubbed,
-                        "background-session should not be stubbed on Windows");
-#else
-    failures += !Expect(background_session->status ==
-                            locking_glass::integration::CapabilityStatus::kStubbed,
-                        "background-session should be stubbed on non-Windows hosts");
-#endif
-    failures += !Expect(!background_session->detail.empty(),
-                        "background-session capability should provide a diagnostic detail");
-  }
-
-  const auto* desktop_locking = FindCapability(diagnostics, "desktop-locking");
-  failures += !Expect(desktop_locking != nullptr,
-                      "desktop-locking capability should exist");
-  if (desktop_locking != nullptr) {
-#if defined(_WIN32)
-    failures += !Expect(desktop_locking->status !=
-                            locking_glass::integration::CapabilityStatus::kStubbed,
-                        "desktop-locking should not be stubbed on Windows");
-#else
-    failures += !Expect(desktop_locking->status ==
-                            locking_glass::integration::CapabilityStatus::kStubbed,
-                        "desktop-locking should be stubbed on non-Windows hosts");
-#endif
-    failures += !Expect(!desktop_locking->detail.empty(),
-                        "desktop-locking capability should provide a diagnostic detail");
-  }
-
-  const auto* windows_api = FindCapability(diagnostics, "windows-api");
-  failures += !Expect(windows_api != nullptr, "windows-api capability should exist");
-  if (windows_api != nullptr) {
-#if defined(_WIN32)
-    failures += !Expect(windows_api->status !=
-                            locking_glass::integration::CapabilityStatus::kStubbed,
-                        "windows-api should not be stubbed on Windows");
-#else
-    failures += !Expect(windows_api->status ==
-                            locking_glass::integration::CapabilityStatus::kStubbed,
-                        "windows-api should be stubbed on non-Windows hosts");
-#endif
-    failures += !Expect(!windows_api->detail.empty(),
-                        "windows-api capability should provide a diagnostic detail");
-  }
-
-  const auto* autostart = FindCapability(diagnostics, "autostart");
-  failures += !Expect(autostart != nullptr, "autostart capability should exist");
-  if (autostart != nullptr) {
-#if defined(_WIN32)
-    failures += !Expect(autostart->status !=
-                            locking_glass::integration::CapabilityStatus::kStubbed,
-                        "autostart should not be stubbed on Windows");
-#else
-    failures += !Expect(autostart->status ==
-                            locking_glass::integration::CapabilityStatus::kStubbed,
-                        "autostart should be stubbed on non-Windows hosts");
-#endif
-    failures += !Expect(!autostart->detail.empty(),
-                        "autostart capability should provide a diagnostic detail");
-  }
-
-  const auto* ffmpeg = FindCapability(diagnostics, "ffmpeg");
-  failures += !Expect(ffmpeg != nullptr, "ffmpeg capability should exist");
-  if (ffmpeg != nullptr) {
-    const char* injected_library = std::getenv("LOCKING_GLASS_FFMPEG_LIBRARY");
-    failures += !Expect(injected_library != nullptr && injected_library[0] != '\0',
-                        "LOCKING_GLASS_FFMPEG_LIBRARY should be injected by the build");
-    failures += !Expect(ffmpeg->status == locking_glass::integration::CapabilityStatus::kReady,
-                        "ffmpeg probe should load the injected fake avutil runtime");
-    failures += !Expect(ffmpeg->detail.find("fake-ffmpeg-1.0") != std::string::npos,
-                        "ffmpeg diagnostic should include the fake avutil version string");
-  }
+  ExpectWindowsAwareCapability(diagnostics, "background-session", &failures);
+  ExpectWindowsAwareCapability(diagnostics, "desktop-locking", &failures);
+  ExpectWindowsAwareCapability(diagnostics, "windows-api", &failures);
+  ExpectWindowsAwareCapability(diagnostics, "autostart", &failures);
 
   const auto* session_store = FindCapability(diagnostics, "session-store");
   failures += !Expect(session_store != nullptr, "session-store capability should exist");
@@ -1189,23 +1546,21 @@ int main() {
       diagnostics.autostart.launch_command ==
           "\"C:\\Program Files\\LockingGlass\\LockingGlass.exe\" --background",
       "autostart diagnostics should launch the executable in background mode");
-  failures += !Expect(RunSessionStoreChecks(),
-                      "session store should persist locks across restart and topology changes");
-  failures += !Expect(RunMonitorWatchChecks(),
-                      "monitor watch should reconcile scripted topology changes");
-  failures += !Expect(RunTraySessionChecks(),
-                      "background session should expose tray clicks and lock toggles");
-  failures += !Expect(
-      RunBackgroundControllerStatusChecks(),
-      "background session should report unavailable live-controller states honestly");
-  failures += !Expect(
-      RunDesktopLockingChecks(),
-      "virtual desktop watch should preserve locked monitors and honor unlocks");
+  RunCheckGroup("session store", RunSessionStoreChecks, &failures);
+  RunCheckGroup("monitor watch", RunMonitorWatchChecks, &failures);
+  RunCheckGroup("tray session", RunTraySessionChecks, &failures);
+  RunCheckGroup("background controller status",
+                RunBackgroundControllerStatusChecks, &failures);
+  RunCheckGroup("unlock return", RunUnlockReturnChecks, &failures);
+  RunCheckGroup("desktop locking", RunDesktopLockingChecks, &failures);
 
   std::filesystem::remove_all(temp_directory);
 
   if (failures == 0) {
     std::cout << "wiring_test: ok\n";
+  } else {
+    std::cerr << "wiring_test: failed (" << failures
+              << " check group(s) or expectation block(s))\n";
   }
 
   return failures == 0 ? 0 : 1;

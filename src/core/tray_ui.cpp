@@ -28,16 +28,8 @@ SessionMonitorState* FindPresentMonitorState(
     if (!monitor_state.is_present) {
       continue;
     }
-    if (monitor_state.monitor.stable_id == monitor.stable_id &&
-        monitor_state.monitor.device_path == monitor.device_path &&
-        monitor_state.monitor.edid_serial == monitor.edid_serial &&
-        monitor_state.monitor.display_name == monitor.display_name &&
-        monitor_state.monitor.label == monitor.label &&
-        monitor_state.monitor.bounds.left == monitor.bounds.left &&
-        monitor_state.monitor.bounds.top == monitor.bounds.top &&
-        monitor_state.monitor.bounds.right == monitor.bounds.right &&
-        monitor_state.monitor.bounds.bottom == monitor.bounds.bottom &&
-        monitor_state.monitor.is_primary == monitor.is_primary) {
+    if (monitor_state.monitor.label == monitor.label &&
+        ExactMonitorIdentityEqual(monitor_state.monitor, monitor)) {
       return &monitor_state;
     }
   }

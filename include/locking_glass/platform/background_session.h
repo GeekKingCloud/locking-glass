@@ -37,6 +37,14 @@ struct BackgroundSessionHighlight {
   std::string message;
 };
 
+struct BackgroundSessionUnlockReturn {
+  bool attempted = false;
+  std::size_t moved_windows = 0;
+  std::size_t skipped_windows = 0;
+  std::size_t failed_windows = 0;
+  std::string detail;
+};
+
 struct BackgroundSessionEvent {
   std::string trigger;
   bool tray_menu_visible = false;
@@ -52,6 +60,7 @@ struct BackgroundSessionEvent {
   std::vector<BackgroundSessionMenuItem> monitors;
   BackgroundSessionPrompt prompt;
   BackgroundSessionHighlight highlight;
+  BackgroundSessionUnlockReturn unlock_return;
 };
 
 using BackgroundSessionObserver =

@@ -3,7 +3,12 @@
 #include <filesystem>
 
 #if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <objbase.h>
 #if defined(__has_include)
 #if __has_include(<shobjidl_core.h>)
@@ -22,6 +27,37 @@ namespace locking_glass::integration::internal {
 #if defined(_WIN32)
 namespace {
 
+HMODULE LoadHelperFromAncestorSearch(const std::filesystem::path& start) {
+  if (start.empty()) {
+    return nullptr;
+  }
+
+  std::filesystem::path current = std::filesystem::absolute(start);
+  while (!current.empty()) {
+    const auto repository_helper =
+        current / "build" / "windows-live-desktop-probe" /
+        "VirtualDesktopAccessor.dll";
+    if (HMODULE library = LoadLibraryW(repository_helper.c_str());
+        library != nullptr) {
+      return library;
+    }
+
+    const auto bundled_helper = current / "VirtualDesktopAccessor.dll";
+    if (HMODULE library = LoadLibraryW(bundled_helper.c_str());
+        library != nullptr) {
+      return library;
+    }
+
+    const auto parent = current.parent_path();
+    if (parent == current) {
+      break;
+    }
+    current = parent;
+  }
+
+  return nullptr;
+}
+
 HMODULE LoadVirtualDesktopHelper() {
   wchar_t helper_path[MAX_PATH];
   const DWORD length = GetEnvironmentVariableW(
@@ -39,12 +75,16 @@ HMODULE LoadVirtualDesktopHelper() {
     if (HMODULE library = LoadLibraryW(adjacent_path.c_str()); library != nullptr) {
       return library;
     }
+
+    if (HMODULE library = LoadHelperFromAncestorSearch(
+            std::filesystem::path(module_path).parent_path());
+        library != nullptr) {
+      return library;
+    }
   }
 
-  const auto repo_build_path = std::filesystem::current_path() / "build" /
-                               "windows-live-desktop-probe" /
-                               "VirtualDesktopAccessor.dll";
-  if (HMODULE library = LoadLibraryW(repo_build_path.c_str()); library != nullptr) {
+  if (HMODULE library = LoadHelperFromAncestorSearch(std::filesystem::current_path());
+      library != nullptr) {
     return library;
   }
 

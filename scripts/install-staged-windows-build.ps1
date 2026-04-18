@@ -52,12 +52,24 @@ function Copy-InstallFile([string]$SourcePath, [string]$DestinationPath) {
     }
 }
 
+function Get-VersionText([string]$Path) {
+    if (-not (Test-Path $Path)) {
+        return $null
+    }
+
+    return (Get-Content -Path $Path -Raw).Trim()
+}
+
 $requiredFiles = @(
     'LockingGlass.exe',
+    'Install-LockingGlass.ps1',
     'run-live-desktop-probe.ps1',
     'VirtualDesktopAccessor.dll',
     'Start-LockingGlass.cmd',
-    'README.txt'
+    'README.txt',
+    'VERSION.txt',
+    'LICENSE.txt',
+    'THIRD_PARTY_NOTICES.txt'
 )
 
 foreach ($requiredFile in $requiredFiles) {
@@ -74,6 +86,11 @@ if ($bundledProbeFiles.Count -eq 0) {
 }
 
 $installedExe = Join-Path $InstallDir 'LockingGlass.exe'
+$installedVersionPath = Join-Path $InstallDir 'VERSION.txt'
+$incomingVersionPath = Join-Path $SourceDir 'VERSION.txt'
+$existingVersion = Get-VersionText -Path $installedVersionPath
+$incomingVersion = Get-VersionText -Path $incomingVersionPath
+$wasInstalled = (Test-Path $installedExe) -or (Test-Path $installedVersionPath)
 Stop-InstalledRuntimeProcesses -TargetInstallDir $InstallDir
 
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
@@ -84,6 +101,9 @@ $filesToCopy = @(
     'VirtualDesktopAccessor.dll',
     'Start-LockingGlass.cmd',
     'README.txt',
+    'VERSION.txt',
+    'LICENSE.txt',
+    'THIRD_PARTY_NOTICES.txt',
     'Install-LockingGlass.ps1'
 )
 
@@ -115,6 +135,18 @@ $readmeShortcut.WorkingDirectory = $InstallDir
 $readmeShortcut.Description = 'Open the LockingGlass Windows install notes and current limits.'
 $readmeShortcut.Save()
 
+$licenseShortcut = $shell.CreateShortcut((Join-Path $startMenuDir 'LockingGlass License.lnk'))
+$licenseShortcut.TargetPath = Join-Path $InstallDir 'LICENSE.txt'
+$licenseShortcut.WorkingDirectory = $InstallDir
+$licenseShortcut.Description = 'Open the LockingGlass project license.'
+$licenseShortcut.Save()
+
+$thirdPartyShortcut = $shell.CreateShortcut((Join-Path $startMenuDir 'LockingGlass Third-Party Notices.lnk'))
+$thirdPartyShortcut.TargetPath = Join-Path $InstallDir 'THIRD_PARTY_NOTICES.txt'
+$thirdPartyShortcut.WorkingDirectory = $InstallDir
+$thirdPartyShortcut.Description = 'Open bundled third-party license notices for LockingGlass.'
+$thirdPartyShortcut.Save()
+
 if ($EnableAutostart) {
     & $installedExe --install-autostart
     if ($LASTEXITCODE -ne 0) {
@@ -126,9 +158,22 @@ if ($LaunchAfterInstall) {
     Start-Process -FilePath $installedExe -ArgumentList '--background' -WorkingDirectory $InstallDir -WindowStyle Hidden | Out-Null
 }
 
-Write-Host ('Installed LockingGlass to: ' + $InstallDir)
+$installVerb = if ($wasInstalled) { 'Updated' } else { 'Installed' }
+Write-Host ($installVerb + ' LockingGlass at: ' + $InstallDir)
+if (-not [string]::IsNullOrWhiteSpace($incomingVersion)) {
+    if ($wasInstalled -and -not [string]::IsNullOrWhiteSpace($existingVersion) -and $existingVersion -ne $incomingVersion) {
+        Write-Host ('Version: ' + $existingVersion + ' -> ' + $incomingVersion)
+    } elseif ($wasInstalled -and -not [string]::IsNullOrWhiteSpace($existingVersion)) {
+        Write-Host ('Version: refreshed ' + $incomingVersion)
+    } else {
+        Write-Host ('Version: ' + $incomingVersion)
+    }
+}
 Write-Host ('Launch shortcut: ' + (Join-Path $startMenuDir 'LockingGlass Tray.lnk'))
 Write-Host ('README shortcut: ' + (Join-Path $startMenuDir 'LockingGlass README.lnk'))
+Write-Host ('License shortcut: ' + (Join-Path $startMenuDir 'LockingGlass License.lnk'))
+Write-Host ('Third-party notices shortcut: ' + (Join-Path $startMenuDir 'LockingGlass Third-Party Notices.lnk'))
+Write-Host 'Updates: rerun a newer LockingGlass setup executable or Install-LockingGlass.ps1 over the existing install'
 if ($EnableAutostart) {
     Write-Host 'Autostart: enabled for the current user'
 } else {

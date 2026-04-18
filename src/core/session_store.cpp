@@ -21,27 +21,27 @@
 
 namespace locking_glass::core {
 
+bool MonitorBoundsEqual(const platform::MonitorBounds& left,
+                        const platform::MonitorBounds& right) {
+  return left.left == right.left && left.top == right.top &&
+         left.right == right.right && left.bottom == right.bottom;
+}
+
+bool ExactMonitorIdentityEqual(const platform::MonitorDescriptor& left,
+                               const platform::MonitorDescriptor& right) {
+  return left.stable_id == right.stable_id &&
+         left.device_path == right.device_path &&
+         left.edid_serial == right.edid_serial &&
+         left.display_name == right.display_name &&
+         MonitorBoundsEqual(left.bounds, right.bounds) &&
+         left.is_primary == right.is_primary;
+}
+
 namespace {
 
 constexpr std::string_view kVersionTag = "version";
 constexpr std::string_view kMonitorTag = "monitor";
 constexpr std::string_view kFormatVersion = "1";
-
-bool BoundsEqual(const platform::MonitorBounds& left,
-                 const platform::MonitorBounds& right) {
-  return left.left == right.left && left.top == right.top &&
-         left.right == right.right && left.bottom == right.bottom;
-}
-
-bool IdentityEqual(const platform::MonitorDescriptor& left,
-                   const platform::MonitorDescriptor& right) {
-  return left.stable_id == right.stable_id &&
-         left.device_path == right.device_path &&
-         left.edid_serial == right.edid_serial &&
-         left.display_name == right.display_name &&
-         BoundsEqual(left.bounds, right.bounds) &&
-         left.is_primary == right.is_primary;
-}
 
 std::string EscapeField(const std::string_view field) {
   std::string escaped;
@@ -168,7 +168,8 @@ bool HasValue(const std::string& value) { return !value.empty(); }
 
 int MatchScore(const SessionMonitorState& saved,
                const platform::MonitorDescriptor& live) {
-  if (saved.requires_confirmation && IdentityEqual(saved.monitor, live)) {
+  if (saved.requires_confirmation &&
+      ExactMonitorIdentityEqual(saved.monitor, live)) {
     return 1000;
   }
 
@@ -184,7 +185,7 @@ int MatchScore(const SessionMonitorState& saved,
     score = 60;
   } else if (HasValue(saved.monitor.display_name) &&
              saved.monitor.display_name == live.display_name &&
-             BoundsEqual(saved.monitor.bounds, live.bounds)) {
+             MonitorBoundsEqual(saved.monitor.bounds, live.bounds)) {
     score = 40;
   } else if (HasValue(saved.monitor.display_name) &&
              saved.monitor.display_name == live.display_name &&
@@ -194,7 +195,7 @@ int MatchScore(const SessionMonitorState& saved,
     return 0;
   }
 
-  if (BoundsEqual(saved.monitor.bounds, live.bounds)) {
+  if (MonitorBoundsEqual(saved.monitor.bounds, live.bounds)) {
     score += 5;
   }
   if (saved.monitor.is_primary == live.is_primary) {
@@ -298,6 +299,19 @@ bool ReplaceFile(const std::filesystem::path& source,
   std::error_code rename_error;
   std::filesystem::rename(source, destination, rename_error);
   return !rename_error;
+#endif
+}
+
+bool CopyFileWithOverwrite(const std::filesystem::path& source,
+                           const std::filesystem::path& destination) {
+#if defined(_WIN32)
+  return ::CopyFileW(source.c_str(), destination.c_str(), FALSE) != 0;
+#else
+  std::error_code copy_error;
+  std::filesystem::copy_file(source, destination,
+                             std::filesystem::copy_options::overwrite_existing,
+                             copy_error);
+  return !copy_error;
 #endif
 }
 
@@ -587,11 +601,14 @@ SessionRefreshResult SessionStore::Restore(
 
   if (result.storage_issue != SessionStorageIssue::kNone && result.loaded_from_disk) {
     const auto backup_path = InvalidBackupPath(storage_path_);
-    std::error_code copy_error;
-    std::filesystem::copy_file(storage_path_, backup_path,
-                               std::filesystem::copy_options::overwrite_existing,
-                               copy_error);
-    if (copy_error) {
+    if (!CopyFileWithOverwrite(storage_path_, backup_path)) {
+#if defined(_WIN32)
+      const DWORD error_code = GetLastError();
+      const std::error_code copy_error(static_cast<int>(error_code),
+                                       std::system_category());
+#else
+      const std::error_code copy_error(errno, std::generic_category());
+#endif
       AppendStorageDetail(
           &result.storage_detail,
           "Failed to preserve the rejected session file at " +
@@ -628,7 +645,7 @@ bool SessionStore::SetLocked(SessionSnapshot* snapshot,
   SessionMonitorState* best_match = nullptr;
   int best_score = 0;
   for (auto& monitor_state : snapshot->monitors) {
-    if (IdentityEqual(monitor_state.monitor, monitor)) {
+    if (ExactMonitorIdentityEqual(monitor_state.monitor, monitor)) {
       best_match = &monitor_state;
       break;
     }

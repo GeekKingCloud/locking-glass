@@ -1,0 +1,155 @@
+name: windows-release
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Resolve release version
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "VERSION must be SemVer X.Y.Z, got '$version'."
+          }
+
+          $githubRef = '${{ github.ref }}'
+          if ($githubRef.StartsWith('refs/tags/v')) {
+            $tagVersion = $githubRef.Substring('refs/tags/v'.Length)
+            if ($tagVersion -ne $version) {
+              throw "Tag version '$tagVersion' does not match VERSION '$version'."
+            }
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "setup_name=LockingGlass-$version-setup-x64.exe" >> $env:GITHUB_OUTPUT
+          "zip_name=LockingGlass-$version-windows-x64.zip" >> $env:GITHUB_OUTPUT
+          "artifact_name=locking-glass-windows-$version" >> $env:GITHUB_OUTPUT
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            3.1.x
+            8.0.x
+
+      - name: Set up MSYS2 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            make
+            mingw-w64-x86_64-gcc
+
+      - name: Build Windows binaries
+        shell: msys2 {0}
+        run: |
+          make BUILD_DIR=build-win OBJ_DIR=build-win/obj BIN_DIR=build-win/bin OS=Windows_NT CXX=g++ all
+
+      - name: Run Windows tests
+        shell: msys2 {0}
+        run: |
+          make BUILD_DIR=build-win OBJ_DIR=build-win/obj BIN_DIR=build-win/bin OS=Windows_NT CXX=g++ test
+
+      - name: Stage Windows release package
+        shell: pwsh
+        run: |
+          ./scripts/stage-windows-install.ps1
+          ./scripts/build-windows-installer.ps1 `
+            -StageDir build/windows-install-stage/LockingGlass `
+            -OutputDir build/windows-installer `
+            -SetupExeName '${{ steps.version.outputs.setup_name }}' `
+            -SkipStage
+
+          $releaseDir = Join-Path $PWD 'build\release'
+          New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+
+          $zipPath = Join-Path $releaseDir '${{ steps.version.outputs.zip_name }}'
+          Compress-Archive -Path build/windows-install-stage/LockingGlass/* -DestinationPath $zipPath -Force
+
+          $setupPath = Join-Path $PWD ('build\windows-installer\' + '${{ steps.version.outputs.setup_name }}')
+          $sumPath = Join-Path $releaseDir 'SHA256SUMS.txt'
+          $sumLines = @(
+            "$((Get-FileHash -Algorithm SHA256 $setupPath).Hash.ToLowerInvariant())  ${{ steps.version.outputs.setup_name }}"
+            "$((Get-FileHash -Algorithm SHA256 $zipPath).Hash.ToLowerInvariant())  ${{ steps.version.outputs.zip_name }}"
+          )
+          Set-Content -Path $sumPath -Value $sumLines -Encoding ascii
+
+      # Live proof scripts stay manual. GitHub-hosted runners do not provide an
+      # interactive Windows desktop shell, multiple monitors, multiple virtual
+      # desktops, or real tray interaction.
+      - name: Smoke packaged bundle
+        shell: pwsh
+        run: |
+          $setupPath = Join-Path $PWD ('build\windows-installer\' + '${{ steps.version.outputs.setup_name }}')
+          $extractDir = Join-Path $PWD 'build\windows-installer-smoke'
+
+          Remove-Item -Recurse -Force $extractDir -ErrorAction SilentlyContinue
+          & $setupPath --extract-only $extractDir
+          if ($LASTEXITCODE -ne 0) {
+            throw "Setup extract-only smoke failed with exit code $LASTEXITCODE."
+          }
+
+          $requiredFiles = @(
+            'LockingGlass.exe',
+            'Install-LockingGlass.ps1',
+            'run-live-desktop-probe.ps1',
+            'VirtualDesktopAccessor.dll',
+            'VERSION.txt',
+            'LICENSE.txt',
+            'THIRD_PARTY_NOTICES.txt'
+          )
+
+          foreach ($requiredFile in $requiredFiles) {
+            $candidate = Join-Path $extractDir $requiredFile
+            if (-not (Test-Path $candidate)) {
+              throw "Missing packaged file '$requiredFile' after extraction."
+            }
+          }
+
+          $packagedExe = Join-Path $extractDir 'LockingGlass.exe'
+          $versionOutput = & $packagedExe --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "Packaged --version check failed with exit code $LASTEXITCODE."
+          }
+          if ($versionOutput -notmatch [regex]::Escape('${{ steps.version.outputs.version }}')) {
+            throw "Packaged --version output '$versionOutput' did not include the expected version."
+          }
+
+          & $packagedExe --self-check
+          if ($LASTEXITCODE -ne 0) {
+            throw "Packaged --self-check failed with exit code $LASTEXITCODE."
+          }
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.version.outputs.artifact_name }}
+          path: |
+            build/windows-installer/${{ steps.version.outputs.setup_name }}
+            build/release/${{ steps.version.outputs.zip_name }}
+            build/release/SHA256SUMS.txt
+
+      - name: Publish GitHub release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/windows-installer/${{ steps.version.outputs.setup_name }}
+            build/release/${{ steps.version.outputs.zip_name }}
+            build/release/SHA256SUMS.txt

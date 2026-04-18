@@ -10,6 +10,11 @@
 
 namespace locking_glass::core {
 
+bool MonitorBoundsEqual(const platform::MonitorBounds& left,
+                        const platform::MonitorBounds& right);
+bool ExactMonitorIdentityEqual(const platform::MonitorDescriptor& left,
+                               const platform::MonitorDescriptor& right);
+
 struct SessionMonitorState {
   platform::MonitorDescriptor monitor;
   bool locked = false;

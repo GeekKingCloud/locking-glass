@@ -16,7 +16,6 @@ namespace locking_glass::platform {
 
 namespace {
 
-#if !defined(_WIN32)
 std::vector<std::string> SplitFields(const std::string& line) {
   std::vector<std::string> fields;
   std::size_t start = 0;
@@ -113,7 +112,6 @@ std::vector<MonitorWatchEvent> LoadScriptedEvents(
 
   return events;
 }
-#endif
 
 #if defined(_WIN32)
 struct MonitorWatchContext {
@@ -203,9 +201,6 @@ int RunWindowsMonitorWatch(const MonitorWatchCallback& callback) {
 class MonitorWatcherImpl final : public MonitorWatcher {
  public:
   int Watch(const MonitorWatchCallback& callback) const override {
-#if defined(_WIN32)
-    return RunWindowsMonitorWatch(callback);
-#else
     if (const char* script_path = std::getenv("LOCKING_GLASS_MONITOR_SCRIPT");
         script_path != nullptr && script_path[0] != '\0') {
       const auto events = LoadScriptedEvents(script_path);
@@ -221,6 +216,9 @@ class MonitorWatcherImpl final : public MonitorWatcher {
       return 0;
     }
 
+#if defined(_WIN32)
+    return RunWindowsMonitorWatch(callback);
+#else
     auto gateway = CreateMonitorGateway();
     callback(MonitorWatchEvent{
         .trigger = "startup",

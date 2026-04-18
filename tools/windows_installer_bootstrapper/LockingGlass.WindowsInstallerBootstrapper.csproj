@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>netcoreapp3.1</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AssemblyName>LockingGlass.WindowsInstallerBootstrapper</AssemblyName>
+    <RootNamespace>LockingGlass.WindowsInstallerBootstrapper</RootNamespace>
+    <LangVersion>8.0</LangVersion>
+    <Description>LockingGlass Windows setup bootstrapper</Description>
+    <FileDescription>LockingGlass Windows setup bootstrapper</FileDescription>
+  </PropertyGroup>
+
+  <ItemGroup Condition="Exists('$(PayloadZip)')">
+    <EmbeddedResource Include="$(PayloadZip)" LogicalName="payload.zip" />
+  </ItemGroup>
+</Project>

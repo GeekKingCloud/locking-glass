@@ -1,17 +1,34 @@
 # LockingGlass
 
-Windows-resident tray utility for keeping selected monitors visually pinned while other displays continue following real Windows virtual desktop changes. The shipped Windows package now targets the proven live-controller path and fails closed when the helper-backed live controller cannot start.
+LockingGlass is a Windows tray app for pinning selected monitors across Windows virtual desktop switches.
 
-## Layout
+Locked monitors keep their visible windows on the same desktop while unlocked monitors continue following normal Windows behavior. When you unlock a monitor, LockingGlass now makes a best-effort attempt to return the windows it moved for that lock back to their remembered original workspace if that workspace still exists. That remembered workspace is tracked only in memory for the current app run. The app is intentionally fail-closed: if the live desktop hook cannot start, LockingGlass keeps session state and tray controls available but does not pretend desktop locking is active.
 
-- `include/locking_glass/core`: runtime assembly and startup diagnostics.
-- `include/locking_glass/core/session_store.h`: persisted monitor lock session model and topology reconciliation API.
-- `include/locking_glass/platform`: monitor-facing abstractions and Win32 monitor enumeration seam.
-- `include/locking_glass/integration`: FFmpeg, Windows API, and Windows autostart probes.
-- `src`: application entrypoint and default adapter implementations.
-- `tests`: smoke coverage plus a fake FFmpeg shared library used to verify the loader path.
+## Behavior Contract
 
-## Build
+- Locking a monitor keeps the windows on that monitor visually pinned while other monitors continue following normal Windows desktop switches.
+- Unlocking a monitor triggers a best-effort immediate return for windows that LockingGlass itself moved successfully while that monitor was locked.
+- The first successful follow-move becomes the remembered home workspace for that window during the current run.
+- If the remembered workspace no longer exists, or the window can no longer be resolved safely, LockingGlass leaves the window where it is and reports the skip instead of guessing.
+- Monitor lock state is persisted in the session file. Remembered home workspaces are not persisted and are forgotten when the app exits.
+- If the live controller cannot prove the Windows desktop hook path, LockingGlass fails closed.
+
+## Repository Map
+
+- `include/locking_glass/core`: runtime assembly, session state, tray model, and desktop-locking policy.
+- `include/locking_glass/platform`: monitor enumeration, monitor watching, and background tray session interfaces.
+- `include/locking_glass/integration`: Windows probes, autostart, and live virtual desktop controller interfaces.
+- `src/core`: session-store logic, diagnostics formatting, tray model projection, and monitor-locking policy.
+- `src/platform`: Win32 monitor gateway, monitor watcher, and tray/background runtime.
+- `src/integration`: Windows API probing, autostart registration, helper-backed live desktop control, and desktop watch bridge.
+- `tests/wiring_test.cpp`: the automated test harness for the app-level seams.
+- `VERSION`: the single source of truth for the app, installer, and release version.
+- `tools/windows_live_desktop_probe`: the Windows live-hook probe used by proof scripts and installed watch mode.
+- `tools/windows_installer_bootstrapper`: the small self-contained installer bootstrapper used to produce `LockingGlass-setup-x64.exe`.
+
+## Build And Test
+
+For the host build:
 
 ```bash
 make
@@ -20,114 +37,104 @@ make smoke
 make prototype
 ```
 
-`make test` injects `build/lib/libfakeavutil.so` through `LOCKING_GLASS_FFMPEG_LIBRARY` so the FFmpeg seam is verified without requiring system FFmpeg packages.
+For the Windows cross-build:
 
-`make test` also simulates a restart by saving monitor lock state to a temp session file, reloading it through a fresh `SessionStore`, and reconciling add/remove monitor topology changes.
+```bash
+make BUILD_DIR=build-win OBJ_DIR=build-win/obj BIN_DIR=build-win/bin OS=Windows_NT CXX=x86_64-w64-mingw32-g++ all
+```
 
-`make test` also manually edits the stored session data to verify that malformed monitor rows and unsupported format versions are rejected, backed up to a `.invalid` file, and rebuilt from live monitor state without crashing the app.
+The automated test harness is a single executable named `wiring_test`.
 
-`make test` now also replays a scripted tray session: it opens the tray UI, hovers monitors to trigger the identify overlay, clears that hover while the menu stays open, locks a monitor, simulates that monitor disconnecting, simulates it reconnecting beside a brand-new monitor, and verifies that the saved lock is restored while only the new hardware emits a review prompt.
+- `make test` builds and runs `build/bin/locking_glass_tests`
+- the Windows test artifact is `build-win/bin/locking_glass_tests.exe`
+- on success the harness prints progress for each check group and ends with `wiring_test: ok`
+- there is no active `tests/fakes/` subsystem; the harness uses environment-driven scripted seams instead of a reusable fake source tree
 
-`make test` also replays scripted virtual desktop switches through `LOCKING_GLASS_DESKTOP_SCRIPT`, proving that locked-monitor windows are swapped across desktops while unlocked monitors keep following the normal desktop change.
+Current automated coverage includes:
 
-`build/bin/locking_glass --watch-monitors` prints monitor refresh events. On Windows it waits for live `WM_DISPLAYCHANGE` updates; on non-Windows hosts set `LOCKING_GLASS_MONITOR_SCRIPT` to a scripted event file so the same reporting path can be verified locally. When a refresh introduces brand-new monitors, the report now includes the review prompt text that the tray flow will surface.
+- startup diagnostics and autostart planning
+- session persistence, malformed-data recovery, and `.invalid` backup creation
+- scripted monitor refresh handling
+- scripted tray interaction flow and review prompts
+- scripted desktop-locking policy
+- unlock-return tracking, controller replay, and immediate tray-unlock return flow
 
-`build/bin/locking_glass --watch-virtual-desktops` now has two explicit modes. On Windows, if `LOCKING_GLASS_DESKTOP_SCRIPT` is unset, it launches the live helper-backed watch path, waits for two real desktop-switch notifications, and prints the controller report with source and target desktop context from the live shell event stream. On non-Windows hosts, or whenever you intentionally set `LOCKING_GLASS_DESKTOP_SCRIPT`, it replays the scripted switch file for deterministic policy verification.
+Audit note: the automated tests prove policy, persistence, and scripted seam behavior. They do not claim to prove the real Windows desktop hook path by themselves.
 
-`make prototype` runs `locking_glass --prototype-windows-apis`, which prints the Windows integration boundary contract and a simple interaction trace for virtual desktop control plus monitor enumeration.
+## Running On Windows
 
-For the real Windows hook proof, run `scripts/run-live-desktop-probe.ps1` from a Windows shell. That wrapper downloads the current `VirtualDesktopAccessor.dll` release when needed, builds `tools/windows_live_desktop_probe`, exercises the live move path on a real top-level probe window, and records live desktop-switch notifications without using `LOCKING_GLASS_DESKTOP_SCRIPT`.
+- repo build: `build-win/bin/locking_glass.exe`
+- installed build: `%LOCALAPPDATA%\Programs\LockingGlass\LockingGlass.exe`
+- launching with no arguments starts the background tray app on Windows
+- `--version` prints the current app version from the repo `VERSION` file
+- `--self-check` prints startup diagnostics
+- `--install-autostart` registers current-user startup with `--background`
 
-For the Windows background-session proof path, run `scripts/run-live-background-proof.ps1` after building `build-win/bin/locking_glass.exe`. It launches `--background`, drives a real tray monitor toggle against the live popup menu, switches real Windows desktops, and records the observed lock-state plus the background watcher's live desktop-switch reports under `build/windows-live-background-proof/`.
+LockingGlass stores monitor session state at `%LOCALAPPDATA%\LockingGlass\monitor-session-state.tsv` by default on Windows. Set `LOCKING_GLASS_SESSION_PATH` if you want to override that during testing.
 
-To prove the honest fail-closed path on Windows, run `scripts/run-background-unavailable-proof.ps1`. It launches `--background` with a missing helper path and captures the background-session stderr diagnostic under `build/windows-background-unavailable-proof/`.
+Unlock return memory is separate from the session store. LockingGlass only remembers original workspaces for windows it moved successfully during the current run, and it forgets that information when the app exits.
 
-## Windows Install
+## Live Windows Proof Scripts
 
-`scripts/stage-windows-install.ps1` stages a Windows install package under `build/windows-install-stage/LockingGlass/`. That staged package bundles the proven `LockingGlass.exe` build, the published Windows live desktop probe, `run-live-desktop-probe.ps1`, `VirtualDesktopAccessor.dll`, a launcher cmd file, and an install README that states the current limits honestly.
+- `scripts/run-live-desktop-probe.ps1`
+  Downloads `VirtualDesktopAccessor.dll` when needed, builds the .NET probe, and proves the live Windows hook path on a real desktop shell.
+- `scripts/run-live-background-proof.ps1`
+  Launches the real tray app, toggles a monitor lock through the live menu, switches desktops, and records the resulting desktop-switch reports.
+- `scripts/run-installed-background-proof.ps1`
+  Re-runs the live background proof from the installed path instead of the repo build.
+- `scripts/run-background-unavailable-proof.ps1`
+  Proves the fail-closed behavior when the live controller cannot start.
 
-`scripts/install-staged-windows-build.ps1` installs that staged package into `%LOCALAPPDATA%\\Programs\\LockingGlass` by default, writes Start Menu shortcuts for the launcher and README, and can optionally run `LockingGlass.exe --install-autostart` or launch the background tray app immediately after install.
-When refreshing an existing install, that script now stops any already-running LockingGlass or bundled probe processes from the install directory before replacing files, so the helper DLL does not stay locked from the previous installed run.
+Reference docs:
 
-`scripts/run-installed-background-proof.ps1` stages the package, installs it, then reruns the live Windows background proof from the installed path instead of `build-win/bin`. That proof is the target-runtime check for the install flow: the installed app must launch `--background` and spawn the same helper-backed watch path used during acceptance proof.
+- [docs/windows-live-desktop-hook.md](docs/windows-live-desktop-hook.md)
+- [docs/windows-monitor-pinning-acceptance-proof.md](docs/windows-monitor-pinning-acceptance-proof.md)
+- [docs/windows-installed-background-proof.md](docs/windows-installed-background-proof.md)
 
-`docs/windows-installed-background-proof.md` records the 2026-04-16 installed-path proof and points at the durable artifacts under `build/windows-installed-background-proof/`.
+## Evidence Model
 
-## Autostart
+- `make test` and `build-win/bin/locking_glass_tests.exe` are the source of truth for host-side policy, persistence, replay seams, and the scripted unlock-return flow.
+- The PowerShell proof scripts are the source of truth for the live Windows helper-backed runtime path.
+- Dated proof documents are evidence snapshots tied to the artifacts they cite. After behavior changes, re-run the proof scripts instead of treating older proof notes as evergreen claims.
 
-- `locking_glass --install-autostart` writes a `LockingGlass` entry under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
-- The Run entry launches the binary with `--background`, which is wired to a hidden Win32 message loop on Windows so the process can stay resident after sign-in without foreground UI.
-- On Windows, `--background` now registers a status-aware `Shell_NotifyIconW` tray icon, starts the live desktop watcher when the controller is available, refreshes monitor state on `WM_DISPLAYCHANGE`, and opens a popup monitor-toggle menu when the tray icon is clicked.
-- `locking_glass --self-check` prints the exact autostart command that the Windows registration path will install, which keeps the contract host-verifiable from Linux workers.
-- The staged Windows install flow does not silently claim startup success. It only enables autostart when `LockingGlass.exe --install-autostart` is run explicitly, whether by the user or the installer script.
+## Packaging And Release
 
-## Tray Session
+- `scripts/stage-windows-install.ps1`
+  Stages the installable Windows payload under `build/windows-install-stage/LockingGlass/`.
+- `scripts/install-staged-windows-build.ps1`
+  Installs or updates the staged payload in `%LOCALAPPDATA%\Programs\LockingGlass`, creates Start Menu shortcuts, and can optionally enable autostart or launch after install.
+- `scripts/build-windows-installer.ps1`
+  Wraps the staged payload into `LockingGlass-setup-x64.exe` through the bootstrapper tool.
+- `.github/workflows/windows-release.yml`
+  Builds, tests, stages, and smoke-checks the Windows bundle on pull requests; tag builds also publish release assets after validating that the tag matches `VERSION`.
 
-- The Win32 background session keeps a hidden tool window alive, renders a custom tray icon that changes between unlocked, mixed, locked, and review-needed states, and uses the same model to drive the menu header and tooltip copy.
-- The tray header copy now says exactly what the proven build does: you choose which monitors stay pinned while other monitors follow Windows desktop switches.
-- Clicking the tray icon rebuilds the current monitor list from `MonitorGateway`, reconciles it through `SessionStore`, and shows a structured popup menu with a title, live summary line, hover guidance, one rendered padlock icon per active monitor entry, and layout metadata in each monitor label (`resolution @ x,y`, plus `primary` when applicable) so identical panels stay distinguishable before hover.
-- Monitor entries now use a filled emerald padlock for locked displays, a hollow slate padlock for unlocked displays, and an amber review-badged padlock for newly added monitors that still need confirmation.
-- Hovering a monitor entry now paints a full-monitor topmost highlight overlay with a centered identify card, making it clear which physical screen is being referenced before toggling; the overlay text also echoes the monitor's placement metadata for easier verification in scripted runs.
-- Selecting a monitor entry toggles its persisted lock state immediately, clears any outstanding review requirement for that monitor, and reopens the tray menu with refreshed lock counts and padlock indicators so the change is visible without another click.
-- Startup, `WM_DISPLAYCHANGE`, and manual tray refreshes now emit a lightweight review prompt when brand-new monitors appear, while disconnected monitors stay silent and simply retain their saved lock state until they return.
-- The tray tooltip summarizes the current lock count and pending-review count so topology changes are visible even before the menu is opened. If the live desktop controller is unavailable, the tray subtitle, instruction text, tooltip, and a startup warning notification all say so explicitly instead of implying that desktop locking is active.
-- When the live controller cannot start, the Windows `--background` path also writes an explicit `stderr` diagnostic so unavailable-controller runs can be captured honestly without relying on replay.
-- Win32 padlock menu bitmaps are recreated from the current `SM_CXMENUCHECK` and `SM_CYMENUCHECK` metrics on each refresh so the indicators stay aligned with system menu sizing across DPI scales and theme variants.
-- On non-Windows hosts, set `LOCKING_GLASS_TRAY_SCRIPT` to a scripted event file if you want to replay tray clicks, hover-identify steps, explicit `hover-clear` transitions, disconnect/reconnect cycles, and new-monitor review prompts through the same `--background` code path for local verification.
+Public Windows release artifacts should include:
 
-## Session State
+- `LockingGlass-<version>-setup-x64.exe`
+- `LockingGlass-<version>-windows-x64.zip`
+- `SHA256SUMS.txt`
 
-- Monitor lock state is stored by `core::SessionStore` in a local session file.
-- The default path is `%LOCALAPPDATA%\\LockingGlass\\monitor-session-state.tsv` on Windows and `$XDG_STATE_HOME/locking-glass/monitor-session-state.tsv` or `$HOME/.local/state/locking-glass/monitor-session-state.tsv` on non-Windows hosts.
-- Set `LOCKING_GLASS_SESSION_PATH` to override the storage file during tests or local inspection.
-- The on-disk format is versioned: the first row is `version<TAB>1`, followed by one `monitor` row per saved monitor record.
-- The model keeps disconnected monitors in the saved session, restores their lock state when they return, and adds brand-new monitors as unlocked records that still require user confirmation.
-- Review prompts are tied to the refresh that first discovers a brand-new monitor, so reopening the tray menu later does not keep re-emitting the same add-monitor notification.
-- If the app finds malformed or unsupported session data on startup, it treats the file as rejected input, copies the original contents to `<session-path>.invalid`, and writes a clean snapshot based on the currently visible monitors.
+`SHA256SUMS.txt` contains SHA-256 hashes for the published installer and zip so users can verify that the files they downloaded match the files that were released.
 
-## Desktop Locking
+GitHub Actions intentionally stops at build, unit-test, packaging, extract-only installer smoke, and packaged `--self-check`. It does not run the live proof scripts because GitHub-hosted runners do not provide an interactive Windows desktop shell, multiple monitors, multiple virtual desktops, or tray interaction.
 
-- `src/core/monitor_locking.cpp` builds the per-switch policy: it restores persisted monitor locks, identifies which live monitors are locked, and plans only the top-level movable windows that need to swap desktops to keep a locked monitor visually fixed.
-- `src/integration/virtual_desktop_controller.cpp` owns both the explicit replay seam and the Windows live-watch bridge. On Windows it prefers the real helper-backed event stream when `LOCKING_GLASS_DESKTOP_SCRIPT` is unset, and only uses replay when that env var is configured on purpose.
-- On live Windows desktop switches, the controller now enumerates real top-level HWNDs, resolves their current monitor and desktop through the existing monitor model plus `VirtualDesktopAccessor.dll:GetWindowDesktopNumber`, and applies `MoveWindowToDesktopNumber` only to windows on locked monitors whose source/target desktop context is known.
-- The live path fails closed for windows it cannot classify safely. If a window spans multiple monitors, has no live monitor intersection, is an owned/tool window on a locked monitor, or its desktop cannot be resolved, LockingGlass reports that skip in the desktop-switch report instead of guessing.
-- The controller now looks for `VirtualDesktopAccessor.dll` through `LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER`, the repo-local `build/windows-live-desktop-probe/` download location, the executable directory, and the current working directory so the Windows readiness probe and the live move path stay aligned during local proof runs.
-- The live desktop watcher now resolves `run-live-desktop-probe.ps1` and its probe assets from either the current checkout or a bundled install directory beside the executable, so the installed app launches the same helper-backed controller path instead of depending on repo-only source files.
-- The Windows background tray session now launches the same controller in a long-running watch mode (`required_events=0`, `allow_script_replay=false`), so persisted tray lock changes are reread from `SessionStore` and applied to subsequent real desktop switches instead of only the proof-oriented two-event CLI watch mode.
-- That background watcher now emits the same formatted `DesktopSwitchReport` evidence as direct `--watch-virtual-desktops`, and if `LOCKING_GLASS_BACKGROUND_REPORT_PATH` is set it also appends those reports to that file for Windows proof capture.
-- `docs/windows-live-desktop-hook.md` records the chosen live boundary: `VirtualDesktopAccessor.dll:RegisterPostMessageHook` for real desktop-switch notifications and `VirtualDesktopAccessor.dll:MoveWindowToDesktopNumber` for isolated top-level window moves.
-- The Windows proof probe for ticket `#15` also showed that direct `IVirtualDesktopManager.MoveWindowToDesktop` is not the supported move path on this runtime; the helper move export succeeded while COM remained useful for readiness and desktop-id verification.
-- In the replay format, each `event	desktop-switch	<trigger>	<from>	<to>` block can include `monitor` rows plus `window` rows (`window_id`, `title`, `monitor_id`, `monitor_label`, `desktop_id`, `is_top_level`, `can_move`).
-- `LOCKING_GLASS_DESKTOP_SCRIPT` remains a replay seam for local policy verification only. It is not valid completion evidence for the live Windows desktop hook path.
-- `scripts/run-live-desktop-probe.ps1` and `tools/windows_live_desktop_probe/Program.cs` now serve two roles on Windows: the existing proof probe for ticket `#15`, and the live watch backend that `locking_glass --watch-virtual-desktops` launches when replay is not explicitly requested. The staged install package bundles the published probe output so installed launches do not require the source checkout.
+## How Updates Work
 
-## Monitor Enumeration
+- The supported upgrade path is manual in-place reinstall through a newer `LockingGlass-setup-x64.exe` or `Install-LockingGlass.ps1`.
+- The installer stops the currently installed runtime, overwrites files in the stable install directory, preserves the external session-state file location, and can relaunch the tray app.
+- LockingGlass does not include background update checks, release-feed polling, or self-applying updates.
 
-- `src/platform/monitor_gateway.cpp` enumerates live monitors with `EnumDisplayMonitors` and `GetMonitorInfoW`, then enriches each screen with `QueryDisplayConfig` and `DisplayConfigGetDeviceInfo` data when Windows exposes a persistent device path.
-- The exported monitor identity envelope is `stable_id`, `device_path`, `edid_serial` when available, `display_name`, bounds, and primary flag. The current implementation prefers the Windows device path as the persistent id and falls back to an adapter-target signature when Windows does not provide one.
-- Monitor labels are assigned from the live screen layout after sorting by top-left position, so tray-facing numbering stays tied to the current topology rather than callback order.
-- `src/platform/monitor_watcher.cpp` drives startup and topology refresh events. On Windows it listens for `WM_DISPLAYCHANGE`; on non-Windows hosts it can replay scripted events through `LOCKING_GLASS_MONITOR_SCRIPT`.
+## Windows Requirements
 
-## Windows Notes
+- Windows only
+- at least two monitors
+- at least two Windows virtual desktops
+- `VirtualDesktopAccessor.dll` available beside the installed build, in the staged helper location, or through `LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER`
 
-- `src/platform/monitor_gateway.cpp` is where Win32 monitor enumeration is wired with `EnumDisplayMonitors`, `GetMonitorInfoW`, `QueryDisplayConfig`, and `DisplayConfigGetDeviceInfo`.
-- `src/platform/monitor_watcher.cpp` is where foreground monitor-watch sessions react to startup and `WM_DISPLAYCHANGE` refresh events.
-- `src/integration/windows_api_probe.cpp` is where tray and monitor entry points are probed with `user32.dll`, `shell32.dll`, COM initialization, and the base `IVirtualDesktopManager` seam.
-- `src/integration/virtual_desktop_controller.cpp` is where desktop switch replay, live-helper availability reporting, and fail-closed desktop-locking diagnostics are isolated.
-- `src/integration/windows_virtual_desktop_surface.cpp` centralizes the Windows-only readiness probe for `IVirtualDesktopManager` plus the `VirtualDesktopAccessor.dll` exports LockingGlass requires before it can claim the live hook path is available.
-- `src/platform/background_session.cpp` is where background launches enter the hidden Win32 tray session, handle tray clicks, and expose the scripted non-Windows verification path.
-- `src/integration/autostart.cpp` is where current-user Run-key registration is built and installed for sign-in autostart.
-- `src/integration/ffmpeg_probe.cpp` uses runtime loading instead of static linkage so future Windows packaging can decide where FFmpeg DLLs live without changing the call site contract.
-- `src/core/session_store.cpp` is where monitor lock state is serialized, restored, and reconciled against live monitor topology.
-- `src/core/tray_ui.cpp` is where active monitor session state is projected into the tray menu model, including the per-monitor padlock icon state, and where tray-driven lock toggles are persisted.
-- `scripts/run-live-desktop-probe.ps1` is the Windows-side wrapper that downloads the maintained helper DLL release, runs the .NET probe, and writes proof logs under `build/windows-live-desktop-probe/`.
-- `scripts/stage-windows-install.ps1` builds the staged Windows package, while `scripts/install-staged-windows-build.ps1` and `scripts/run-installed-background-proof.ps1` handle install-time launch and installed-path proof.
+If the helper DLL or required exports are missing, LockingGlass marks live desktop locking as unavailable and fails closed instead of replaying or guessing.
 
-## Windows Integration Boundaries
+## License
 
-- `virtual-desktop-control` owns COM readiness, supported `IVirtualDesktopManager` access, and the isolated `VirtualDesktopAccessor.dll` seam used for live desktop switch notifications and top-level window moves.
-- `virtual-desktop-control` does not choose which monitors or windows should move. Core policy decides that, then passes only eligible top-level windows into the boundary.
-- If `VirtualDesktopAccessor.dll` or its required exports are missing, the desktop-control boundary must report `unavailable` and LockingGlass must fail closed instead of falling back to replay or guessed shell state.
-- `monitor-enumeration` owns `EnumDisplayMonitors`, `GetMonitorInfoW`, `QueryDisplayConfig`, `DisplayConfigGetDeviceInfo`, and `WM_DISPLAYCHANGE` handling. It reports live monitor geometry and identity fields without persisting state or deciding lock behavior.
-- `monitor-enumeration` emits the identity envelope consumed by `SessionStore`: stable id, device path, EDID serial when available, display name, bounds, and primary flag. Ambiguity resolution stays in the core/session layer.
-- `locking_glass --prototype-windows-apis` prints both boundaries plus the expected interaction flow: startup probe, live monitor scan, topology refresh on `WM_DISPLAYCHANGE`, desktop switch notification, and post-policy window moves.
+LockingGlass is licensed under `GPL-3.0-only`. See [LICENSE](LICENSE).
+
+Windows release packages currently bundle `VirtualDesktopAccessor.dll` under the MIT License. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

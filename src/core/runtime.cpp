@@ -18,15 +18,7 @@ const SessionMonitorState* FindSessionState(
     if (!monitor_state.is_present) {
       continue;
     }
-    if (monitor_state.monitor.stable_id == monitor.stable_id &&
-        monitor_state.monitor.device_path == monitor.device_path &&
-        monitor_state.monitor.edid_serial == monitor.edid_serial &&
-        monitor_state.monitor.display_name == monitor.display_name &&
-        monitor_state.monitor.bounds.left == monitor.bounds.left &&
-        monitor_state.monitor.bounds.top == monitor.bounds.top &&
-        monitor_state.monitor.bounds.right == monitor.bounds.right &&
-        monitor_state.monitor.bounds.bottom == monitor.bounds.bottom &&
-        monitor_state.monitor.is_primary == monitor.is_primary) {
+    if (ExactMonitorIdentityEqual(monitor_state.monitor, monitor)) {
       return &monitor_state;
     }
   }
@@ -70,7 +62,6 @@ Runtime BuildRuntime() {
       .monitor_gateway = platform::CreateMonitorGateway(),
       .monitor_watcher = platform::CreateMonitorWatcher(),
       .background_session = platform::CreateBackgroundSession(),
-      .ffmpeg_probe = integration::CreateFfmpegProbe(),
       .virtual_desktop_controller = integration::CreateVirtualDesktopController(),
       .windows_api_probe = integration::CreateWindowsApiProbe(),
       .autostart_manager = integration::CreateAutostartManager(),
@@ -86,7 +77,6 @@ StartupDiagnostics CollectStartupDiagnostics(const Runtime& runtime,
   diagnostics.capabilities.push_back(runtime.virtual_desktop_controller->Probe());
   diagnostics.capabilities.push_back(runtime.windows_api_probe->Probe());
   diagnostics.capabilities.push_back(runtime.autostart_manager->Probe());
-  diagnostics.capabilities.push_back(runtime.ffmpeg_probe->Probe());
   diagnostics.capabilities.push_back(runtime.session_store.Probe());
   diagnostics.autostart =
       runtime.autostart_manager->BuildPlan(executable_path);
