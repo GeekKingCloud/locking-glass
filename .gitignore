@@ -1,20 +1,17 @@
-.env
-
+# Agents
+.codex
 CLAUDE.md
 .claude/
-.codex
 
-.reef/
+# Tools
 .lumberhack/
-.atoshell/*.env
-.atoshell/meta.json
+.atoshell/
+.reef/
 
+# Secrets
+.env
+
+# Build
 build/
 build-win/
-dist/
-release/
-*.dSYM/
-tools/windows_live_desktop_probe/bin/
-tools/windows_live_desktop_probe/obj/
-tools/windows_installer_bootstrapper/bin/
-tools/windows_installer_bootstrapper/obj/
+tools/*
