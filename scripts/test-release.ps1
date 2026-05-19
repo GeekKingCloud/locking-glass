@@ -10,6 +10,8 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $gitSafeDirectory = $repoRoot.Replace('\', '/')
 $version = (Get-Content (Join-Path $repoRoot 'VERSION') -Raw).Trim()
+$helperResolverPath = Join-Path $repoRoot 'scripts\resolve-virtual-desktop-helper.ps1'
+. $helperResolverPath
 
 if ([string]::IsNullOrWhiteSpace($SetupExeName)) {
     $SetupExeName = "LockingGlass-$version-setup-x64.exe"
@@ -309,8 +311,21 @@ function Test-Sha256Sums([string]$SumPath, [string]$SetupPath, [string]$ZipPath)
     }
 }
 
+function Test-PinnedVirtualDesktopHelper([string]$Directory, [string]$Label) {
+    $helperPath = Join-Path $Directory 'VirtualDesktopAccessor.dll'
+    if (-not (Test-Path $helperPath)) {
+        throw "$Label is missing VirtualDesktopAccessor.dll under '$Directory'."
+    }
+
+    $actualHash = (Get-FileHash -Algorithm SHA256 $helperPath).Hash.ToUpperInvariant()
+    if ($actualHash -ne $script:LockingGlassVirtualDesktopAccessorSha256) {
+        throw "$Label bundled VirtualDesktopAccessor.dll SHA-256 '$actualHash' did not match expected '$script:LockingGlassVirtualDesktopAccessorSha256'."
+    }
+}
+
 function Test-ExtractedPackage([string]$Directory, [string]$Label) {
     Assert-PackagePayload $Directory
+    Test-PinnedVirtualDesktopHelper -Directory $Directory -Label $Label
 
     $packagedExe = Join-Path $Directory 'LockingGlass.exe'
     $versionOutput = & $packagedExe --version
@@ -342,6 +357,7 @@ function Test-Package {
 
     Invoke-Checked (Join-Path $repoRoot 'scripts\stage-windows-install.ps1')
     Assert-PackagePayload $stageDir
+    Test-PinnedVirtualDesktopHelper -Directory $stageDir -Label 'Staged package'
 
     Invoke-Checked (Join-Path $repoRoot 'scripts\build-windows-installer.ps1') @(
         '-StageDir', $stageDir,
