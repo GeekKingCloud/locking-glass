@@ -24,7 +24,7 @@ Locked monitors keep their visible windows on the same desktop while unlocked mo
 - `tests/wiring_test.cpp`: the automated test harness for the app-level seams.
 - `VERSION`: the single source of truth for the app, installer, and release version.
 - `tools/windows_live_desktop_probe`: the Windows live-hook probe used by proof scripts and installed watch mode.
-- `tools/windows_installer_bootstrapper`: the small self-contained installer bootstrapper used to produce `LockingGlass-setup-x64.exe`.
+- `tools/windows_installer_bootstrapper`: the small self-contained installer bootstrapper used to produce `LockingGlass-<version>-setup-x64.exe`.
 
 ## Build And Test
 
@@ -37,7 +37,13 @@ make smoke
 make prototype
 ```
 
-For the Windows cross-build:
+For the Windows release build:
+
+```powershell
+./scripts/test-release.ps1 -Mode Build
+```
+
+For an optional non-release cross-build from a mingw-w64 environment:
 
 ```bash
 make BUILD_DIR=build-win OBJ_DIR=build-win/obj BIN_DIR=build-win/bin OS=Windows_NT CXX=x86_64-w64-mingw32-g++ all
@@ -114,7 +120,7 @@ Reference docs:
 - `scripts/install-staged-windows-build.ps1`
   Installs or updates the staged payload in `%LOCALAPPDATA%\Programs\LockingGlass`, creates Start Menu shortcuts, and can optionally enable autostart or launch after install.
 - `scripts/build-windows-installer.ps1`
-  Wraps the staged payload into `LockingGlass-setup-x64.exe` through the bootstrapper tool.
+  Wraps the staged payload into `LockingGlass-<version>-setup-x64.exe` through the bootstrapper tool.
 - `.github/workflows/windows-release.yml`
   Runs `scripts/test-release.ps1` on pull requests; tag builds also publish release assets after validating that the tag matches `VERSION`.
 
@@ -130,7 +136,7 @@ GitHub Actions intentionally stops at build, unit-test, packaging, extract-only 
 
 ## How Updates Work
 
-- The supported upgrade path is manual in-place reinstall through a newer `LockingGlass-setup-x64.exe` or `Install-LockingGlass.ps1`.
+- The supported upgrade path is manual in-place reinstall through a newer `LockingGlass-<version>-setup-x64.exe` or `Install-LockingGlass.ps1`.
 - The installer stops the currently installed runtime, overwrites files in the stable install directory, preserves the external session-state file location, and can relaunch the tray app.
 - LockingGlass does not include background update checks, release-feed polling, or self-applying updates.
 

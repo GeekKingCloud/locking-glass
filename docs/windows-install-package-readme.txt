@@ -9,7 +9,7 @@ Audit note
 What it does
 - Keeps selected monitors visually pinned while other monitors follow real Windows virtual desktop switches.
 - When you unlock a monitor, it makes a best-effort attempt to return windows that LockingGlass moved for that lock back to their remembered original workspace if that workspace still exists.
-- Launches the same helper-backed live controller path that passed the Windows acceptance proof.
+- Uses the helper-backed live controller path. Run the proof scripts for current live Windows validation.
 - Fails closed when the live controller cannot start instead of pretending replay or prototype behavior is live.
 
 Requirements
@@ -47,7 +47,7 @@ Unlock return note
 - If the remembered workspace no longer exists, the window stays where it is.
 
 Installer note
-- Public releases may also ship as LockingGlass-setup-x64.exe.
+- Public releases may also ship as LockingGlass-<version>-setup-x64.exe.
 - That setup executable is a wrapper around this same payload and still uses Install-LockingGlass.ps1 for the actual install logic.
 - The setup executable and installer script are upgrade-safe by design: they keep the stable install path and do not move the external session-state file.
 - Custom install directories must name an app-specific LockingGlass folder, not a shared parent directory.

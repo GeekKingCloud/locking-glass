@@ -23,7 +23,9 @@ a real Windows desktop.
 - `VERSION` is the single release version source.
 - `scripts/test-release.ps1` is the release-verification entrypoint.
 - `.github/workflows/windows-release.yml` should delegate release checks to
-  `scripts/test-release.ps1` instead of duplicating release logic in YAML.
+  `scripts/test-release.ps1` instead of duplicating build, test, package, or
+  smoke-test logic in YAML. Minimal workflow metadata such as artifact names,
+  tag matching, and GitHub release publication can stay in the workflow.
 - `README.md`, `CONTRIBUTING.md`, and `docs/windows-install-package-readme.txt`
   must stay aligned with the release gate and packaging contract.
 - `THIRD_PARTY_NOTICES.md` must describe every bundled runtime dependency.

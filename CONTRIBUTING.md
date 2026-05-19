@@ -14,7 +14,9 @@ Thanks for helping improve LockingGlass.
 - Host build and tests:
   `make`
   `make test`
-- Windows cross-build:
+- Windows release build:
+  `./scripts/test-release.ps1 -Mode Build`
+- Optional non-release cross-build from a mingw-w64 environment:
   `make BUILD_DIR=build-win OBJ_DIR=build-win/obj BIN_DIR=build-win/bin OS=Windows_NT CXX=x86_64-w64-mingw32-g++ all`
 - Release checks:
   `./scripts/test-release.ps1 -Mode Hygiene`
