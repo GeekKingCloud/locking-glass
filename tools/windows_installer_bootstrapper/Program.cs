@@ -89,6 +89,12 @@ namespace LockingGlass.WindowsInstallerBootstrapper
                         "The installer payload contains a rooted entry: " + entry.FullName);
                 }
 
+                if (entry.FullName.IndexOfAny(new[] { '/', '\\' }) >= 0)
+                {
+                    throw new InvalidOperationException(
+                        "The installer payload contains a nested entry: " + entry.FullName);
+                }
+
                 var segments = entry.FullName.Split(new[] { '/', '\\' });
                 foreach (var segment in segments)
                 {
