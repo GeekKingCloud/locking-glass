@@ -67,11 +67,14 @@ function Require-Command([string]$Name) {
     return $command.Source
 }
 
-function Require-DotNet8Sdk {
+function Require-DotNetCompatibleSdk {
     $dotnet = Require-Command 'dotnet'
     $sdks = @(& $dotnet --list-sdks)
-    if (-not ($sdks | Select-String -Pattern '^8\.')) {
-        throw ".NET 8 SDK is required. Installed SDKs:`n$($sdks -join [Environment]::NewLine)"
+    $compatibleSdk = $sdks | Where-Object {
+        $_ -match '^(\d+)\.' -and [int]$Matches[1] -ge 8
+    } | Select-Object -First 1
+    if ($null -eq $compatibleSdk) {
+        throw ".NET SDK 8 or newer is required. Installed SDKs:`n$($sdks -join [Environment]::NewLine)"
     }
 
     return $dotnet
@@ -220,7 +223,7 @@ function Test-Hygiene {
 
 function Test-Build {
     Write-Step 'Building .NET helper projects'
-    $dotnet = Require-DotNet8Sdk
+    $dotnet = Require-DotNetCompatibleSdk
     Invoke-Checked $dotnet @('build', 'tools\windows_live_desktop_probe\LockingGlass.WindowsLiveDesktopProbe.csproj', '-c', 'Release')
     Invoke-Checked $dotnet @('build', 'tools\windows_installer_bootstrapper\LockingGlass.WindowsInstallerBootstrapper.csproj', '-c', 'Release')
 

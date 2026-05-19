@@ -22,6 +22,7 @@ Thanks for helping improve LockingGlass.
   `./scripts/test-release.ps1 -Mode Hygiene`
   `./scripts/test-release.ps1 -Mode Build`
   `./scripts/test-release.ps1 -Mode Package`
+  These checks require the .NET SDK 8 or newer for helper project builds.
 - If you change packaging or installer behavior, run the release package mode and review:
   `scripts/stage-windows-install.ps1`
   `scripts/build-windows-installer.ps1`

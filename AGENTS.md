@@ -60,4 +60,5 @@ release-ready, run or explicitly account for:
 - the relevant manual live-proof scripts when Windows desktop behavior changes
 
 If local tooling is missing, report the missing prerequisite instead of claiming
-verification from static inspection.
+verification from static inspection. The helper project build requires the .NET
+SDK 8 or newer.
