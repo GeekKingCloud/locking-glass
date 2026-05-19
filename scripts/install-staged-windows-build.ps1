@@ -129,6 +129,8 @@ $requiredFiles = @(
     'VERSION.txt',
     'LICENSE.txt',
     'THIRD_PARTY_NOTICES.txt',
+    'DOTNET_RUNTIME_LICENSE.txt',
+    'DOTNET_RUNTIME_THIRD_PARTY_NOTICES.txt',
     'LOCKING_GLASS_PAYLOAD_MANIFEST.txt'
 )
 
@@ -165,6 +167,8 @@ $filesToCopy = @(
     'VERSION.txt',
     'LICENSE.txt',
     'THIRD_PARTY_NOTICES.txt',
+    'DOTNET_RUNTIME_LICENSE.txt',
+    'DOTNET_RUNTIME_THIRD_PARTY_NOTICES.txt',
     'LOCKING_GLASS_PAYLOAD_MANIFEST.txt',
     'Install-LockingGlass.ps1'
 )

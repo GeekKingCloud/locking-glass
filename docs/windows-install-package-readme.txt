@@ -29,6 +29,8 @@ Files that must stay together
 - README.txt
 - LICENSE.txt
 - THIRD_PARTY_NOTICES.txt
+- DOTNET_RUNTIME_LICENSE.txt
+- DOTNET_RUNTIME_THIRD_PARTY_NOTICES.txt
 - LOCKING_GLASS_PAYLOAD_MANIFEST.txt
 - LockingGlass.WindowsLiveDesktopProbe publish output
 

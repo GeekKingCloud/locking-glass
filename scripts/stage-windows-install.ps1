@@ -93,6 +93,16 @@ if ($null -eq $dotnet) {
     throw 'dotnet.exe is required to publish the bundled Windows live desktop probe.'
 }
 
+$dotnetRoot = Split-Path -Parent $dotnet.Source
+$dotnetLicenseSource = Join-Path $dotnetRoot 'LICENSE.txt'
+$dotnetThirdPartySource = Join-Path $dotnetRoot 'ThirdPartyNotices.txt'
+if (-not (Test-Path $dotnetLicenseSource)) {
+    throw "Missing .NET runtime license notice at '$dotnetLicenseSource'."
+}
+if (-not (Test-Path $dotnetThirdPartySource)) {
+    throw "Missing .NET runtime third-party notice file at '$dotnetThirdPartySource'."
+}
+
 New-Item -ItemType Directory -Force -Path $probePublishDir | Out-Null
 & $dotnet.Source publish $probeProject `
     -c Release `
@@ -118,6 +128,8 @@ Copy-Item -Path $readmeSource -Destination (Join-Path $OutputDir 'README.txt') -
 Copy-Item -Path $versionSource -Destination (Join-Path $OutputDir 'VERSION.txt') -Force
 Copy-Item -Path $licenseSource -Destination (Join-Path $OutputDir 'LICENSE.txt') -Force
 Copy-Item -Path $thirdPartySource -Destination (Join-Path $OutputDir 'THIRD_PARTY_NOTICES.txt') -Force
+Copy-Item -Path $dotnetLicenseSource -Destination (Join-Path $OutputDir 'DOTNET_RUNTIME_LICENSE.txt') -Force
+Copy-Item -Path $dotnetThirdPartySource -Destination (Join-Path $OutputDir 'DOTNET_RUNTIME_THIRD_PARTY_NOTICES.txt') -Force
 Copy-Item -Path $installerSource -Destination (Join-Path $OutputDir 'Install-LockingGlass.ps1') -Force
 Copy-Item -Path $launcherSource -Destination (Join-Path $OutputDir 'Start-LockingGlass.cmd') -Force
 Copy-Item -Path (Join-Path $probePublishDir 'LockingGlass.WindowsLiveDesktopProbe*') -Destination $OutputDir -Force

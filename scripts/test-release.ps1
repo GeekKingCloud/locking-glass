@@ -214,6 +214,27 @@ function Test-NoStaleRuntimeReferences {
     }
 }
 
+function Test-ThirdPartyNoticeCoverage {
+    $noticePath = Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md'
+    $noticeText = Get-Content -Path $noticePath -Raw
+    $requiredNoticePatterns = @(
+        'VirtualDesktopAccessor\.dll',
+        'DOTNET_RUNTIME_LICENSE\.txt',
+        'DOTNET_RUNTIME_THIRD_PARTY_NOTICES\.txt'
+    )
+
+    $missingPatterns = @()
+    foreach ($pattern in $requiredNoticePatterns) {
+        if ($noticeText -notmatch $pattern) {
+            $missingPatterns += $pattern
+        }
+    }
+
+    if ($missingPatterns.Count -gt 0) {
+        throw "THIRD_PARTY_NOTICES.md is missing release notice coverage for:`n$($missingPatterns -join [Environment]::NewLine)"
+    }
+}
+
 function Test-PowerShellSyntax {
     $scriptFiles = Get-ChildItem -Path (Join-Path $repoRoot 'scripts') -Filter '*.ps1' -File
     foreach ($scriptFile in $scriptFiles) {
@@ -241,6 +262,7 @@ function Test-Hygiene {
     Test-RequiredSourceTracked
     Test-NoTrackedGeneratedOutput
     Test-NoStaleRuntimeReferences
+    Test-ThirdPartyNoticeCoverage
     Test-PowerShellSyntax
 }
 
@@ -295,6 +317,8 @@ function Get-RequiredPackageFiles {
         'VERSION.txt',
         'LICENSE.txt',
         'THIRD_PARTY_NOTICES.txt',
+        'DOTNET_RUNTIME_LICENSE.txt',
+        'DOTNET_RUNTIME_THIRD_PARTY_NOTICES.txt',
         'LOCKING_GLASS_PAYLOAD_MANIFEST.txt'
     )
 }

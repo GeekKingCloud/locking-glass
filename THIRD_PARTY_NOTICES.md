@@ -2,7 +2,7 @@
 
 This file is the public notice file for dependencies bundled into LockingGlass release artifacts. It intentionally lists bundled runtime dependencies, not every build-only tool used during development.
 
-LockingGlass currently bundles one third-party dependency in its Windows release packages.
+LockingGlass currently bundles the following third-party runtime components in its Windows release packages.
 
 ## VirtualDesktopAccessor.dll
 
@@ -15,6 +15,18 @@ LockingGlass currently bundles one third-party dependency in its Windows release
 - Copyright: `Jari Pennanen, 2015-2024`
 
 LockingGlass copies this notice into staged and installed Windows packages as `THIRD_PARTY_NOTICES.txt`.
+
+## Microsoft .NET Runtime Components
+
+- Purpose: self-contained Windows helper executables for the live desktop probe and setup bootstrapper
+- Project: `.NET`
+- Upstream project: <https://github.com/dotnet/runtime>
+- License: Microsoft .NET Library License and bundled third-party component notices
+- Package notice files:
+  - `DOTNET_RUNTIME_LICENSE.txt`
+  - `DOTNET_RUNTIME_THIRD_PARTY_NOTICES.txt`
+
+The release staging script copies these files from the `dotnet.exe` installation used to publish the self-contained helper executables. They are required package payload files so the bundled .NET runtime notices ship with the installer and zip.
 
 MIT License
 
