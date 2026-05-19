@@ -75,7 +75,7 @@ Release verification is centralized in:
 ./scripts/test-release.ps1 -Mode Package
 ```
 
-`-Mode All` runs the same checks end to end. The runner verifies repo hygiene, required helper source tracking, .NET SDK 8-or-newer helper builds, Windows native build/tests, setup and zip smoke, installed-path smoke, and `SHA256SUMS.txt`. The live desktop proof scripts remain manual because hosted CI cannot provide the required interactive Windows desktop, monitor, virtual desktop, or tray conditions.
+`-Mode All` runs the same checks end to end. The runner verifies repo hygiene, required helper source tracking, .NET SDK 8-or-newer helper builds, Windows native build/tests, setup and zip smoke, installed-path smoke, and `SHA256SUMS.txt`. The Windows native build expects `make`, `g++`, `windres`, and a Unix-like shell from MSYS2 or Git for Windows. The live desktop proof scripts remain manual because hosted CI cannot provide the required interactive Windows desktop, monitor, virtual desktop, or tray conditions.
 
 ## Running On Windows
 
@@ -147,7 +147,7 @@ GitHub Actions intentionally stops at build, unit-test, packaging, extract-only 
 - at least two Windows virtual desktops
 - `VirtualDesktopAccessor.dll` available beside the installed build, in the staged helper location, or through `LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER`
 
-Release packages bundle the live desktop probe as a self-contained Windows executable, so normal installed use does not require a separate .NET runtime. Building from source still requires the .NET SDK 8 or newer for the helper projects and installer bootstrapper.
+Release packages bundle the live desktop probe as a self-contained Windows executable, so normal installed use does not require a separate .NET runtime. Building from source still requires the .NET SDK 8 or newer for the helper projects and installer bootstrapper, plus MSYS2 or Git for Windows shell tools and a MinGW toolchain for the native Windows build.
 
 If the helper DLL or required exports are missing, LockingGlass marks live desktop locking as unavailable and fails closed instead of replaying or guessing.
 

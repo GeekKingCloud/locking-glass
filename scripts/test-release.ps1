@@ -80,15 +80,38 @@ function Require-DotNetCompatibleSdk {
     return $dotnet
 }
 
-function Add-Msys2ToPathIfPresent {
+function Add-PathPrefixIfPresent([string]$Candidate) {
+    if ((Test-Path $Candidate) -and ($env:PATH -notlike ('*' + $Candidate + '*'))) {
+        $env:PATH = $Candidate + [System.IO.Path]::PathSeparator + $env:PATH
+    }
+}
+
+function Add-WindowsUnixToolsToPathIfPresent {
     $candidates = @(
         'C:\msys64\mingw64\bin',
-        'C:\msys64\usr\bin'
+        'C:\msys64\usr\bin',
+        'C:\Program Files\Git\usr\bin'
     )
 
     foreach ($candidate in $candidates) {
-        if ((Test-Path $candidate) -and ($env:PATH -notlike ('*' + $candidate + '*'))) {
-            $env:PATH = $candidate + [System.IO.Path]::PathSeparator + $env:PATH
+        Add-PathPrefixIfPresent $candidate
+    }
+}
+
+function Require-WindowsUnixBuildShell {
+    $sh = Require-Command 'sh'
+    $probe = 'command -v cat find sort mkdir rm >/dev/null'
+    & $sh -lc $probe
+    if ($LASTEXITCODE -ne 0) {
+        throw "A working Unix-like shell with cat, find, sort, mkdir, and rm is required for the Makefile. Install MSYS2 or Git for Windows, then ensure its usr\bin directory is on PATH."
+    }
+
+    $requiredTools = @('make', 'g++', 'windres')
+    foreach ($tool in $requiredTools) {
+        try {
+            $null = Require-Command $tool
+        } catch {
+            throw "Required Windows build tool '$tool' was not found on PATH. Install MSYS2 mingw-w64 GCC or an equivalent MinGW toolchain."
         }
     }
 }
@@ -228,7 +251,8 @@ function Test-Build {
     Invoke-Checked $dotnet @('build', 'tools\windows_installer_bootstrapper\LockingGlass.WindowsInstallerBootstrapper.csproj', '-c', 'Release')
 
     Write-Step 'Building and testing Windows binaries'
-    Add-Msys2ToPathIfPresent
+    Add-WindowsUnixToolsToPathIfPresent
+    Require-WindowsUnixBuildShell
     $make = Require-Command 'make'
     $makeArgs = @(
         'BUILD_DIR=build-win',
