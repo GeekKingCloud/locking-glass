@@ -83,18 +83,7 @@ HMODULE LoadVirtualDesktopHelper() {
     }
   }
 
-  if (HMODULE library = LoadHelperFromAncestorSearch(std::filesystem::current_path());
-      library != nullptr) {
-    return library;
-  }
-
-  const auto cwd_path =
-      std::filesystem::current_path() / "VirtualDesktopAccessor.dll";
-  if (HMODULE library = LoadLibraryW(cwd_path.c_str()); library != nullptr) {
-    return library;
-  }
-
-  return LoadLibraryW(L"VirtualDesktopAccessor.dll");
+  return nullptr;
 }
 
 }  // namespace

@@ -89,12 +89,6 @@ std::filesystem::path FindLiveWatchAssetRoot(
 }
 
 std::filesystem::path FindLiveWatchAssetRoot() {
-  if (const auto from_cwd =
-          FindLiveWatchAssetRoot(std::filesystem::current_path());
-      !from_cwd.empty()) {
-    return from_cwd;
-  }
-
   wchar_t module_path[MAX_PATH];
   const DWORD length = GetModuleFileNameW(nullptr, module_path, MAX_PATH);
   if (length == 0 || length >= MAX_PATH) {
@@ -971,16 +965,16 @@ int WatchWindowsLiveSwitches(const core::SessionStore& store,
   if (asset_root.empty()) {
     std::cerr
         << "LockingGlass could not locate bundled live desktop watch assets "
-           "beside the executable or the repo-backed proof assets from the "
-           "current checkout, so the live Windows desktop watch path cannot "
-           "start.\n";
+           "beside the executable or in the executable's repository ancestors, "
+           "so the live Windows desktop watch path cannot start.\n";
     return 1;
   }
 
   const auto log_path = BuildLiveWatchLogPath();
   const auto command_script_path =
       BuildLiveWatchCommandScript(asset_root, log_path, options);
-  const std::string command = command_script_path.string() + " 2>&1";
+  const std::string command =
+      QuoteCommandArgument(command_script_path.string()) + " 2>&1";
   FILE* pipe = _popen(command.c_str(), "r");
   if (pipe == nullptr) {
     std::cerr
