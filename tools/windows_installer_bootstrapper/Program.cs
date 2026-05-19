@@ -195,7 +195,7 @@ namespace LockingGlass.WindowsInstallerBootstrapper
 
             var startInfo = new ProcessStartInfo
             {
-                FileName = "powershell.exe",
+                FileName = ResolveWindowsPowerShellPath(),
                 WorkingDirectory = extractionDirectory,
                 UseShellExecute = false
             };
@@ -238,6 +238,26 @@ namespace LockingGlass.WindowsInstallerBootstrapper
             TryDeleteExtractionDirectory(extractionDirectory);
             Console.WriteLine("LockingGlass installation completed.");
             return 0;
+        }
+
+        private static string ResolveWindowsPowerShellPath()
+        {
+            var windowsDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            if (!string.IsNullOrWhiteSpace(windowsDirectory))
+            {
+                var systemPowerShellPath = Path.Combine(
+                    windowsDirectory,
+                    "System32",
+                    "WindowsPowerShell",
+                    "v1.0",
+                    "powershell.exe");
+                if (File.Exists(systemPowerShellPath))
+                {
+                    return systemPowerShellPath;
+                }
+            }
+
+            return "powershell.exe";
         }
 
         private static void TryDeleteExtractionDirectory(string extractionDirectory)

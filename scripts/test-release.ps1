@@ -58,6 +58,12 @@ function Invoke-Git {
     return @($output)
 }
 
+function Assert-LastCommandSucceeded([string]$Description) {
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Description failed with exit code $LASTEXITCODE."
+    }
+}
+
 function Require-Command([string]$Name) {
     $command = Get-Command $Name -ErrorAction SilentlyContinue
     if ($null -eq $command) {
@@ -269,8 +275,8 @@ function Test-Hygiene {
 function Test-Build {
     Write-Step 'Building .NET helper projects'
     $dotnet = Require-DotNetCompatibleSdk
-    Invoke-Checked $dotnet @('build', 'tools\windows_live_desktop_probe\LockingGlass.WindowsLiveDesktopProbe.csproj', '-c', 'Release')
-    Invoke-Checked $dotnet @('build', 'tools\windows_installer_bootstrapper\LockingGlass.WindowsInstallerBootstrapper.csproj', '-c', 'Release')
+    Invoke-Checked $dotnet -Arguments @('build', 'tools\windows_live_desktop_probe\LockingGlass.WindowsLiveDesktopProbe.csproj', '-c', 'Release')
+    Invoke-Checked $dotnet -Arguments @('build', 'tools\windows_installer_bootstrapper\LockingGlass.WindowsInstallerBootstrapper.csproj', '-c', 'Release')
 
     Write-Step 'Building and testing Windows binaries'
     Add-WindowsUnixToolsToPathIfPresent
@@ -283,8 +289,8 @@ function Test-Build {
         'OS=Windows_NT',
         'CXX=g++'
     )
-    Invoke-Checked $make ($makeArgs + @('all'))
-    Invoke-Checked $make ($makeArgs + @('test'))
+    Invoke-Checked $make -Arguments ($makeArgs + @('all'))
+    Invoke-Checked $make -Arguments ($makeArgs + @('test'))
 
     $app = Join-Path $repoRoot 'build-win\bin\locking_glass.exe'
     if (-not (Test-Path $app)) {
@@ -432,17 +438,18 @@ function Test-Package {
     $zipPath = Join-Path $releaseDir $ZipName
     $sumPath = Join-Path $releaseDir 'SHA256SUMS.txt'
 
-    Invoke-Checked (Join-Path $repoRoot 'scripts\stage-windows-install.ps1')
+    & (Join-Path $repoRoot 'scripts\stage-windows-install.ps1')
+    Assert-LastCommandSucceeded 'stage-windows-install.ps1'
     Assert-PackagePayload $stageDir
     Test-PayloadManifest -Directory $stageDir -Label 'Staged package'
     Test-PinnedVirtualDesktopHelper -Directory $stageDir -Label 'Staged package'
 
-    Invoke-Checked (Join-Path $repoRoot 'scripts\build-windows-installer.ps1') @(
-        '-StageDir', $stageDir,
-        '-OutputDir', $installerDir,
-        '-SetupExeName', $SetupExeName,
-        '-SkipStage'
-    )
+    & (Join-Path $repoRoot 'scripts\build-windows-installer.ps1') `
+        -StageDir $stageDir `
+        -OutputDir $installerDir `
+        -SetupExeName $SetupExeName `
+        -SkipStage
+    Assert-LastCommandSucceeded 'build-windows-installer.ps1'
 
     New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
     Remove-Item -Force $zipPath, $sumPath -ErrorAction SilentlyContinue
@@ -456,7 +463,7 @@ function Test-Package {
     Test-Sha256Sums -SumPath $sumPath -SetupPath $setupPath -ZipPath $zipPath
 
     Remove-Item -Recurse -Force $extractDir -ErrorAction SilentlyContinue
-    Invoke-Checked $setupPath @('--extract-only', $extractDir)
+    Invoke-Checked $setupPath -Arguments @('--extract-only', $extractDir)
     Test-ExtractedPackage -Directory $extractDir -Label 'Setup extract-only smoke'
 
     Remove-Item -Recurse -Force $zipExtractDir -ErrorAction SilentlyContinue
@@ -472,7 +479,7 @@ function Test-Package {
         $env:APPDATA = Join-Path $installSmokeRoot 'Roaming'
         $env:LOCALAPPDATA = Join-Path $installSmokeRoot 'Local'
         New-Item -ItemType Directory -Force -Path $env:APPDATA, $env:LOCALAPPDATA | Out-Null
-        Invoke-Checked $setupPath @('--install-dir', $installDir, '--no-launch-after-install')
+        Invoke-Checked $setupPath -Arguments @('--install-dir', $installDir, '--no-launch-after-install')
     } finally {
         $env:APPDATA = $previousAppData
         $env:LOCALAPPDATA = $previousLocalAppData
