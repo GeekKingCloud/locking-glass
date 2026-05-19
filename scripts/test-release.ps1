@@ -1,0 +1,401 @@
+param(
+    [ValidateSet('All', 'Hygiene', 'Build', 'Package')]
+    [string]$Mode = 'All',
+    [string]$SetupExeName,
+    [string]$ZipName
+)
+
+$ErrorActionPreference = 'Stop'
+
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$gitSafeDirectory = $repoRoot.Replace('\', '/')
+$version = (Get-Content (Join-Path $repoRoot 'VERSION') -Raw).Trim()
+
+if ([string]::IsNullOrWhiteSpace($SetupExeName)) {
+    $SetupExeName = "LockingGlass-$version-setup-x64.exe"
+}
+
+if ([string]::IsNullOrWhiteSpace($ZipName)) {
+    $ZipName = "LockingGlass-$version-windows-x64.zip"
+}
+
+function Write-Step([string]$Message) {
+    Write-Host ''
+    Write-Host ('==> ' + $Message)
+}
+
+function Invoke-Checked {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+        [string[]]$Arguments = @(),
+        [string]$WorkingDirectory = $repoRoot
+    )
+
+    Write-Host ('> ' + $FilePath + ' ' + ($Arguments -join ' '))
+    Push-Location $WorkingDirectory
+    try {
+        & $FilePath @Arguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "Command failed with exit code $LASTEXITCODE`: $FilePath $($Arguments -join ' ')"
+        }
+    } finally {
+        Pop-Location
+    }
+}
+
+function Invoke-Git {
+    param([string[]]$Arguments)
+
+    $gitArguments = @('-c', "safe.directory=$gitSafeDirectory") + $Arguments
+    $output = & git @gitArguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "git $($Arguments -join ' ') failed with exit code $LASTEXITCODE."
+    }
+
+    return @($output)
+}
+
+function Require-Command([string]$Name) {
+    $command = Get-Command $Name -ErrorAction SilentlyContinue
+    if ($null -eq $command) {
+        throw "Required command '$Name' was not found on PATH."
+    }
+
+    return $command.Source
+}
+
+function Require-DotNet8Sdk {
+    $dotnet = Require-Command 'dotnet'
+    $sdks = @(& $dotnet --list-sdks)
+    if (-not ($sdks | Select-String -Pattern '^8\.')) {
+        throw ".NET 8 SDK is required. Installed SDKs:`n$($sdks -join [Environment]::NewLine)"
+    }
+
+    return $dotnet
+}
+
+function Add-Msys2ToPathIfPresent {
+    $candidates = @(
+        'C:\msys64\mingw64\bin',
+        'C:\msys64\usr\bin'
+    )
+
+    foreach ($candidate in $candidates) {
+        if ((Test-Path $candidate) -and ($env:PATH -notlike ('*' + $candidate + '*'))) {
+            $env:PATH = $candidate + [System.IO.Path]::PathSeparator + $env:PATH
+        }
+    }
+}
+
+function Test-RequiredSourceTracked {
+    $requiredTrackedFiles = @(
+        '.github/workflows/windows-release.yml',
+        'scripts/test-release.ps1',
+        'tools/windows_live_desktop_probe/LockingGlass.WindowsLiveDesktopProbe.csproj',
+        'tools/windows_live_desktop_probe/Program.cs',
+        'tools/windows_installer_bootstrapper/LockingGlass.WindowsInstallerBootstrapper.csproj',
+        'tools/windows_installer_bootstrapper/Program.cs'
+    )
+
+    $missingTrackedFiles = @()
+    foreach ($path in $requiredTrackedFiles) {
+        $null = & git -c "safe.directory=$gitSafeDirectory" ls-files --error-unmatch $path 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            $missingTrackedFiles += $path
+        }
+    }
+
+    if ($missingTrackedFiles.Count -gt 0) {
+        throw "Required release source file(s) are not tracked by git. Add them before release verification can pass:`n$($missingTrackedFiles -join [Environment]::NewLine)"
+    }
+}
+
+function Test-NoTrackedGeneratedOutput {
+    $trackedGenerated = @()
+    $trackedGenerated += Invoke-Git @('ls-files', '--', 'build', 'build-win')
+    $trackedGenerated += Invoke-Git @('ls-files', '--', 'tools/**/bin/**', 'tools/**/obj/**')
+    $trackedGenerated = @($trackedGenerated | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+
+    if ($trackedGenerated.Count -gt 0) {
+        throw "Generated output is tracked by git:`n$($trackedGenerated -join [Environment]::NewLine)"
+    }
+}
+
+function Get-ReleaseTextFiles {
+    $roots = @(
+        '.github',
+        'docs',
+        'include',
+        'scripts',
+        'src',
+        'tests',
+        'tools'
+    )
+    $files = @(
+        '.gitattributes',
+        '.gitignore',
+        'CONTRIBUTING.md',
+        'Directory.Build.props',
+        'Makefile',
+        'README.md',
+        'THIRD_PARTY_NOTICES.md',
+        'VERSION'
+    )
+
+    foreach ($root in $roots) {
+        $fullRoot = Join-Path $repoRoot $root
+        if (-not (Test-Path $fullRoot)) {
+            continue
+        }
+
+        $files += Get-ChildItem -Path $fullRoot -Recurse -File |
+            Where-Object {
+                $_.FullName -notmatch '\\(bin|obj)\\' -and
+                $_.FullName -notmatch '\\build(-win)?\\'
+            } |
+            ForEach-Object { [System.IO.Path]::GetRelativePath($repoRoot, $_.FullName) }
+    }
+
+    return @($files | Sort-Object -Unique)
+}
+
+function Test-NoStaleRuntimeReferences {
+    $stalePatterns = @(
+        'netcoreapp3\.1',
+        '\b3\.1\.x\b'
+    )
+
+    $hits = @()
+    foreach ($file in Get-ReleaseTextFiles) {
+        $fullPath = Join-Path $repoRoot $file
+        if (-not (Test-Path $fullPath)) {
+            continue
+        }
+
+        foreach ($pattern in $stalePatterns) {
+            $matches = @(Select-String -Path $fullPath -Pattern $pattern)
+            foreach ($match in $matches) {
+                $hits += ('{0}:{1}:{2}' -f $file, $match.LineNumber, $match.Line.Trim())
+            }
+        }
+    }
+
+    if ($hits.Count -gt 0) {
+        throw "Stale .NET 3.1 reference(s) found:`n$($hits -join [Environment]::NewLine)"
+    }
+}
+
+function Test-PowerShellSyntax {
+    $scriptFiles = Get-ChildItem -Path (Join-Path $repoRoot 'scripts') -Filter '*.ps1' -File
+    foreach ($scriptFile in $scriptFiles) {
+        $tokens = $null
+        $errors = $null
+        [System.Management.Automation.Language.Parser]::ParseFile(
+            $scriptFile.FullName,
+            [ref]$tokens,
+            [ref]$errors) | Out-Null
+        if ($errors.Count -gt 0) {
+            $formatted = $errors | ForEach-Object {
+                '{0}:{1}:{2}' -f $scriptFile.FullName, $_.Extent.StartLineNumber, $_.Message
+            }
+            throw "PowerShell parse error(s):`n$($formatted -join [Environment]::NewLine)"
+        }
+    }
+}
+
+function Test-Hygiene {
+    Write-Step 'Checking release hygiene'
+    if ($version -notmatch '^\d+\.\d+\.\d+$') {
+        throw "VERSION must be SemVer X.Y.Z, got '$version'."
+    }
+
+    Test-RequiredSourceTracked
+    Test-NoTrackedGeneratedOutput
+    Test-NoStaleRuntimeReferences
+    Test-PowerShellSyntax
+}
+
+function Test-Build {
+    Write-Step 'Building .NET helper projects'
+    $dotnet = Require-DotNet8Sdk
+    Invoke-Checked $dotnet @('build', 'tools\windows_live_desktop_probe\LockingGlass.WindowsLiveDesktopProbe.csproj', '-c', 'Release')
+    Invoke-Checked $dotnet @('build', 'tools\windows_installer_bootstrapper\LockingGlass.WindowsInstallerBootstrapper.csproj', '-c', 'Release')
+
+    Write-Step 'Building and testing Windows binaries'
+    Add-Msys2ToPathIfPresent
+    $make = Require-Command 'make'
+    $makeArgs = @(
+        'BUILD_DIR=build-win',
+        'OBJ_DIR=build-win/obj',
+        'BIN_DIR=build-win/bin',
+        'OS=Windows_NT',
+        'CXX=g++'
+    )
+    Invoke-Checked $make ($makeArgs + @('all'))
+    Invoke-Checked $make ($makeArgs + @('test'))
+
+    $app = Join-Path $repoRoot 'build-win\bin\locking_glass.exe'
+    if (-not (Test-Path $app)) {
+        throw "Expected Windows app was not built: $app"
+    }
+
+    $versionOutput = & $app --version
+    if ($LASTEXITCODE -ne 0) {
+        throw "Built --version check failed with exit code $LASTEXITCODE."
+    }
+    if ($versionOutput -notmatch [regex]::Escape($version)) {
+        throw "Built --version output '$versionOutput' did not include expected version '$version'."
+    }
+
+    & $app --self-check
+    if ($LASTEXITCODE -ne 0) {
+        throw "Built --self-check failed with exit code $LASTEXITCODE."
+    }
+}
+
+function Get-RequiredPackageFiles {
+    return @(
+        'LockingGlass.exe',
+        'Install-LockingGlass.ps1',
+        'Start-LockingGlass.cmd',
+        'run-live-desktop-probe.ps1',
+        'resolve-virtual-desktop-helper.ps1',
+        'VirtualDesktopAccessor.dll',
+        'README.txt',
+        'VERSION.txt',
+        'LICENSE.txt',
+        'THIRD_PARTY_NOTICES.txt'
+    )
+}
+
+function Assert-PackagePayload([string]$Directory) {
+    foreach ($requiredFile in Get-RequiredPackageFiles) {
+        $candidate = Join-Path $Directory $requiredFile
+        if (-not (Test-Path $candidate)) {
+            throw "Missing packaged file '$requiredFile' under '$Directory'."
+        }
+    }
+
+    $probeFiles = @(Get-ChildItem -Path $Directory -File |
+        Where-Object { $_.Name -like 'LockingGlass.WindowsLiveDesktopProbe*' })
+    if ($probeFiles.Count -eq 0) {
+        throw "Missing bundled Windows live desktop probe output under '$Directory'."
+    }
+}
+
+function Test-Sha256Sums([string]$SumPath, [string]$SetupPath, [string]$ZipPath) {
+    if (-not (Test-Path $SumPath)) {
+        throw "Missing checksum file: $SumPath"
+    }
+
+    $lines = @(Get-Content -Path $SumPath)
+    if ($lines.Count -ne 2) {
+        throw "SHA256SUMS.txt should contain exactly two lines, found $($lines.Count)."
+    }
+
+    $expectedFiles = @(
+        (Get-Item $SetupPath),
+        (Get-Item $ZipPath)
+    )
+    foreach ($expectedFile in $expectedFiles) {
+        $expectedHash = (Get-FileHash -Algorithm SHA256 $expectedFile.FullName).Hash.ToLowerInvariant()
+        $expectedName = $expectedFile.Name
+        $expectedLine = "$expectedHash  $expectedName"
+        $matching = @($lines | Where-Object { $_ -ceq $expectedLine })
+        if ($matching.Count -ne 1) {
+            throw "SHA256SUMS.txt does not contain the recomputed checksum line '$expectedLine'."
+        }
+    }
+}
+
+function Test-ExtractedPackage([string]$Directory, [string]$Label) {
+    Assert-PackagePayload $Directory
+
+    $packagedExe = Join-Path $Directory 'LockingGlass.exe'
+    $versionOutput = & $packagedExe --version
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Label --version check failed with exit code $LASTEXITCODE."
+    }
+    if ($versionOutput -notmatch [regex]::Escape($version)) {
+        throw "$Label --version output '$versionOutput' did not include expected version '$version'."
+    }
+
+    & $packagedExe --self-check
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Label --self-check failed with exit code $LASTEXITCODE."
+    }
+}
+
+function Test-Package {
+    Write-Step 'Staging and packaging Windows release artifacts'
+    $stageDir = Join-Path $repoRoot 'build\windows-install-stage\LockingGlass'
+    $installerDir = Join-Path $repoRoot 'build\windows-installer'
+    $releaseDir = Join-Path $repoRoot 'build\release'
+    $extractDir = Join-Path $repoRoot 'build\windows-installer-smoke'
+    $zipExtractDir = Join-Path $repoRoot 'build\windows-zip-smoke'
+    $installSmokeRoot = Join-Path $repoRoot 'build\windows-install-smoke'
+    $installDir = Join-Path $installSmokeRoot 'Programs\LockingGlass'
+    $setupPath = Join-Path $installerDir $SetupExeName
+    $zipPath = Join-Path $releaseDir $ZipName
+    $sumPath = Join-Path $releaseDir 'SHA256SUMS.txt'
+
+    Invoke-Checked (Join-Path $repoRoot 'scripts\stage-windows-install.ps1')
+    Assert-PackagePayload $stageDir
+
+    Invoke-Checked (Join-Path $repoRoot 'scripts\build-windows-installer.ps1') @(
+        '-StageDir', $stageDir,
+        '-OutputDir', $installerDir,
+        '-SetupExeName', $SetupExeName,
+        '-SkipStage'
+    )
+
+    New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+    Remove-Item -Force $zipPath, $sumPath -ErrorAction SilentlyContinue
+    Compress-Archive -Path (Join-Path $stageDir '*') -DestinationPath $zipPath -Force
+
+    $sumLines = @(
+        "$((Get-FileHash -Algorithm SHA256 $setupPath).Hash.ToLowerInvariant())  $SetupExeName",
+        "$((Get-FileHash -Algorithm SHA256 $zipPath).Hash.ToLowerInvariant())  $ZipName"
+    )
+    Set-Content -Path $sumPath -Value $sumLines -Encoding ascii
+    Test-Sha256Sums -SumPath $sumPath -SetupPath $setupPath -ZipPath $zipPath
+
+    Remove-Item -Recurse -Force $extractDir -ErrorAction SilentlyContinue
+    Invoke-Checked $setupPath @('--extract-only', $extractDir)
+    Test-ExtractedPackage -Directory $extractDir -Label 'Setup extract-only smoke'
+
+    Remove-Item -Recurse -Force $zipExtractDir -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $zipExtractDir | Out-Null
+    Expand-Archive -Path $zipPath -DestinationPath $zipExtractDir -Force
+    Test-ExtractedPackage -Directory $zipExtractDir -Label 'Zip smoke'
+
+    Remove-Item -Recurse -Force $installSmokeRoot -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $installSmokeRoot | Out-Null
+    $previousAppData = $env:APPDATA
+    $previousLocalAppData = $env:LOCALAPPDATA
+    try {
+        $env:APPDATA = Join-Path $installSmokeRoot 'Roaming'
+        $env:LOCALAPPDATA = Join-Path $installSmokeRoot 'Local'
+        New-Item -ItemType Directory -Force -Path $env:APPDATA, $env:LOCALAPPDATA | Out-Null
+        Invoke-Checked $setupPath @('--install-dir', $installDir, '--no-launch-after-install')
+    } finally {
+        $env:APPDATA = $previousAppData
+        $env:LOCALAPPDATA = $previousLocalAppData
+    }
+    Test-ExtractedPackage -Directory $installDir -Label 'Installed setup smoke'
+}
+
+if ($Mode -eq 'All' -or $Mode -eq 'Hygiene') {
+    Test-Hygiene
+}
+
+if ($Mode -eq 'All' -or $Mode -eq 'Build') {
+    Test-Build
+}
+
+if ($Mode -eq 'All' -or $Mode -eq 'Package') {
+    Test-Package
+}
+
+Write-Step "Release test mode '$Mode' passed"

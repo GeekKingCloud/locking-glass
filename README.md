@@ -61,6 +61,16 @@ Current automated coverage includes:
 
 Audit note: the automated tests prove policy, persistence, and scripted seam behavior. They do not claim to prove the real Windows desktop hook path by themselves.
 
+Release verification is centralized in:
+
+```powershell
+./scripts/test-release.ps1 -Mode Hygiene
+./scripts/test-release.ps1 -Mode Build
+./scripts/test-release.ps1 -Mode Package
+```
+
+`-Mode All` runs the same checks end to end. The runner verifies repo hygiene, required helper source tracking, .NET 8 helper builds, Windows native build/tests, setup and zip smoke, installed-path smoke, and `SHA256SUMS.txt`. The live desktop proof scripts remain manual because hosted CI cannot provide the required interactive Windows desktop, monitor, virtual desktop, or tray conditions.
+
 ## Running On Windows
 
 - repo build: `build-win/bin/locking_glass.exe`
@@ -77,7 +87,7 @@ Unlock return memory is separate from the session store. LockingGlass only remem
 ## Live Windows Proof Scripts
 
 - `scripts/run-live-desktop-probe.ps1`
-  Downloads the pinned `VirtualDesktopAccessor.dll` release when needed, verifies its SHA-256, builds the .NET probe, and proves the live Windows hook path on a real desktop shell.
+  Downloads the pinned `VirtualDesktopAccessor.dll` release when needed, verifies its SHA-256, builds or launches the .NET 8 probe, and proves the live Windows hook path on a real desktop shell.
 - `scripts/run-live-background-proof.ps1`
   Launches the real tray app, toggles a monitor lock through the live menu, switches desktops, and records the resulting desktop-switch reports.
 - `scripts/run-installed-background-proof.ps1`
@@ -106,7 +116,7 @@ Reference docs:
 - `scripts/build-windows-installer.ps1`
   Wraps the staged payload into `LockingGlass-setup-x64.exe` through the bootstrapper tool.
 - `.github/workflows/windows-release.yml`
-  Builds, tests, stages, and smoke-checks the Windows bundle on pull requests; tag builds also publish release assets after validating that the tag matches `VERSION`.
+  Runs `scripts/test-release.ps1` on pull requests; tag builds also publish release assets after validating that the tag matches `VERSION`.
 
 Public Windows release artifacts should include:
 
@@ -130,6 +140,8 @@ GitHub Actions intentionally stops at build, unit-test, packaging, extract-only 
 - at least two monitors
 - at least two Windows virtual desktops
 - `VirtualDesktopAccessor.dll` available beside the installed build, in the staged helper location, or through `LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER`
+
+Release packages bundle the live desktop probe as a self-contained Windows executable, so normal installed use does not require a separate .NET runtime. Building from source still requires the .NET 8 SDK for the helper projects and installer bootstrapper.
 
 If the helper DLL or required exports are missing, LockingGlass marks live desktop locking as unavailable and fails closed instead of replaying or guessing.
 

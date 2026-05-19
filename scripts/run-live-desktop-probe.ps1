@@ -16,6 +16,7 @@ $repoRoot = Split-Path -Parent $scriptRoot
 $probeProject = Join-Path $repoRoot 'tools\windows_live_desktop_probe\LockingGlass.WindowsLiveDesktopProbe.csproj'
 $probeBuildDir = Join-Path $repoRoot 'build\windows-live-desktop-probe'
 $helperResolverPath = Join-Path $scriptRoot 'resolve-virtual-desktop-helper.ps1'
+$probeFramework = 'net8.0'
 
 . $helperResolverPath
 
@@ -107,7 +108,7 @@ $arguments = @(
     'run',
     '--project', $probeProject,
     '--configuration', 'Release',
-    '--framework', 'netcoreapp3.1',
+    '--framework', $probeFramework,
     '--'
 ) + $probeArguments
 

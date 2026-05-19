@@ -16,6 +16,7 @@ Requirements
 - Windows only.
 - At least two monitors.
 - At least two Windows virtual desktops.
+- No separate .NET runtime is required for normal installed use; the bundled live desktop probe is published as a self-contained Windows executable.
 
 Files that must stay together
 - LockingGlass.exe
@@ -45,6 +46,7 @@ Installer note
 - Public releases may also ship as LockingGlass-setup-x64.exe.
 - That setup executable is a wrapper around this same payload and still uses Install-LockingGlass.ps1 for the actual install logic.
 - The setup executable and installer script are upgrade-safe by design: they keep the stable install path and do not move the external session-state file.
+- Custom install directories must name an app-specific LockingGlass folder, not a shared parent directory.
 
 What this package does not claim
 - It is not a replay-only build.

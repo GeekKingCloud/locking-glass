@@ -60,7 +60,7 @@ Compress-Archive -Path $stagedFiles.FullName -DestinationPath $payloadZip -Force
 
 & $dotnet.Source publish $bootstrapperProject `
     -c Release `
-    -f netcoreapp3.1 `
+    -f net8.0 `
     -r win-x64 `
     --self-contained true `
     -o $publishDir `

@@ -7,6 +7,7 @@ Thanks for helping improve LockingGlass.
 - Read [README.md](README.md) for the current build, test, packaging, and Windows runtime notes.
 - Keep changes focused. Small, reviewable pull requests are easier to validate on the Windows proof path.
 - Do not commit generated output from `build/`, `build-win/`, or `tools/*/bin` and `tools/*/obj`.
+- Keep source files under `tools/windows_live_desktop_probe` and `tools/windows_installer_bootstrapper` tracked; the Windows release workflow depends on them.
 
 ## Development Checks
 
@@ -15,9 +16,14 @@ Thanks for helping improve LockingGlass.
   `make test`
 - Windows cross-build:
   `make BUILD_DIR=build-win OBJ_DIR=build-win/obj BIN_DIR=build-win/bin OS=Windows_NT CXX=x86_64-w64-mingw32-g++ all`
-- If you change packaging or installer behavior, also review:
+- Release checks:
+  `./scripts/test-release.ps1 -Mode Hygiene`
+  `./scripts/test-release.ps1 -Mode Build`
+  `./scripts/test-release.ps1 -Mode Package`
+- If you change packaging or installer behavior, run the release package mode and review:
   `scripts/stage-windows-install.ps1`
   `scripts/build-windows-installer.ps1`
+  `scripts/install-staged-windows-build.ps1`
 
 ## Windows Runtime Changes
 

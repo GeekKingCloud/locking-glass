@@ -60,7 +60,15 @@ if ($null -eq $dotnet) {
 }
 
 New-Item -ItemType Directory -Force -Path $probePublishDir | Out-Null
-& $dotnet.Source publish $probeProject -c Release -f netcoreapp3.1 -r win-x64 --self-contained false -o $probePublishDir
+& $dotnet.Source publish $probeProject `
+    -c Release `
+    -f net8.0 `
+    -r win-x64 `
+    --self-contained true `
+    -o $probePublishDir `
+    /p:PublishSingleFile=true `
+    /p:EnableCompressionInSingleFile=true `
+    /p:IncludeNativeLibrariesForSelfExtract=true
 if ($LASTEXITCODE -ne 0) {
     throw 'dotnet publish failed for the Windows live desktop probe.'
 }

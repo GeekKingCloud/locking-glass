@@ -4,15 +4,22 @@ on:
   pull_request:
   workflow_dispatch:
   push:
+    branches:
+      - main
+      - dev
     tags:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   windows-release:
     runs-on: windows-latest
+    permissions:
+      contents: read
+    outputs:
+      artifact_name: ${{ steps.version.outputs.artifact_name }}
 
     steps:
       - name: Check out repository
@@ -43,9 +50,7 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            3.1.x
-            8.0.x
+          dotnet-version: 8.0.x
 
       - name: Set up MSYS2 toolchain
         uses: msys2/setup-msys2@v2
@@ -56,86 +61,26 @@ jobs:
             make
             mingw-w64-x86_64-gcc
 
-      - name: Build Windows binaries
-        shell: msys2 {0}
-        run: |
-          make BUILD_DIR=build-win OBJ_DIR=build-win/obj BIN_DIR=build-win/bin OS=Windows_NT CXX=g++ all
-
-      - name: Run Windows tests
-        shell: msys2 {0}
-        run: |
-          make BUILD_DIR=build-win OBJ_DIR=build-win/obj BIN_DIR=build-win/bin OS=Windows_NT CXX=g++ test
-
-      - name: Stage Windows release package
+      - name: Run release hygiene checks
         shell: pwsh
         run: |
-          ./scripts/stage-windows-install.ps1
-          ./scripts/build-windows-installer.ps1 `
-            -StageDir build/windows-install-stage/LockingGlass `
-            -OutputDir build/windows-installer `
-            -SetupExeName '${{ steps.version.outputs.setup_name }}' `
-            -SkipStage
+          ./scripts/test-release.ps1 -Mode Hygiene
 
-          $releaseDir = Join-Path $PWD 'build\release'
-          New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
-
-          $zipPath = Join-Path $releaseDir '${{ steps.version.outputs.zip_name }}'
-          Compress-Archive -Path build/windows-install-stage/LockingGlass/* -DestinationPath $zipPath -Force
-
-          $setupPath = Join-Path $PWD ('build\windows-installer\' + '${{ steps.version.outputs.setup_name }}')
-          $sumPath = Join-Path $releaseDir 'SHA256SUMS.txt'
-          $sumLines = @(
-            "$((Get-FileHash -Algorithm SHA256 $setupPath).Hash.ToLowerInvariant())  ${{ steps.version.outputs.setup_name }}"
-            "$((Get-FileHash -Algorithm SHA256 $zipPath).Hash.ToLowerInvariant())  ${{ steps.version.outputs.zip_name }}"
-          )
-          Set-Content -Path $sumPath -Value $sumLines -Encoding ascii
+      - name: Build and test Windows release
+        shell: pwsh
+        run: |
+          ./scripts/test-release.ps1 -Mode Build
 
       # Live proof scripts stay manual. GitHub-hosted runners do not provide an
       # interactive Windows desktop shell, multiple monitors, multiple virtual
       # desktops, or real tray interaction.
-      - name: Smoke packaged bundle
+      - name: Package and smoke Windows release
         shell: pwsh
         run: |
-          $setupPath = Join-Path $PWD ('build\windows-installer\' + '${{ steps.version.outputs.setup_name }}')
-          $extractDir = Join-Path $PWD 'build\windows-installer-smoke'
-
-          Remove-Item -Recurse -Force $extractDir -ErrorAction SilentlyContinue
-          & $setupPath --extract-only $extractDir
-          if ($LASTEXITCODE -ne 0) {
-            throw "Setup extract-only smoke failed with exit code $LASTEXITCODE."
-          }
-
-          $requiredFiles = @(
-            'LockingGlass.exe',
-            'Install-LockingGlass.ps1',
-            'run-live-desktop-probe.ps1',
-            'resolve-virtual-desktop-helper.ps1',
-            'VirtualDesktopAccessor.dll',
-            'VERSION.txt',
-            'LICENSE.txt',
-            'THIRD_PARTY_NOTICES.txt'
-          )
-
-          foreach ($requiredFile in $requiredFiles) {
-            $candidate = Join-Path $extractDir $requiredFile
-            if (-not (Test-Path $candidate)) {
-              throw "Missing packaged file '$requiredFile' after extraction."
-            }
-          }
-
-          $packagedExe = Join-Path $extractDir 'LockingGlass.exe'
-          $versionOutput = & $packagedExe --version
-          if ($LASTEXITCODE -ne 0) {
-            throw "Packaged --version check failed with exit code $LASTEXITCODE."
-          }
-          if ($versionOutput -notmatch [regex]::Escape('${{ steps.version.outputs.version }}')) {
-            throw "Packaged --version output '$versionOutput' did not include the expected version."
-          }
-
-          & $packagedExe --self-check
-          if ($LASTEXITCODE -ne 0) {
-            throw "Packaged --self-check failed with exit code $LASTEXITCODE."
-          }
+          ./scripts/test-release.ps1 `
+            -Mode Package `
+            -SetupExeName '${{ steps.version.outputs.setup_name }}' `
+            -ZipName '${{ steps.version.outputs.zip_name }}'
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
@@ -146,11 +91,22 @@ jobs:
             build/release/${{ steps.version.outputs.zip_name }}
             build/release/SHA256SUMS.txt
 
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: windows-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.windows-release.outputs.artifact_name }}
+          path: dist
+
       - name: Publish GitHub release assets
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            build/windows-installer/${{ steps.version.outputs.setup_name }}
-            build/release/${{ steps.version.outputs.zip_name }}
-            build/release/SHA256SUMS.txt
+            dist/*

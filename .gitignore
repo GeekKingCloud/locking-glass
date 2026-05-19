@@ -14,4 +14,8 @@ CLAUDE.md
 # Build
 build/
 build-win/
-tools/*
+
+# Tool source under tools/ is part of the release pipeline. Keep only generated
+# .NET outputs ignored so CI-required helper projects remain visible to git.
+tools/**/bin/
+tools/**/obj/
