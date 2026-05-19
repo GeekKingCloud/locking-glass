@@ -103,6 +103,7 @@ if (-not (Test-Path $dotnetThirdPartySource)) {
     throw "Missing .NET runtime third-party notice file at '$dotnetThirdPartySource'."
 }
 
+Remove-Item -Recurse -Force $probePublishDir -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $probePublishDir | Out-Null
 & $dotnet.Source publish $probeProject `
     -c Release `

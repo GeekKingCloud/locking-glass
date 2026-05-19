@@ -608,6 +608,22 @@ function Get-WatcherProcessEvidence([int]$parentProcessId) {
     }
 }
 
+function Stop-ProcessTree([int]$parentProcessId) {
+    try {
+        $all = @(Get-CimInstance Win32_Process)
+        $children = @($all | Where-Object { $_.ParentProcessId -eq $parentProcessId })
+        foreach ($child in $children) {
+            Stop-ProcessTree -parentProcessId $child.ProcessId
+        }
+
+        foreach ($child in $children | Sort-Object -Property ProcessId -Descending) {
+            Stop-Process -Id $child.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+    }
+    catch {
+    }
+}
+
 function Open-TrayMenu([IntPtr]$backgroundWindow) {
     if ($backgroundWindow -eq [IntPtr]::Zero) {
         throw 'Could not find LockingGlass background window.'
@@ -805,6 +821,7 @@ try {
 }
 finally {
     if ($watchProcess -and -not $watchProcess.HasExited) {
+        Stop-ProcessTree -parentProcessId $watchProcess.Id
         $watchProcess.Kill()
         $watchProcess.WaitForExit(5000)
     }
