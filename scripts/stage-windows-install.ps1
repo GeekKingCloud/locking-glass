@@ -17,6 +17,7 @@ $installerSource = Join-Path $repoRoot 'scripts\install-staged-windows-build.ps1
 $launcherSource = Join-Path $repoRoot 'scripts\Start-LockingGlass.cmd'
 $probeScriptSource = Join-Path $repoRoot 'scripts\run-live-desktop-probe.ps1'
 $helperResolverSource = Join-Path $repoRoot 'scripts\resolve-virtual-desktop-helper.ps1'
+$payloadManifestName = 'LOCKING_GLASS_PAYLOAD_MANIFEST.txt'
 
 . $helperResolverSource
 
@@ -120,6 +121,15 @@ Copy-Item -Path $thirdPartySource -Destination (Join-Path $OutputDir 'THIRD_PART
 Copy-Item -Path $installerSource -Destination (Join-Path $OutputDir 'Install-LockingGlass.ps1') -Force
 Copy-Item -Path $launcherSource -Destination (Join-Path $OutputDir 'Start-LockingGlass.cmd') -Force
 Copy-Item -Path (Join-Path $probePublishDir 'LockingGlass.WindowsLiveDesktopProbe*') -Destination $OutputDir -Force
+
+$manifestPath = Join-Path $OutputDir $payloadManifestName
+$manifestLines = Get-ChildItem -Path $OutputDir -File |
+    Where-Object { $_.Name -ne $payloadManifestName } |
+    Sort-Object -Property Name |
+    ForEach-Object {
+        "$((Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLowerInvariant())  $($_.Name)"
+    }
+Set-Content -Path $manifestPath -Value $manifestLines -Encoding ascii
 
 Write-Host ('Staged LockingGlass Windows install package: ' + $OutputDir)
 Write-Host ('Bundled app: ' + (Join-Path $OutputDir 'LockingGlass.exe'))

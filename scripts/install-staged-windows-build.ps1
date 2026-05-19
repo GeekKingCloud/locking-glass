@@ -128,7 +128,8 @@ $requiredFiles = @(
     'README.txt',
     'VERSION.txt',
     'LICENSE.txt',
-    'THIRD_PARTY_NOTICES.txt'
+    'THIRD_PARTY_NOTICES.txt',
+    'LOCKING_GLASS_PAYLOAD_MANIFEST.txt'
 )
 
 foreach ($requiredFile in $requiredFiles) {
@@ -164,6 +165,7 @@ $filesToCopy = @(
     'VERSION.txt',
     'LICENSE.txt',
     'THIRD_PARTY_NOTICES.txt',
+    'LOCKING_GLASS_PAYLOAD_MANIFEST.txt',
     'Install-LockingGlass.ps1'
 )
 

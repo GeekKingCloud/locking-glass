@@ -26,6 +26,10 @@ Files that must stay together
 - resolve-virtual-desktop-helper.ps1
 - VirtualDesktopAccessor.dll
 - VERSION.txt
+- README.txt
+- LICENSE.txt
+- THIRD_PARTY_NOTICES.txt
+- LOCKING_GLASS_PAYLOAD_MANIFEST.txt
 - LockingGlass.WindowsLiveDesktopProbe publish output
 
 How to use it

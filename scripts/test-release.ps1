@@ -267,7 +267,8 @@ function Get-RequiredPackageFiles {
         'README.txt',
         'VERSION.txt',
         'LICENSE.txt',
-        'THIRD_PARTY_NOTICES.txt'
+        'THIRD_PARTY_NOTICES.txt',
+        'LOCKING_GLASS_PAYLOAD_MANIFEST.txt'
     )
 }
 
@@ -323,8 +324,33 @@ function Test-PinnedVirtualDesktopHelper([string]$Directory, [string]$Label) {
     }
 }
 
+function Test-PayloadManifest([string]$Directory, [string]$Label) {
+    $manifestPath = Join-Path $Directory 'LOCKING_GLASS_PAYLOAD_MANIFEST.txt'
+    if (-not (Test-Path $manifestPath)) {
+        throw "$Label is missing LOCKING_GLASS_PAYLOAD_MANIFEST.txt under '$Directory'."
+    }
+
+    $expectedFiles = @(Get-ChildItem -Path $Directory -File |
+        Where-Object { $_.Name -ne 'LOCKING_GLASS_PAYLOAD_MANIFEST.txt' } |
+        Sort-Object -Property Name)
+    $manifestLines = @(Get-Content -Path $manifestPath)
+    if ($manifestLines.Count -ne $expectedFiles.Count) {
+        throw "$Label manifest lists $($manifestLines.Count) file(s), expected $($expectedFiles.Count)."
+    }
+
+    foreach ($expectedFile in $expectedFiles) {
+        $expectedHash = (Get-FileHash -Algorithm SHA256 $expectedFile.FullName).Hash.ToLowerInvariant()
+        $expectedLine = "$expectedHash  $($expectedFile.Name)"
+        $matching = @($manifestLines | Where-Object { $_ -ceq $expectedLine })
+        if ($matching.Count -ne 1) {
+            throw "$Label manifest does not contain the recomputed line '$expectedLine'."
+        }
+    }
+}
+
 function Test-ExtractedPackage([string]$Directory, [string]$Label) {
     Assert-PackagePayload $Directory
+    Test-PayloadManifest -Directory $Directory -Label $Label
     Test-PinnedVirtualDesktopHelper -Directory $Directory -Label $Label
 
     $packagedExe = Join-Path $Directory 'LockingGlass.exe'
@@ -357,6 +383,7 @@ function Test-Package {
 
     Invoke-Checked (Join-Path $repoRoot 'scripts\stage-windows-install.ps1')
     Assert-PackagePayload $stageDir
+    Test-PayloadManifest -Directory $stageDir -Label 'Staged package'
     Test-PinnedVirtualDesktopHelper -Directory $stageDir -Label 'Staged package'
 
     Invoke-Checked (Join-Path $repoRoot 'scripts\build-windows-installer.ps1') @(
