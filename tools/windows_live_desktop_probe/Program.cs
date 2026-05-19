@@ -2,8 +2,11 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Text;
 using System.Threading;
+
+[assembly: SupportedOSPlatform("windows")]
 
 namespace LockingGlass.WindowsLiveDesktopProbe
 {
