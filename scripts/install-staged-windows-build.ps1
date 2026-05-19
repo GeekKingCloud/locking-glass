@@ -15,8 +15,61 @@ if ([string]::IsNullOrWhiteSpace($InstallDir)) {
     $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\LockingGlass'
 }
 
+function Resolve-InstallDirectory([string]$TargetInstallDir) {
+    if ([string]::IsNullOrWhiteSpace($TargetInstallDir)) {
+        throw 'InstallDir must not be empty.'
+    }
+
+    return [System.IO.Path]::GetFullPath($TargetInstallDir).TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar)
+}
+
+function Test-SafeInstallDirectory([string]$TargetInstallDir) {
+    $normalizedInstallDir = Resolve-InstallDirectory -TargetInstallDir $TargetInstallDir
+    $root = [System.IO.Path]::GetPathRoot($normalizedInstallDir)
+    if ($normalizedInstallDir -eq $root.TrimEnd(
+            [System.IO.Path]::DirectorySeparatorChar,
+            [System.IO.Path]::AltDirectorySeparatorChar)) {
+        throw "Refusing to install LockingGlass into a filesystem root: '$normalizedInstallDir'."
+    }
+
+    $leafName = Split-Path -Path $normalizedInstallDir -Leaf
+    if ([string]::IsNullOrWhiteSpace($leafName)) {
+        throw "InstallDir must name a concrete LockingGlass install directory: '$normalizedInstallDir'."
+    }
+
+    if ($leafName -ne 'LockingGlass') {
+        throw "InstallDir must end in 'LockingGlass' so the installer cannot overwrite a broad shared directory: '$normalizedInstallDir'."
+    }
+
+    $blockedParentPaths = @(
+        [Environment]::GetFolderPath('UserProfile'),
+        $env:LOCALAPPDATA,
+        $env:APPDATA,
+        $env:ProgramFiles,
+        ${env:ProgramFiles(x86)},
+        $env:WINDIR,
+        $env:TEMP,
+        $env:TMP
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        ForEach-Object { Resolve-InstallDirectory -TargetInstallDir $_ }
+
+    foreach ($blockedParentPath in $blockedParentPaths) {
+        if ([string]::Equals(
+                $normalizedInstallDir,
+                $blockedParentPath,
+                [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "InstallDir must be an app-specific LockingGlass directory, not a shared parent directory: '$normalizedInstallDir'."
+        }
+    }
+
+    return $normalizedInstallDir
+}
+
 function Stop-InstalledRuntimeProcesses([string]$TargetInstallDir) {
-    $normalizedInstallDir = [System.IO.Path]::GetFullPath($TargetInstallDir).TrimEnd('\')
+    $normalizedInstallDir = Resolve-InstallDirectory -TargetInstallDir $TargetInstallDir
+    $expectedExecutablePath = Join-Path $normalizedInstallDir 'LockingGlass.exe'
     $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object {
             if ([string]::IsNullOrWhiteSpace($_.ExecutablePath)) {
@@ -24,7 +77,10 @@ function Stop-InstalledRuntimeProcesses([string]$TargetInstallDir) {
             }
 
             $candidatePath = [System.IO.Path]::GetFullPath($_.ExecutablePath)
-            return $candidatePath -like ($normalizedInstallDir + '\*')
+            return [string]::Equals(
+                $candidatePath,
+                $expectedExecutablePath,
+                [System.StringComparison]::OrdinalIgnoreCase)
         })
 
     foreach ($process in $processes | Sort-Object -Property ProcessId -Descending) {
@@ -59,6 +115,8 @@ function Get-VersionText([string]$Path) {
 
     return (Get-Content -Path $Path -Raw).Trim()
 }
+
+$InstallDir = Test-SafeInstallDirectory -TargetInstallDir $InstallDir
 
 $requiredFiles = @(
     'LockingGlass.exe',
