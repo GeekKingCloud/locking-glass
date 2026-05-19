@@ -96,6 +96,8 @@ Unlock return memory is separate from the session store. LockingGlass only remem
   Downloads the pinned `VirtualDesktopAccessor.dll` release when needed, verifies its SHA-256, builds or launches the .NET 8 probe, and proves the live Windows hook path on a real desktop shell.
 - `scripts/run-live-background-proof.ps1`
   Launches the real tray app, toggles a monitor lock through the live menu, switches desktops, and records the resulting desktop-switch reports.
+- `scripts/run-live-pin-proof.ps1`
+  Runs a lower-level live pinned-monitor proof with real Notepad windows. This is optional diagnostic coverage; `run-live-background-proof.ps1` is the release-facing tray workflow proof.
 - `scripts/run-installed-background-proof.ps1`
   Re-runs the live background proof from the installed path instead of the repo build.
 - `scripts/run-background-unavailable-proof.ps1`
