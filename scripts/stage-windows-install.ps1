@@ -20,9 +20,42 @@ $helperResolverSource = Join-Path $repoRoot 'scripts\resolve-virtual-desktop-hel
 
 . $helperResolverSource
 
+function Resolve-StageOutputDirectory([string]$TargetOutputDir) {
+    if ([string]::IsNullOrWhiteSpace($TargetOutputDir)) {
+        throw 'OutputDir must not be empty.'
+    }
+
+    $resolvedOutputDir = [System.IO.Path]::GetFullPath($TargetOutputDir).TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar)
+    $allowedRoot = [System.IO.Path]::GetFullPath(
+        (Join-Path $repoRoot 'build\windows-install-stage')).TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar)
+
+    if (-not (
+            [string]::Equals(
+                $resolvedOutputDir,
+                $allowedRoot,
+                [System.StringComparison]::OrdinalIgnoreCase) -or
+            $resolvedOutputDir.StartsWith(
+                $allowedRoot + [System.IO.Path]::DirectorySeparatorChar,
+                [System.StringComparison]::OrdinalIgnoreCase))) {
+        throw "OutputDir must be under the repo-local build\\windows-install-stage directory: '$resolvedOutputDir'."
+    }
+
+    $leafName = Split-Path -Path $resolvedOutputDir -Leaf
+    if ([string]::IsNullOrWhiteSpace($leafName)) {
+        throw "OutputDir must name a concrete staged package directory: '$resolvedOutputDir'."
+    }
+
+    return $resolvedOutputDir
+}
+
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
     $OutputDir = Join-Path $repoRoot 'build\windows-install-stage\LockingGlass'
 }
+$OutputDir = Resolve-StageOutputDirectory -TargetOutputDir $OutputDir
 
 if (-not (Test-Path $windowsBuild)) {
     throw "Missing Windows build at '$windowsBuild'. Build the proven Windows binary before staging the install package."
