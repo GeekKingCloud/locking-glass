@@ -458,7 +458,7 @@ UnlockReturnReport BuildWindowsUnlockReturnReport(
   const auto monitors = monitor_gateway->Enumerate();
   const auto available_desktops = helper->ListDesktops();
   const auto current_windows = CaptureLiveWindowsForReturn(*helper, monitors);
-  return BuildUnlockReturnReport(
+  report = BuildUnlockReturnReport(
       request, available_desktops, current_windows,
       [&helper](const CapturedWindow& current_window,
                 const DesktopIdentity& remembered_desktop) {
@@ -522,6 +522,25 @@ UnlockReturnReport BuildWindowsUnlockReturnReport(
                                                          : "immediately"),
         };
       });
+  for (const auto& move_result : report.move_results) {
+    if (move_result.from_desktop.name == kStagingDesktopName) {
+      // Unlock return is the point where the holding desktop should become
+      // empty. Cleanup uses the exact desktop identity observed on a returned
+      // window, never a name-only desktop lookup.
+      helper->RemoveKnownStagingDesktopIfUnused(move_result.from_desktop,
+                                                nullptr);
+      break;
+    }
+  }
+  for (const auto& tracked_window : request.tracked_windows) {
+    if (tracked_window.staging_desktop.has_value() &&
+        tracked_window.staging_desktop->name == kStagingDesktopName) {
+      helper->RemoveKnownStagingDesktopIfUnused(
+          *tracked_window.staging_desktop, nullptr);
+      break;
+    }
+  }
+  return report;
 }
 
 }  // namespace locking_glass::integration::internal

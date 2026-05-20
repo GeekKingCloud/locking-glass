@@ -21,6 +21,12 @@ class WindowReturnTracker {
       const std::function<bool(const core::DesktopWindow&)>& monitor_is_locked);
   void ClearMonitor(const std::string& monitor_key);
   void ClearMonitor(const MonitorDescriptor& monitor);
+  void RestoreMonitor(
+      const std::string& monitor_key,
+      const std::vector<integration::TrackedWindowReturn>& tracked_windows);
+  void RestoreMonitor(
+      const MonitorDescriptor& monitor,
+      const std::vector<integration::TrackedWindowReturn>& tracked_windows);
   std::vector<integration::TrackedWindowReturn> ConsumeMonitor(
       const std::string& monitor_key);
   std::vector<integration::TrackedWindowReturn> ConsumeMonitor(

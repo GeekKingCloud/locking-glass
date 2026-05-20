@@ -42,6 +42,7 @@ struct BackgroundSessionUnlockReturn {
   std::size_t moved_windows = 0;
   std::size_t skipped_windows = 0;
   std::size_t failed_windows = 0;
+  std::size_t retryable_windows = 0;
   std::string detail;
 };
 

@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -44,6 +45,7 @@ struct DesktopWatchOptions {
 struct TrackedWindowReturn {
   core::DesktopWindow window;
   DesktopIdentity home_desktop;
+  std::optional<DesktopIdentity> staging_desktop;
 };
 
 struct UnlockReturnRequest {

@@ -17,6 +17,47 @@ bool GuidIsZero(const GUID& guid) {
          guid.Data4[6] == 0 && guid.Data4[7] == 0;
 }
 
+struct DesktopWindowSearchContext {
+  const WindowsVirtualDesktopHelper* helper = nullptr;
+  int desktop_number = -1;
+  bool found = false;
+};
+
+BOOL CALLBACK FindWindowOnDesktop(HWND window, LPARAM raw_context) {
+  auto* context = reinterpret_cast<DesktopWindowSearchContext*>(raw_context);
+  if (context == nullptr || context->helper == nullptr) {
+    return FALSE;
+  }
+
+  if (context->helper->GetWindowDesktopNumber(window) ==
+      context->desktop_number) {
+    context->found = true;
+    return FALSE;
+  }
+
+  return TRUE;
+}
+
+bool IsStrongDesktopIdentity(const DesktopIdentity& desktop) {
+  return !desktop.guid.empty() || !desktop.display_id.empty();
+}
+
+const DesktopIdentity* FindStrongMatchingDesktop(
+    const std::vector<DesktopIdentity>& desktops,
+    const DesktopIdentity& remembered_desktop) {
+  for (const auto& desktop : desktops) {
+    if (!remembered_desktop.guid.empty() &&
+        desktop.guid == remembered_desktop.guid) {
+      return &desktop;
+    }
+    if (!remembered_desktop.display_id.empty() &&
+        desktop.display_id == remembered_desktop.display_id) {
+      return &desktop;
+    }
+  }
+  return nullptr;
+}
+
 }  // namespace
 
 std::filesystem::path ResolvePreferredHelperDllPath(
@@ -57,6 +98,7 @@ WindowsVirtualDesktopHelper::WindowsVirtualDesktopHelper(
       remove_desktop_(remove_desktop) {}
 
 WindowsVirtualDesktopHelper::~WindowsVirtualDesktopHelper() {
+  RemoveStagingDesktopIfUnused(nullptr);
   if (library_ != nullptr) {
     FreeLibrary(library_);
   }
@@ -176,6 +218,96 @@ std::optional<DesktopIdentity> WindowsVirtualDesktopHelper::EnsureStagingDesktop
     *detail = "The staging desktop was created but could not be resolved.";
   }
   return std::nullopt;
+}
+
+bool WindowsVirtualDesktopHelper::RemoveStagingDesktopIfUnused(
+    std::string* detail) {
+  if (!owned_staging_desktop_.has_value()) {
+    if (detail != nullptr) {
+      *detail = "staging desktop was not created by this helper";
+    }
+    return true;
+  }
+  return RemoveKnownStagingDesktopIfUnused(*owned_staging_desktop_, detail);
+}
+
+bool WindowsVirtualDesktopHelper::RemoveKnownStagingDesktopIfUnused(
+    const DesktopIdentity& staging_identity, std::string* detail) {
+  if (remove_desktop_ == nullptr || get_desktop_count_ == nullptr ||
+      get_window_desktop_number_ == nullptr) {
+    if (detail != nullptr) {
+      *detail = "staging desktop cleanup is unavailable";
+    }
+    return false;
+  }
+
+  if (staging_identity.name != kStagingDesktopName ||
+      !IsStrongDesktopIdentity(staging_identity)) {
+    if (detail != nullptr) {
+      *detail = "staging desktop cleanup requires an exact helper identity";
+    }
+    return false;
+  }
+
+  std::optional<DesktopIdentity> staging_desktop;
+  const auto desktops = ListDesktops();
+  if (const auto* desktop =
+          FindStrongMatchingDesktop(desktops, staging_identity);
+      desktop != nullptr && desktop->name == kStagingDesktopName) {
+    staging_desktop = *desktop;
+  }
+  if (!staging_desktop.has_value()) {
+    if (owned_staging_desktop_.has_value() &&
+        DesktopIdentityEquals(*owned_staging_desktop_, staging_identity)) {
+      owned_staging_desktop_.reset();
+    }
+    if (detail != nullptr) {
+      *detail = "staging desktop was not present";
+    }
+    return true;
+  }
+
+  DesktopWindowSearchContext context{
+      .helper = this,
+      .desktop_number = staging_desktop->number,
+      .found = false,
+  };
+  EnumWindows(FindWindowOnDesktop, reinterpret_cast<LPARAM>(&context));
+  if (context.found) {
+    if (detail != nullptr) {
+      *detail = "staging desktop still contains windows";
+    }
+    return false;
+  }
+
+  const int desktop_count = GetDesktopCount();
+  int fallback_desktop_number = 0;
+  if (fallback_desktop_number == staging_desktop->number) {
+    fallback_desktop_number = 1;
+  }
+  if (fallback_desktop_number < 0 ||
+      fallback_desktop_number >= desktop_count) {
+    if (detail != nullptr) {
+      *detail = "no fallback desktop is available for cleanup";
+    }
+    return false;
+  }
+
+  if (remove_desktop_(staging_desktop->number, fallback_desktop_number) < 0) {
+    if (detail != nullptr) {
+      *detail = "RemoveDesktop returned a failure status during cleanup";
+    }
+    return false;
+  }
+
+  if (owned_staging_desktop_.has_value() &&
+      DesktopIdentityEquals(*owned_staging_desktop_, *staging_desktop)) {
+    owned_staging_desktop_.reset();
+  }
+  if (detail != nullptr) {
+    *detail = "staging desktop removed";
+  }
+  return true;
 }
 
 std::unique_ptr<WindowsVirtualDesktopHelper> WindowsVirtualDesktopHelper::Load(

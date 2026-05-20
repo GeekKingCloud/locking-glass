@@ -49,6 +49,9 @@ class WindowsVirtualDesktopHelper {
   int GetWindowDesktopNumber(HWND window) const;
   int MoveWindowToDesktopNumber(HWND window, int desktop_number) const;
   std::optional<DesktopIdentity> EnsureStagingDesktop(std::string* detail);
+  bool RemoveStagingDesktopIfUnused(std::string* detail);
+  bool RemoveKnownStagingDesktopIfUnused(const DesktopIdentity& staging_identity,
+                                         std::string* detail);
 
   static std::unique_ptr<WindowsVirtualDesktopHelper> Load(
       const std::filesystem::path& repository_root, std::string* detail);

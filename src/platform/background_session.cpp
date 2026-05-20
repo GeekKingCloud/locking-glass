@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace locking_glass::platform::internal {
 
@@ -72,6 +73,41 @@ BackgroundSessionUnlockReturn BuildUnlockReturnSummary(
   detail << '.';
   summary.detail = detail.str();
   return summary;
+}
+
+bool ShouldRetrySkippedUnlockReturn(
+    const locking_glass::integration::UnlockReturnSkip& skipped_window) {
+  return skipped_window.reason !=
+         "window is already on its remembered desktop";
+}
+
+std::vector<locking_glass::integration::TrackedWindowReturn>
+SelectRetryableTrackedWindows(
+    const locking_glass::integration::UnlockReturnReport& report,
+    const std::vector<locking_glass::integration::TrackedWindowReturn>&
+        tracked_windows) {
+  std::vector<locking_glass::integration::TrackedWindowReturn> retryable;
+  for (const auto& tracked_window : tracked_windows) {
+    const std::string& window_id = tracked_window.window.window_id;
+    bool should_retry = false;
+    for (const auto& move_result : report.move_results) {
+      if (move_result.window.window_id == window_id && !move_result.success) {
+        should_retry = true;
+        break;
+      }
+    }
+    for (const auto& skipped_window : report.skipped_windows) {
+      if (skipped_window.window.window_id == window_id &&
+          ShouldRetrySkippedUnlockReturn(skipped_window)) {
+        should_retry = true;
+        break;
+      }
+    }
+    if (should_retry) {
+      retryable.push_back(tracked_window);
+    }
+  }
+  return retryable;
 }
 
 }  // namespace
@@ -200,11 +236,8 @@ BackgroundSessionUnlockReturn RunUnlockReturn(
     return {};
   }
 
-  // Consume first so the unlock transition is one-shot for this lock run.
-  // A later relock starts fresh, and a failed return is reported instead of
-  // being retried implicitly on unrelated events.
-  const auto tracked_windows =
-      window_return_tracker->ConsumeMonitor(BuildTrackedMonitorKey(monitor));
+  const std::string monitor_key = BuildTrackedMonitorKey(monitor);
+  const auto tracked_windows = window_return_tracker->ConsumeMonitor(monitor_key);
   if (tracked_windows.empty()) {
     return {};
   }
@@ -239,11 +272,19 @@ BackgroundSessionUnlockReturn RunUnlockReturn(
   }
 
   const auto summary = BuildUnlockReturnSummary(report);
+  const auto retryable_tracked_windows =
+      SelectRetryableTrackedWindows(report, tracked_windows);
+  if (summary.failed_windows > 0U || summary.skipped_windows > 0U) {
+    window_return_tracker->RestoreMonitor(monitor_key,
+                                          retryable_tracked_windows);
+  }
+  auto unlock_return = summary;
+  unlock_return.retryable_windows = retryable_tracked_windows.size();
   if (summary.attempted) {
     std::cout << locking_glass::integration::FormatUnlockReturnReport(report)
               << std::flush;
   }
-  return summary;
+  return unlock_return;
 }
 
 BackgroundSessionEvent BuildSessionEvent(

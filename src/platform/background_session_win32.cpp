@@ -444,6 +444,33 @@ core::TrayMenuModel RefreshTrayModel(
   return model;
 }
 
+void UnlockAndReturnAllOnExit(BackgroundSessionState* state) {
+  if (state == nullptr) {
+    return;
+  }
+
+  const auto loaded_session = state->session_store.Load();
+  bool all_returns_succeeded = true;
+  for (const auto& monitor_state : loaded_session.snapshot.monitors) {
+    if (!monitor_state.locked) {
+      continue;
+    }
+
+    const auto unlock_return =
+        RunUnlockReturn(state->live_controller_capability,
+                        state->unlock_return_controller.get(),
+                        state->window_return_tracker, monitor_state.monitor);
+    if (unlock_return.retryable_windows > 0U) {
+      all_returns_succeeded = false;
+    }
+  }
+
+  if (all_returns_succeeded) {
+    state->session =
+        state->session_store.StartUnlocked(state->monitor_gateway->Enumerate());
+  }
+}
+
 void RepublishCurrentModel(
     HWND window, BackgroundSessionState* state, std::string trigger,
     const bool tray_menu_visible,
@@ -798,6 +825,7 @@ LRESULT CALLBACK BackgroundWindowProc(HWND window, UINT message, WPARAM w_param,
       return 0;
     case WM_DESTROY:
       if (state != nullptr) {
+        UnlockAndReturnAllOnExit(state);
         RepublishCurrentModel(window, state, "exit", false);
         RemoveTrayIcon(state);
         if (state->identify_overlay_window != nullptr) {

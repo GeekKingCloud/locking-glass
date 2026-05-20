@@ -1,9 +1,108 @@
 #include "test_helpers.h"
 
+#include "../src/platform/background_session_internal.h"
+
 #include <iostream>
+#include <memory>
+#include <optional>
 #include <sstream>
 
 namespace locking_glass::tests {
+
+namespace {
+
+class SkippingReturnController
+    : public locking_glass::integration::VirtualDesktopController {
+ public:
+  locking_glass::integration::CapabilityReport Probe() const override {
+    return locking_glass::platform::internal::MakeReadyControllerCapability();
+  }
+
+  locking_glass::integration::UnlockReturnReport ReturnTrackedWindows(
+      const locking_glass::integration::UnlockReturnRequest& request)
+      const override {
+    locking_glass::integration::UnlockReturnReport report{
+        .monitor = request.monitor,
+        .move_results = {},
+        .skipped_windows = {},
+        .resulting_windows = {},
+    };
+    for (const auto& tracked_window : request.tracked_windows) {
+      report.skipped_windows.push_back(
+          locking_glass::integration::UnlockReturnSkip{
+              .window = tracked_window.window,
+              .current_desktop = tracked_window.staging_desktop.value_or(
+                  tracked_window.home_desktop),
+              .home_desktop = tracked_window.home_desktop,
+              .reason = "test skip",
+          });
+    }
+    return report;
+  }
+
+  int WatchSwitches(
+      const locking_glass::core::SessionStore&,
+      const locking_glass::integration::DesktopSwitchCallback&,
+      locking_glass::integration::DesktopWatchOptions) const override {
+    return 0;
+  }
+};
+
+class PartialReturnController
+    : public locking_glass::integration::VirtualDesktopController {
+ public:
+  locking_glass::integration::CapabilityReport Probe() const override {
+    return locking_glass::platform::internal::MakeReadyControllerCapability();
+  }
+
+  locking_glass::integration::UnlockReturnReport ReturnTrackedWindows(
+      const locking_glass::integration::UnlockReturnRequest& request)
+      const override {
+    locking_glass::integration::UnlockReturnReport report{
+        .monitor = request.monitor,
+        .move_results = {},
+        .skipped_windows = {},
+        .resulting_windows = {},
+    };
+    for (std::size_t index = 0; index < request.tracked_windows.size();
+         ++index) {
+      const auto& tracked_window = request.tracked_windows[index];
+      if (index == 0U) {
+        report.move_results.push_back(
+            locking_glass::integration::WindowMoveResult{
+                .window = tracked_window.window,
+                .from_desktop = tracked_window.staging_desktop.value_or(
+                    tracked_window.home_desktop),
+                .to_desktop = tracked_window.home_desktop,
+                .from_desktop_id = tracked_window.window.desktop_id,
+                .to_desktop_id = tracked_window.home_desktop.display_id,
+                .success = true,
+                .detail = "test move",
+            });
+        continue;
+      }
+
+      report.skipped_windows.push_back(
+          locking_glass::integration::UnlockReturnSkip{
+              .window = tracked_window.window,
+              .current_desktop = tracked_window.staging_desktop.value_or(
+                  tracked_window.home_desktop),
+              .home_desktop = tracked_window.home_desktop,
+              .reason = "test skip",
+          });
+    }
+    return report;
+  }
+
+  int WatchSwitches(
+      const locking_glass::core::SessionStore&,
+      const locking_glass::integration::DesktopSwitchCallback&,
+      locking_glass::integration::DesktopWatchOptions) const override {
+    return 0;
+  }
+};
+
+}  // namespace
 
 bool RunUnlockReturnChecks() {
   // Combines tracker memory, replay return scripts, and background tray unlock
@@ -152,6 +251,168 @@ bool RunUnlockReturnChecks() {
     failures += !Expect(
         tracker.ConsumeMonitor(left_monitor).empty(),
         "clearing a monitor should reset the tracker so relocking starts fresh");
+
+    tracker.RestoreMonitor(left_monitor, consumed);
+    failures += !Expect(
+        tracker.ConsumeMonitor(left_monitor).size() == 1U,
+        "restoring a monitor should put failed unlock-return work back for retry");
+
+    tracker.RecordSuccessfulMoves(
+        locking_glass::integration::DesktopSwitchReport{
+            .plan = {},
+            .move_results =
+                {
+                    locking_glass::integration::WindowMoveResult{
+                        .window = left_window,
+                        .from_desktop = desktop_gamma,
+                        .to_desktop = desktop_beta,
+                        .from_desktop_id = desktop_gamma.display_id,
+                        .to_desktop_id = desktop_beta.display_id,
+                        .success = true,
+                        .detail = "newer move",
+                    },
+                },
+            .resulting_windows = {},
+        },
+        monitor_locked);
+    tracker.RestoreMonitor(left_monitor, consumed);
+    const auto merged_restore = tracker.ConsumeMonitor(left_monitor);
+    failures += !Expect(
+        merged_restore.size() == 1U &&
+            merged_restore.front().home_desktop.display_id ==
+                desktop_gamma.display_id,
+        "restoring old unlock-return work should not overwrite newer tracked state");
+  }
+
+  {
+    auto tracker =
+        std::make_shared<locking_glass::platform::WindowReturnTracker>();
+    const auto left_window =
+        locking_glass::core::DesktopWindow{
+            .window_id = "left-doc",
+            .title = "Docs",
+            .monitor_id = left_monitor.stable_id,
+            .monitor_label = left_monitor.label,
+            .desktop_id = desktop_beta.display_id,
+            .is_top_level = true,
+            .can_move = true,
+        };
+    tracker->RestoreMonitor(
+        left_monitor,
+        {
+            locking_glass::integration::TrackedWindowReturn{
+                .window = left_window,
+                .home_desktop = desktop_alpha,
+                .staging_desktop = std::nullopt,
+            },
+        });
+
+    std::ostringstream unavailable_output;
+    auto* original_stdout = std::cout.rdbuf(unavailable_output.rdbuf());
+    const auto summary = locking_glass::platform::internal::RunUnlockReturn(
+        locking_glass::platform::internal::MakeUnavailableControllerCapability(
+            "test unavailable"),
+        nullptr, tracker, left_monitor);
+    std::cout.rdbuf(original_stdout);
+    failures += !Expect(
+        summary.failed_windows == 1U,
+        "unlock return should report a failure when live desktop control is unavailable");
+    failures += !Expect(
+        tracker->ConsumeMonitor(left_monitor).size() == 1U,
+        "failed unlock return should preserve tracked windows for a later retry");
+  }
+
+  {
+    auto tracker =
+        std::make_shared<locking_glass::platform::WindowReturnTracker>();
+    const auto left_window =
+        locking_glass::core::DesktopWindow{
+            .window_id = "left-doc",
+            .title = "Docs",
+            .monitor_id = left_monitor.stable_id,
+            .monitor_label = left_monitor.label,
+            .desktop_id = desktop_beta.display_id,
+            .is_top_level = true,
+            .can_move = true,
+        };
+    tracker->RestoreMonitor(
+        left_monitor,
+        {
+            locking_glass::integration::TrackedWindowReturn{
+                .window = left_window,
+                .home_desktop = desktop_alpha,
+                .staging_desktop = desktop_beta,
+            },
+        });
+
+    SkippingReturnController skipping_controller;
+    std::ostringstream skipped_output;
+    auto* original_stdout = std::cout.rdbuf(skipped_output.rdbuf());
+    const auto summary = locking_glass::platform::internal::RunUnlockReturn(
+        locking_glass::platform::internal::MakeReadyControllerCapability(),
+        &skipping_controller, tracker, left_monitor);
+    std::cout.rdbuf(original_stdout);
+    failures += !Expect(
+        summary.skipped_windows == 1U,
+        "unlock return should report skipped tracked windows");
+    failures += !Expect(
+        tracker->ConsumeMonitor(left_monitor).size() == 1U,
+        "skipped unlock return should preserve tracked windows for a later retry");
+  }
+
+  {
+    auto tracker =
+        std::make_shared<locking_glass::platform::WindowReturnTracker>();
+    const auto returned_window =
+        locking_glass::core::DesktopWindow{
+            .window_id = "left-returned",
+            .title = "Returned",
+            .monitor_id = left_monitor.stable_id,
+            .monitor_label = left_monitor.label,
+            .desktop_id = desktop_beta.display_id,
+            .is_top_level = true,
+            .can_move = true,
+        };
+    const auto skipped_window =
+        locking_glass::core::DesktopWindow{
+            .window_id = "left-skipped",
+            .title = "Skipped",
+            .monitor_id = left_monitor.stable_id,
+            .monitor_label = left_monitor.label,
+            .desktop_id = desktop_beta.display_id,
+            .is_top_level = true,
+            .can_move = true,
+        };
+    tracker->RestoreMonitor(
+        left_monitor,
+        {
+            locking_glass::integration::TrackedWindowReturn{
+                .window = returned_window,
+                .home_desktop = desktop_alpha,
+                .staging_desktop = desktop_beta,
+            },
+            locking_glass::integration::TrackedWindowReturn{
+                .window = skipped_window,
+                .home_desktop = desktop_alpha,
+                .staging_desktop = desktop_beta,
+            },
+        });
+
+    PartialReturnController partial_controller;
+    std::ostringstream partial_output;
+    auto* original_stdout = std::cout.rdbuf(partial_output.rdbuf());
+    const auto summary = locking_glass::platform::internal::RunUnlockReturn(
+        locking_glass::platform::internal::MakeReadyControllerCapability(),
+        &partial_controller, tracker, left_monitor);
+    std::cout.rdbuf(original_stdout);
+    const auto retryable = tracker->ConsumeMonitor(left_monitor);
+    failures += !Expect(
+        summary.moved_windows == 1U && summary.skipped_windows == 1U,
+        "partial unlock return should report both returned and skipped windows");
+    failures += !Expect(
+        retryable.size() == 1U &&
+            retryable.front().window.window_id == "left-skipped",
+        "partial unlock return should retry only the unresolved tracked window");
   }
 
   SetEnvironmentVariable("LOCKING_GLASS_DESKTOP_SCRIPT", "");
@@ -177,6 +438,7 @@ bool RunUnlockReturnChecks() {
                             .can_move = true,
                         },
                     .home_desktop = desktop_alpha,
+                    .staging_desktop = std::nullopt,
                 },
             },
     };

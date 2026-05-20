@@ -56,6 +56,7 @@ void WindowReturnTracker::RecordSuccessfulMoves(
           key, integration::TrackedWindowReturn{
                    .window = move_result.window,
                    .home_desktop = move_result.from_desktop,
+                   .staging_desktop = move_result.to_desktop,
                });
       continue;
     }
@@ -77,6 +78,23 @@ void WindowReturnTracker::ClearMonitor(const std::string& monitor_key) {
 
 void WindowReturnTracker::ClearMonitor(const MonitorDescriptor& monitor) {
   ClearMonitor(BuildTrackedMonitorKey(monitor));
+}
+
+void WindowReturnTracker::RestoreMonitor(
+    const std::string& monitor_key,
+    const std::vector<integration::TrackedWindowReturn>& tracked_windows) {
+  std::lock_guard lock(mutex_);
+  for (const auto& tracked_window : tracked_windows) {
+    const std::string key =
+        BuildTrackedWindowKey(monitor_key, tracked_window.window.window_id);
+    tracked_windows_.try_emplace(key, tracked_window);
+  }
+}
+
+void WindowReturnTracker::RestoreMonitor(
+    const MonitorDescriptor& monitor,
+    const std::vector<integration::TrackedWindowReturn>& tracked_windows) {
+  RestoreMonitor(BuildTrackedMonitorKey(monitor), tracked_windows);
 }
 
 std::vector<integration::TrackedWindowReturn> WindowReturnTracker::ConsumeMonitor(
