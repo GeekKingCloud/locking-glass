@@ -33,6 +33,7 @@ constexpr char kBackgroundDesktopReportPathEnv[] =
     "LOCKING_GLASS_BACKGROUND_REPORT_PATH";
 constexpr UINT kTrayIconMessage = WM_APP + 1;
 constexpr UINT kLiveControllerWatchFailedMessage = WM_APP + 2;
+constexpr UINT_PTR kMenuHoverTimer = 1;
 constexpr UINT kMenuCommandMonitorBase = 1000;
 constexpr UINT kMenuCommandRefresh = 9000;
 constexpr UINT kMenuCommandExit = 9001;
@@ -43,6 +44,8 @@ constexpr int kIdentifyOverlayInset = 18;
 constexpr int kIdentifyOverlayBorder = 6;
 constexpr int kIdentifyOverlayCardWidth = 360;
 constexpr int kIdentifyOverlayCardHeight = 108;
+constexpr BYTE kIdentifyOverlayOpacity = 168;
+constexpr UINT kMenuHoverPollMilliseconds = 45;
 
 std::wstring Widen(const std::string& value) {
   if (value.empty()) {
@@ -79,6 +82,7 @@ struct BackgroundSessionState {
   std::wstring identify_overlay_title;
   std::wstring identify_overlay_message;
   core::TrayMenuModel active_menu_model;
+  HMENU active_menu_handle = nullptr;
   std::string highlighted_monitor_key;
   bool tray_menu_open = false;
   UINT taskbar_created_message = 0;
@@ -296,7 +300,8 @@ bool EnsureIdentifyOverlayWindow(HINSTANCE instance,
     return false;
   }
 
-  SetLayeredWindowAttributes(state->identify_overlay_window, 0, 118, LWA_ALPHA);
+  SetLayeredWindowAttributes(state->identify_overlay_window, 0,
+                             kIdentifyOverlayOpacity, LWA_ALPHA);
   return true;
 }
 
@@ -564,12 +569,14 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state) {
     HMENU menu = CreatePopupMenu();
     if (menu == nullptr) {
       state->tray_menu_open = false;
+      state->active_menu_handle = nullptr;
       state->active_menu_model = {};
       HideIdentifyOverlay(state);
       return;
     }
 
     state->active_menu_model = model;
+    state->active_menu_handle = menu;
     state->tray_menu_open = true;
     HideIdentifyOverlay(state);
 
@@ -626,15 +633,18 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state) {
     // TrackPopupMenu's foreground-window dance and trailing WM_NULL are the
     // standard Win32 tray-menu pattern; without them the popup can linger after
     // focus moves away from the hidden message window.
+    SetTimer(window, kMenuHoverTimer, kMenuHoverPollMilliseconds, nullptr);
     const UINT command =
         TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, cursor.x,
                        cursor.y, 0, window, nullptr);
+    KillTimer(window, kMenuHoverTimer);
     DestroyMenu(menu);
     for (const HBITMAP bitmap : menu_bitmaps) {
       DeleteObject(bitmap);
     }
     PostMessageW(window, WM_NULL, 0, 0);
     state->tray_menu_open = false;
+    state->active_menu_handle = nullptr;
     state->active_menu_model = {};
     HideIdentifyOverlay(state);
 
@@ -712,6 +722,37 @@ void UpdateHoverOverlay(BackgroundSessionState* state, const UINT command,
   PublishEvent(state->observer, hover_model, state->live_controller_capability,
                state->live_controller_watcher_started, true,
                core::MonitorReviewPrompt{}, overlay);
+}
+
+void PollMenuHover(HWND window, BackgroundSessionState* state) {
+  if (window == nullptr || state == nullptr || !state->tray_menu_open ||
+      state->active_menu_handle == nullptr) {
+    return;
+  }
+
+  POINT cursor{};
+  if (!GetCursorPos(&cursor)) {
+    return;
+  }
+
+  const int item_count = GetMenuItemCount(state->active_menu_handle);
+  for (int index = 0; index < item_count; ++index) {
+    RECT item_rect{};
+    if (!GetMenuItemRect(window, state->active_menu_handle,
+                         static_cast<UINT>(index), &item_rect) ||
+        !PtInRect(&item_rect, cursor)) {
+      continue;
+    }
+
+    const UINT command = GetMenuItemID(state->active_menu_handle, index);
+    UpdateHoverOverlay(state, command, 0,
+                       reinterpret_cast<LPARAM>(state->active_menu_handle));
+    return;
+  }
+
+  if (HideIdentifyOverlay(state)) {
+    PublishHoverClearEvent(state);
+  }
 }
 
 bool StartLiveControllerWatcher(
@@ -795,6 +836,11 @@ LRESULT CALLBACK BackgroundWindowProc(HWND window, UINT message, WPARAM w_param,
     case WM_MENUSELECT:
       if (state != nullptr) {
         UpdateHoverOverlay(state, LOWORD(w_param), HIWORD(w_param), l_param);
+      }
+      return 0;
+    case WM_TIMER:
+      if (state != nullptr && w_param == kMenuHoverTimer) {
+        PollMenuHover(window, state);
       }
       return 0;
     case kLiveControllerWatchFailedMessage:
