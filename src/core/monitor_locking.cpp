@@ -86,6 +86,7 @@ MonitorLockingPlan BuildMonitorLockingPlan(
       .session = store.Restore(scenario.monitors),
       .source_desktop_id = scenario.source_desktop_id,
       .target_desktop_id = scenario.target_desktop_id,
+      .staging_desktop_id = scenario.staging_desktop_id,
       .locked_monitors = {},
       .moves = {},
       .skipped_windows = {},
@@ -103,6 +104,8 @@ MonitorLockingPlan BuildMonitorLockingPlan(
     return plan;
   }
 
+  std::vector<MonitorLockingMove> source_moves;
+  std::vector<MonitorLockingMove> staging_moves;
   for (const auto& window : scenario.windows) {
     const auto* monitor = FindLockedPresentMonitor(plan.session, window);
     if (monitor == nullptr) {
@@ -130,16 +133,29 @@ MonitorLockingPlan BuildMonitorLockingPlan(
       continue;
     }
 
-    const std::string destination =
-        window.desktop_id == plan.source_desktop_id ? plan.target_desktop_id
-                                                    : plan.source_desktop_id;
-    plan.moves.push_back(MonitorLockingMove{
+    std::string destination;
+    if (window.desktop_id == plan.source_desktop_id) {
+      destination = plan.target_desktop_id;
+    } else if (!plan.staging_desktop_id.empty()) {
+      destination = plan.staging_desktop_id;
+    } else {
+      destination = plan.source_desktop_id;
+    }
+    MonitorLockingMove move{
         .window = window,
         .from_desktop_id = window.desktop_id,
         .to_desktop_id = std::move(destination),
-    });
+    };
+    if (move.to_desktop_id == plan.staging_desktop_id) {
+      staging_moves.push_back(std::move(move));
+    } else {
+      source_moves.push_back(std::move(move));
+    }
   }
 
+  plan.moves.reserve(staging_moves.size() + source_moves.size());
+  plan.moves.insert(plan.moves.end(), staging_moves.begin(), staging_moves.end());
+  plan.moves.insert(plan.moves.end(), source_moves.begin(), source_moves.end());
   return plan;
 }
 
@@ -150,6 +166,9 @@ std::string FormatMonitorLockingPlan(const MonitorLockingPlan& plan) {
   builder << "  - source: " << plan.trigger << '\n';
   builder << "  - from desktop: " << plan.source_desktop_id << '\n';
   builder << "  - to desktop: " << plan.target_desktop_id << '\n';
+  if (!plan.staging_desktop_id.empty()) {
+    builder << "  - staging desktop: " << plan.staging_desktop_id << '\n';
+  }
 
   builder << "Session:\n";
   builder << "  - active monitors: " << CountPresentMonitors(plan.session)

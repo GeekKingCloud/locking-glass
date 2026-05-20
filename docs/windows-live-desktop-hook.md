@@ -6,6 +6,7 @@ LockingGlass's proof path for real Windows virtual desktop switching is now expl
 
 - Live desktop notifications come from `VirtualDesktopAccessor.dll:RegisterPostMessageHook`, delivered to a hidden or tool-window message loop on the Windows runtime.
 - Live window moves use `VirtualDesktopAccessor.dll:MoveWindowToDesktopNumber` on already-selected top-level windows after the core lock policy decides which windows must stay visually pinned.
+- When a locked monitor's target desktop already has windows, LockingGlass creates a named `Locking-Glass` virtual desktop through `CreateDesktop` and `SetDesktopName` and stages those target-desktop windows there until unlock return. During the same app run, LockingGlass reuses only the staging desktop identity it created itself.
 - That same helper-backed move path is also used for the best-effort immediate unlock return when LockingGlass sends tracked windows back to their remembered original workspace.
 - `IVirtualDesktopManager` remains part of the Windows capability probe and a useful verification seam, but it is not treated as sufficient proof of the live hook on its own because it does not provide the desktop-switch notification stream LockingGlass needs.
 - The live move-path proof on the real Windows runtime showed `IVirtualDesktopManager.MoveWindowToDesktop` returning access denied for the disposable probe target, while the helper move export succeeded and the COM desktop-id query confirmed the result. That makes the helper move export the concrete supported move path for LockingGlass.
@@ -15,7 +16,8 @@ LockingGlass's proof path for real Windows virtual desktop switching is now expl
 LockingGlass must mark live desktop locking as unavailable instead of guessing when any of these conditions apply:
 
 - `VirtualDesktopAccessor.dll` is missing or cannot be loaded.
-- The required helper exports are missing: `RegisterPostMessageHook`, `UnregisterPostMessageHook`, `GetCurrentDesktopNumber`, `GoToDesktopNumber`, `MoveWindowToDesktopNumber`, or `GetWindowDesktopNumber`.
+- The required helper exports are missing: `RegisterPostMessageHook`, `UnregisterPostMessageHook`, `GetCurrentDesktopNumber`, `GoToDesktopNumber`, `GetDesktopCount`, `GetDesktopName`, `GetDesktopIdByNumber`, `MoveWindowToDesktopNumber`, `GetWindowDesktopNumber`, `CreateDesktop`, `SetDesktopName`, or `RemoveDesktop`.
+- The named `Locking-Glass` staging desktop cannot be created or resolved before a lock move would displace target-desktop windows.
 - The Windows runtime reports fewer than two virtual desktops, so a real switch cannot be observed.
 - The live hook registers but no real desktop-switch notifications arrive before timeout.
 - The move-path exercise cannot confirm that a top-level probe window moved to the requested desktop and back.
@@ -42,4 +44,4 @@ Run the Windows proof probe from a Windows shell:
 powershell -ExecutionPolicy Bypass -File .\scripts\run-live-desktop-probe.ps1
 ```
 
-The wrapper downloads the current `VirtualDesktopAccessor.dll` Windows 11 release if it is absent, builds the probe with `dotnet`, captures a move-path exercise on a real top-level probe window, and records at least two live desktop-switch notifications to a log under `build\windows-live-desktop-probe\`.
+The wrapper downloads the current `VirtualDesktopAccessor.dll` Windows 11 release if it is absent, builds the probe with `dotnet`, captures a move-path exercise on a real top-level probe window, exercises the staging desktop lifecycle exports, and records at least two live desktop-switch notifications to a log under `build\windows-live-desktop-probe\`.

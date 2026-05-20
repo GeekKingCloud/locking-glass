@@ -1251,15 +1251,17 @@ bool RunUnlockReturnChecks() {
 
   WriteTextFile(
       desktop_script_path,
-      "event\tdesktop-switch\tfirst\tdesktop-alpha\tdesktop-beta\n"
+      "event\tdesktop-switch\tfirst\tdesktop-alpha\tdesktop-beta\tdesktop-locking-glass\n"
       "monitor\tstable-left\tDISPLAY#LEFT\tSERIAL-LEFT\tDell U2720Q\tDisplay 1\t0\t0\t2560\t1440\t1\n"
       "monitor\tstable-right\tDISPLAY#RIGHT\tSERIAL-RIGHT\tDell U2720Q\tDisplay 2\t2560\t0\t5120\t1440\t0\n"
       "window\tleft-doc\tDocs\tstable-left\tDisplay 1\tdesktop-alpha\t1\t1\n"
+      "window\tleft-chat\tChat\tstable-left\tDisplay 1\tdesktop-beta\t1\t1\n"
       "window\tright-editor\tEditor\tstable-right\tDisplay 2\tdesktop-alpha\t1\t1\n"
-      "event\tdesktop-switch\tsecond\tdesktop-beta\tdesktop-gamma\n"
+      "event\tdesktop-switch\tsecond\tdesktop-beta\tdesktop-gamma\tdesktop-locking-glass\n"
       "monitor\tstable-left\tDISPLAY#LEFT\tSERIAL-LEFT\tDell U2720Q\tDisplay 1\t0\t0\t2560\t1440\t1\n"
       "monitor\tstable-right\tDISPLAY#RIGHT\tSERIAL-RIGHT\tDell U2720Q\tDisplay 2\t2560\t0\t5120\t1440\t0\n"
       "window\tleft-doc\tDocs Renamed\tstable-left\tDisplay 1\tdesktop-beta\t1\t1\n"
+      "window\tleft-chat\tChat\tstable-left\tDisplay 1\tdesktop-locking-glass\t1\t1\n"
       "window\tleft-static\tTimer\tstable-left\tDisplay 1\tdesktop-beta\t1\t0\n"
       "window\tright-editor\tEditor\tstable-right\tDisplay 2\tdesktop-beta\t1\t1\n");
   WriteTextFile(
@@ -1267,7 +1269,9 @@ bool RunUnlockReturnChecks() {
       "desktop\t0\tguid-alpha\tAlpha\tdesktop-alpha\n"
       "desktop\t1\tguid-beta\tBeta\tdesktop-beta\n"
       "desktop\t2\tguid-gamma\tGamma\tdesktop-gamma\n"
+      "desktop\t3\tguid-locking-glass\tLockingGlass\tdesktop-locking-glass\n"
       "window\tleft-doc\tDocs Renamed\tstable-left\tDisplay 1\t2\tguid-gamma\tGamma\tdesktop-gamma\t1\t1\n"
+      "window\tleft-chat\tChat\tstable-left\tDisplay 1\t3\tguid-locking-glass\tLockingGlass\tdesktop-locking-glass\t1\t1\n"
       "window\tleft-static\tTimer\tstable-left\tDisplay 1\t2\tguid-gamma\tGamma\tdesktop-gamma\t1\t1\n");
   WriteTextFile(
       tray_script_path,
@@ -1304,8 +1308,8 @@ bool RunUnlockReturnChecks() {
                         "unlock flow should publish the unlock result on the tray-toggle event");
     failures += !Expect(events[4].unlock_return.attempted,
                         "unlocking a monitor with tracked windows should attempt an immediate return");
-    failures += !Expect(events[4].unlock_return.moved_windows == 1U,
-                        "unlocking should return the tracked window once");
+    failures += !Expect(events[4].unlock_return.moved_windows == 2U,
+                        "unlocking should return source and staged target windows");
     failures += !Expect(events[4].unlock_return.skipped_windows == 0U,
                         "unlocking should not report skipped windows when the remembered desktop still exists");
     failures += !Expect(events[4].unlock_return.failed_windows == 0U,
@@ -1319,6 +1323,10 @@ bool RunUnlockReturnChecks() {
   failures += !Expect(
       output.find("desktop-gamma -> desktop-alpha") != std::string::npos,
       "background unlock returns should preserve the first remembered home desktop across multiple follow moves");
+  failures += !Expect(
+      output.find("desktop-locking-glass -> desktop-beta") !=
+          std::string::npos,
+      "background unlock returns should send staged target-desktop windows back to their original desktop");
   failures += !Expect(
       output.find("left-static") == std::string::npos,
       "windows that were only skipped during switch replay should not be tracked for unlock return");
@@ -1338,7 +1346,7 @@ bool RunDesktopLockingChecks() {
   const auto script_path = temp_directory / "desktop-script.tsv";
   WriteTextFile(
       script_path,
-      "event\tdesktop-switch\tkeyboard\tdesktop-alpha\tdesktop-beta\n"
+      "event\tdesktop-switch\tkeyboard\tdesktop-alpha\tdesktop-beta\tdesktop-locking-glass\n"
       "monitor\tstable-left\tDISPLAY#LEFT\tSERIAL-LEFT\tDell U2720Q\tDisplay 1\t0\t0\t2560\t1440\t1\n"
       "monitor\tstable-right\tDISPLAY#RIGHT\tSERIAL-RIGHT\tDell U2720Q\tDisplay 2\t2560\t0\t5120\t1440\t0\n"
       "window\tleft-alpha\tDocs\tstable-left\tDisplay 1\tdesktop-alpha\t1\t1\n"
@@ -1346,7 +1354,7 @@ bool RunDesktopLockingChecks() {
       "window\tright-alpha\tEditor\tstable-right\tDisplay 2\tdesktop-alpha\t1\t1\n"
       "window\tleft-child\tChild palette\tstable-left\tDisplay 1\tdesktop-alpha\t0\t1\n"
       "window\tleft-static\tPinned timer\tstable-left\tDisplay 1\tdesktop-alpha\t1\t0\n"
-      "event\tdesktop-switch\tkeyboard-after-unlock\tdesktop-alpha\tdesktop-beta\n"
+      "event\tdesktop-switch\tkeyboard-after-unlock\tdesktop-alpha\tdesktop-beta\tdesktop-locking-glass\n"
       "monitor\tstable-left\tDISPLAY#LEFT\tSERIAL-LEFT\tDell U2720Q\tDisplay 1\t0\t0\t2560\t1440\t1\n"
       "monitor\tstable-right\tDISPLAY#RIGHT\tSERIAL-RIGHT\tDell U2720Q\tDisplay 2\t2560\t0\t5120\t1440\t0\n"
       "window\tleft-alpha\tDocs\tstable-left\tDisplay 1\tdesktop-alpha\t1\t1\n"
@@ -1423,11 +1431,16 @@ bool RunDesktopLockingChecks() {
                           "first desktop switch should lock Display 1");
     }
     failures += !Expect(locked_report.plan.moves.size() == 2U,
-                        "locked monitor windows on both desktops should be swapped");
+                        "locked monitor windows on both desktops should use target and staging desktops");
     failures += !Expect(locked_report.plan.skipped_windows.size() == 2U,
                         "non-top-level and immovable windows should be skipped");
     failures += !Expect(locked_report.move_results.size() == 2U,
                         "scripted replay should record both planned window moves");
+    if (locked_report.move_results.size() == 2U) {
+      failures += !Expect(
+          locked_report.move_results[0].window.window_id == "left-beta",
+          "target-desktop windows should move to staging before source windows move onto the target desktop");
+    }
 
     const auto* left_alpha_move = FindMoveResult(locked_report, "left-alpha");
     failures += !Expect(left_alpha_move != nullptr,
@@ -1445,8 +1458,8 @@ bool RunDesktopLockingChecks() {
     if (left_beta_move != nullptr) {
       failures += !Expect(left_beta_move->success,
                           "target desktop window move should succeed in the replay");
-      failures += !Expect(left_beta_move->to_desktop_id == "desktop-alpha",
-                          "target desktop window should move back onto the source desktop");
+      failures += !Expect(left_beta_move->to_desktop_id == "desktop-locking-glass",
+                          "target desktop window should move onto the staging desktop");
     }
 
     const auto* right_alpha = FindDesktopWindow(locked_report.resulting_windows,
@@ -1467,6 +1480,10 @@ bool RunDesktopLockingChecks() {
     failures += !Expect(
         formatted_locked.find("planned moves: 2") != std::string::npos,
         "formatted desktop report should summarize planned moves");
+    failures += !Expect(
+        formatted_locked.find("staging desktop: desktop-locking-glass") !=
+            std::string::npos,
+        "formatted desktop report should name the staging desktop when one is in use");
     failures += !Expect(
         formatted_locked.find("skipped windows: 2") != std::string::npos,
         "formatted desktop report should summarize skipped windows");

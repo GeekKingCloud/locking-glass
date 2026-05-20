@@ -8,6 +8,7 @@ struct WindowsVirtualDesktopSurfaceProbe {
   bool helper_library_ready = false;
   bool helper_watch_ready = false;
   bool helper_move_ready = false;
+  bool helper_lifecycle_ready = false;
 };
 
 WindowsVirtualDesktopSurfaceProbe ProbeWindowsVirtualDesktopSurface();

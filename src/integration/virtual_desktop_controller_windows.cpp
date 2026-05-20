@@ -24,6 +24,8 @@ namespace locking_glass::integration::internal {
 
 namespace {
 
+constexpr char kStagingDesktopName[] = "Locking-Glass";
+
 bool GuidIsZero(const GUID& guid) {
   return guid.Data1 == 0 && guid.Data2 == 0 && guid.Data3 == 0 &&
          guid.Data4[0] == 0 && guid.Data4[1] == 0 && guid.Data4[2] == 0 &&
@@ -361,6 +363,15 @@ struct WindowDesktopContextFormatter {
   }
 };
 
+bool HasLockedPresentMonitor(const core::SessionRefreshResult& session) {
+  for (const auto& monitor : session.snapshot.monitors) {
+    if (monitor.is_present && monitor.locked) {
+      return true;
+    }
+  }
+  return false;
+}
+
 class WindowsVirtualDesktopHelper {
  public:
   using GetDesktopCountFn = int(WINAPI*)();
@@ -368,19 +379,28 @@ class WindowsVirtualDesktopHelper {
   using GetDesktopIdByNumberFn = GUID(WINAPI*)(int);
   using GetWindowDesktopNumberFn = int(WINAPI*)(HWND);
   using MoveWindowToDesktopNumberFn = int(WINAPI*)(HWND, int);
+  using CreateDesktopFn = int(WINAPI*)();
+  using SetDesktopNameFn = int(WINAPI*)(int, const char*);
+  using RemoveDesktopFn = int(WINAPI*)(int, int);
 
   WindowsVirtualDesktopHelper(HMODULE library,
                               GetDesktopCountFn get_desktop_count,
                               GetDesktopNameFn get_desktop_name,
                               GetDesktopIdByNumberFn get_desktop_id_by_number,
                               GetWindowDesktopNumberFn get_window_desktop_number,
-                              MoveWindowToDesktopNumberFn move_window_to_desktop_number)
+                              MoveWindowToDesktopNumberFn move_window_to_desktop_number,
+                              CreateDesktopFn create_desktop,
+                              SetDesktopNameFn set_desktop_name,
+                              RemoveDesktopFn remove_desktop)
       : library_(library),
         get_desktop_count_(get_desktop_count),
         get_desktop_name_(get_desktop_name),
         get_desktop_id_by_number_(get_desktop_id_by_number),
         get_window_desktop_number_(get_window_desktop_number),
-        move_window_to_desktop_number_(move_window_to_desktop_number) {}
+        move_window_to_desktop_number_(move_window_to_desktop_number),
+        create_desktop_(create_desktop),
+        set_desktop_name_(set_desktop_name),
+        remove_desktop_(remove_desktop) {}
 
   ~WindowsVirtualDesktopHelper() {
     if (library_ != nullptr) {
@@ -446,6 +466,60 @@ class WindowsVirtualDesktopHelper {
     return move_window_to_desktop_number_(window, desktop_number);
   }
 
+  std::optional<DesktopIdentity> EnsureStagingDesktop(std::string* detail) {
+    if (owned_staging_desktop_.has_value()) {
+      const auto desktops = ListDesktops();
+      if (const auto* desktop = FindMatchingDesktop(
+              desktops, *owned_staging_desktop_);
+          desktop != nullptr) {
+        return *desktop;
+      }
+      owned_staging_desktop_.reset();
+    }
+
+    if (create_desktop_ == nullptr || set_desktop_name_ == nullptr ||
+        remove_desktop_ == nullptr || get_desktop_name_ == nullptr ||
+        get_desktop_id_by_number_ == nullptr) {
+      if (detail != nullptr) {
+        *detail =
+            "VirtualDesktopAccessor.dll is missing CreateDesktop or "
+            "SetDesktopName lifecycle support, so LockingGlass cannot create "
+            "the staging desktop safely.";
+      }
+      return std::nullopt;
+    }
+
+    const int created_desktop_number = create_desktop_();
+    if (created_desktop_number < 0) {
+      if (detail != nullptr) {
+        *detail = "CreateDesktop returned a failure status.";
+      }
+      return std::nullopt;
+    }
+
+    if (set_desktop_name_(created_desktop_number, kStagingDesktopName) < 0) {
+      remove_desktop_(created_desktop_number, 0);
+      if (detail != nullptr) {
+        *detail = "SetDesktopName returned a failure status for the staging desktop.";
+      }
+      return std::nullopt;
+    }
+
+    for (const auto& desktop : ListDesktops()) {
+      if (desktop.number == created_desktop_number &&
+          desktop.name == kStagingDesktopName) {
+        owned_staging_desktop_ = desktop;
+        return desktop;
+      }
+    }
+
+    remove_desktop_(created_desktop_number, 0);
+    if (detail != nullptr) {
+      *detail = "The staging desktop was created but could not be resolved.";
+    }
+    return std::nullopt;
+  }
+
   static std::unique_ptr<WindowsVirtualDesktopHelper> Load(
       const std::filesystem::path& repository_root, std::string* detail) {
     std::vector<std::filesystem::path> candidates;
@@ -495,6 +569,12 @@ class WindowsVirtualDesktopHelper {
           GetProcAddress(library, "GetWindowDesktopNumber");
       const FARPROC move_window_to_desktop_number_symbol =
           GetProcAddress(library, "MoveWindowToDesktopNumber");
+      const FARPROC create_desktop_symbol =
+          GetProcAddress(library, "CreateDesktop");
+      const FARPROC set_desktop_name_symbol =
+          GetProcAddress(library, "SetDesktopName");
+      const FARPROC remove_desktop_symbol =
+          GetProcAddress(library, "RemoveDesktop");
       const auto get_desktop_count =
           get_desktop_count_symbol != nullptr
               ? std::bit_cast<GetDesktopCountFn>(get_desktop_count_symbol)
@@ -518,12 +598,28 @@ class WindowsVirtualDesktopHelper {
               ? std::bit_cast<MoveWindowToDesktopNumberFn>(
                     move_window_to_desktop_number_symbol)
               : nullptr;
-      if (get_desktop_count == nullptr || get_window_desktop_number == nullptr ||
-          move_window_to_desktop_number == nullptr) {
+      const auto create_desktop =
+          create_desktop_symbol != nullptr
+              ? std::bit_cast<CreateDesktopFn>(create_desktop_symbol)
+              : nullptr;
+      const auto set_desktop_name =
+          set_desktop_name_symbol != nullptr
+              ? std::bit_cast<SetDesktopNameFn>(set_desktop_name_symbol)
+              : nullptr;
+      const auto remove_desktop =
+          remove_desktop_symbol != nullptr
+              ? std::bit_cast<RemoveDesktopFn>(remove_desktop_symbol)
+              : nullptr;
+      if (get_desktop_count == nullptr || get_desktop_name == nullptr ||
+          get_desktop_id_by_number == nullptr ||
+          get_window_desktop_number == nullptr ||
+          move_window_to_desktop_number == nullptr ||
+          create_desktop == nullptr || set_desktop_name == nullptr ||
+          remove_desktop == nullptr) {
         last_error =
             "VirtualDesktopAccessor.dll at " + candidate.string() +
-            " was missing GetDesktopCount, GetWindowDesktopNumber, or "
-            "MoveWindowToDesktopNumber.";
+            " was missing a required desktop hook, move, identity, or "
+            "lifecycle export.";
         FreeLibrary(library);
         continue;
       }
@@ -534,7 +630,8 @@ class WindowsVirtualDesktopHelper {
       return std::make_unique<WindowsVirtualDesktopHelper>(
           library, get_desktop_count, get_desktop_name,
           get_desktop_id_by_number, get_window_desktop_number,
-          move_window_to_desktop_number);
+          move_window_to_desktop_number, create_desktop, set_desktop_name,
+          remove_desktop);
     }
 
     if (detail != nullptr) {
@@ -550,6 +647,10 @@ class WindowsVirtualDesktopHelper {
   GetDesktopIdByNumberFn get_desktop_id_by_number_ = nullptr;
   GetWindowDesktopNumberFn get_window_desktop_number_ = nullptr;
   MoveWindowToDesktopNumberFn move_window_to_desktop_number_ = nullptr;
+  CreateDesktopFn create_desktop_ = nullptr;
+  SetDesktopNameFn set_desktop_name_ = nullptr;
+  RemoveDesktopFn remove_desktop_ = nullptr;
+  std::optional<DesktopIdentity> owned_staging_desktop_;
 };
 
 struct WindowDesktopVerificationResult {
@@ -732,6 +833,54 @@ std::vector<CapturedWindow> CaptureLiveWindows(
   return captures;
 }
 
+DesktopSwitchReport BuildBlockedDesktopSwitchReport(
+    const core::SessionStore& store,
+    const LiveDesktopSwitchEvent& event,
+    const std::vector<platform::MonitorDescriptor>& monitors,
+    const std::vector<CapturedWindow>& captured_windows,
+    const std::string& block_detail) {
+  core::DesktopSwitchScenario scenario{
+      .trigger = "windows-live-post-message-hook",
+      .source_desktop_id = FormatDesktopContext(event.source_desktop_number,
+                                                event.source_desktop_guid,
+                                                event.source_desktop_name),
+      .target_desktop_id = FormatDesktopContext(event.target_desktop_number,
+                                                event.target_desktop_guid,
+                                                event.target_desktop_name),
+      .staging_desktop_id = kStagingDesktopName,
+      .monitors = monitors,
+      .windows = {},
+  };
+  scenario.windows.reserve(captured_windows.size());
+  std::map<std::string, DesktopIdentity> window_desktops;
+  for (const auto& captured : captured_windows) {
+    scenario.windows.push_back(captured.window);
+    window_desktops.emplace(captured.window.window_id, captured.desktop);
+  }
+
+  DesktopSwitchReport report{
+      .plan = core::BuildMonitorLockingPlan(store, scenario),
+      .move_results = {},
+      .resulting_windows = scenario.windows,
+  };
+  for (const auto& move : report.plan.moves) {
+    const auto from_desktop_it = window_desktops.find(move.window.window_id);
+    report.move_results.push_back(WindowMoveResult{
+        .window = move.window,
+        .from_desktop =
+            from_desktop_it != window_desktops.end()
+                ? from_desktop_it->second
+                : MakeDisplayOnlyDesktopIdentity(move.from_desktop_id),
+        .to_desktop = MakeDisplayOnlyDesktopIdentity(move.to_desktop_id),
+        .from_desktop_id = move.from_desktop_id,
+        .to_desktop_id = move.to_desktop_id,
+        .success = false,
+        .detail = block_detail,
+    });
+  }
+  return report;
+}
+
 std::vector<CapturedWindow> CaptureLiveWindowsForReturn(
     const WindowsVirtualDesktopHelper& helper,
     const std::vector<platform::MonitorDescriptor>& monitors) {
@@ -795,10 +944,21 @@ DesktopSwitchReport BuildWindowsLiveDesktopSwitchReport(
     const core::SessionStore& store,
     const LiveDesktopSwitchEvent& event,
     const std::vector<platform::MonitorDescriptor>& monitors,
-    const WindowsVirtualDesktopHelper& helper) {
+    WindowsVirtualDesktopHelper& helper) {
   const core::SessionRefreshResult session = store.Restore(monitors);
   const auto captured_windows =
       CaptureLiveWindows(helper, monitors, session, event);
+
+  std::optional<DesktopIdentity> staging_desktop;
+  if (HasLockedPresentMonitor(session)) {
+    std::string staging_detail;
+    staging_desktop = helper.EnsureStagingDesktop(&staging_detail);
+    if (!staging_desktop.has_value()) {
+      return BuildBlockedDesktopSwitchReport(
+          store, event, monitors, captured_windows,
+          "staging desktop unavailable: " + staging_detail);
+    }
+  }
 
   core::DesktopSwitchScenario scenario{
       .trigger = "windows-live-post-message-hook",
@@ -808,6 +968,9 @@ DesktopSwitchReport BuildWindowsLiveDesktopSwitchReport(
       .target_desktop_id = FormatDesktopContext(event.target_desktop_number,
                                                 event.target_desktop_guid,
                                                 event.target_desktop_name),
+      .staging_desktop_id = staging_desktop.has_value()
+                                ? FormatDesktopIdentity(*staging_desktop)
+                                : std::string{},
       .monitors = monitors,
       .windows = {},
   };
@@ -862,12 +1025,16 @@ DesktopSwitchReport BuildWindowsLiveDesktopSwitchReport(
     }
 
     const HWND window = handle_it->second;
-    const int destination_desktop_number =
-        move.to_desktop_id == scenario.target_desktop_id
-            ? event.target_desktop_number
-            : event.source_desktop_number;
-    const DesktopIdentity to_desktop =
-        desktop_context.Resolve(destination_desktop_number);
+    int destination_desktop_number = event.source_desktop_number;
+    DesktopIdentity to_desktop = desktop_context.Resolve(destination_desktop_number);
+    if (move.to_desktop_id == scenario.target_desktop_id) {
+      destination_desktop_number = event.target_desktop_number;
+      to_desktop = desktop_context.Resolve(destination_desktop_number);
+    } else if (staging_desktop.has_value() &&
+               move.to_desktop_id == FormatDesktopIdentity(*staging_desktop)) {
+      destination_desktop_number = staging_desktop->number;
+      to_desktop = *staging_desktop;
+    }
     if (destination_desktop_number < 0) {
       report.move_results.push_back(WindowMoveResult{
           .window = move.window,
@@ -899,10 +1066,14 @@ DesktopSwitchReport BuildWindowsLiveDesktopSwitchReport(
     const WindowDesktopVerificationResult verification =
         WaitForWindowDesktopNumber(helper, window, destination_desktop_number);
     const int actual_desktop_number = verification.desktop_number;
-    const DesktopIdentity actual_desktop =
+    DesktopIdentity actual_desktop =
         actual_desktop_number >= 0
             ? desktop_context.Resolve(actual_desktop_number)
             : MakeDisplayOnlyDesktopIdentity("<unknown-desktop>");
+    if (staging_desktop.has_value() &&
+        actual_desktop_number == staging_desktop->number) {
+      actual_desktop = *staging_desktop;
+    }
     const std::string actual_desktop_id = FormatDesktopIdentity(actual_desktop);
     if (actual_desktop_id != move.to_desktop_id) {
       report.move_results.push_back(WindowMoveResult{
@@ -941,12 +1112,13 @@ DesktopSwitchReport BuildWindowsLiveDesktopSwitchReport(
 CapabilityReport ProbeWindowsController() {
   const auto probe = ProbeWindowsVirtualDesktopSurface();
   if (probe.com_ready && probe.desktop_manager_ready &&
-      probe.helper_watch_ready && probe.helper_move_ready) {
+      probe.helper_watch_ready && probe.helper_move_ready &&
+      probe.helper_lifecycle_ready) {
     return CapabilityReport{
         .component = "desktop-locking",
         .status = CapabilityStatus::kReady,
         .detail =
-            "Live desktop locking is available through the VirtualDesktopAccessor post-message hook and move exports; replay through LOCKING_GLASS_DESKTOP_SCRIPT stays test-only and is not completion evidence for the core feature.",
+            "Live desktop locking is available through the VirtualDesktopAccessor post-message hook, move exports, and Locking-Glass staging desktop lifecycle exports; replay through LOCKING_GLASS_DESKTOP_SCRIPT stays test-only and is not completion evidence for the core feature.",
     };
   }
 
@@ -954,7 +1126,7 @@ CapabilityReport ProbeWindowsController() {
       .component = "desktop-locking",
       .status = CapabilityStatus::kUnavailable,
       .detail =
-          "Desktop locking fails closed until both IVirtualDesktopManager and VirtualDesktopAccessor.dll (RegisterPostMessageHook, UnregisterPostMessageHook, GetCurrentDesktopNumber, GoToDesktopNumber, MoveWindowToDesktopNumber, GetWindowDesktopNumber) are available on the live Windows runtime.",
+          "Desktop locking fails closed until both IVirtualDesktopManager and VirtualDesktopAccessor.dll (RegisterPostMessageHook, UnregisterPostMessageHook, GetCurrentDesktopNumber, GoToDesktopNumber, GetDesktopCount, GetDesktopName, GetDesktopIdByNumber, MoveWindowToDesktopNumber, GetWindowDesktopNumber, CreateDesktop, SetDesktopName, RemoveDesktop) are available on the live Windows runtime.",
   };
 }
 

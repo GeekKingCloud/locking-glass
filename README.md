@@ -2,11 +2,13 @@
 
 LockingGlass is a Windows tray app for pinning selected monitors across Windows virtual desktop switches.
 
-Locked monitors keep their visible windows on the same desktop while unlocked monitors continue following normal Windows behavior. When you unlock a monitor, LockingGlass now makes a best-effort attempt to return the windows it moved for that lock back to their remembered original workspace if that workspace still exists. That remembered workspace is tracked only in memory for the current app run. The app is intentionally fail-closed: if the live desktop hook cannot start, LockingGlass keeps session state and tray controls available but does not pretend desktop locking is active.
+Locked monitors keep their visible windows on the same desktop while unlocked monitors continue following normal Windows behavior. If the destination workspace already has windows on the locked monitor, LockingGlass moves those windows to a named `Locking-Glass` staging desktop instead of pushing them onto another user workspace. When you unlock a monitor, LockingGlass makes a best-effort attempt to return the windows it moved for that lock back to their remembered original workspace if that workspace still exists. That remembered workspace is tracked only in memory for the current app run. The app is intentionally fail-closed: if the live desktop hook or staging desktop cannot start, LockingGlass keeps session state and tray controls available but does not pretend desktop locking is active.
 
 ## Behavior Contract
 
 - Locking a monitor keeps the windows on that monitor visually pinned while other monitors continue following normal Windows desktop switches.
+- Destination-workspace windows on a locked monitor are staged on a named `Locking-Glass` virtual desktop so existing user workspaces are not used as overflow.
+- LockingGlass only reuses a staging desktop identity it created during the same app run; it does not claim an existing user-created desktop by name.
 - Unlocking a monitor triggers a best-effort immediate return for windows that LockingGlass itself moved successfully while that monitor was locked.
 - The first successful follow-move becomes the remembered home workspace for that window during the current run.
 - If the remembered workspace no longer exists, or the window can no longer be resolved safely, LockingGlass leaves the window where it is and reports the skip instead of guessing.
@@ -150,11 +152,11 @@ GitHub Actions intentionally stops at build, unit-test, packaging, extract-only 
 - Windows only
 - at least two monitors
 - at least two Windows virtual desktops
-- `VirtualDesktopAccessor.dll` available beside the installed build, in the staged helper location, or through `LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER`
+- `VirtualDesktopAccessor.dll` available beside the installed build, in the staged helper location, or through `LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER`, with the hook, move, and desktop lifecycle exports used by the Windows boundary
 
 Release packages bundle the live desktop probe as a self-contained Windows executable, so normal installed use does not require a separate .NET runtime. Building from source still requires the .NET SDK 8 or newer for the helper projects and installer bootstrapper, plus MSYS2 or Git for Windows shell tools and a MinGW toolchain for the native Windows build.
 
-If the helper DLL or required exports are missing, LockingGlass marks live desktop locking as unavailable and fails closed instead of replaying or guessing.
+If the helper DLL, required exports, or `Locking-Glass` staging desktop lifecycle are unavailable, LockingGlass marks live desktop locking as unavailable and fails closed instead of replaying, guessing, or pushing windows onto another user workspace.
 
 ## License
 

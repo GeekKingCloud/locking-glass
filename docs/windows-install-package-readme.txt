@@ -8,6 +8,7 @@ Audit note
 
 What it does
 - Keeps selected monitors visually pinned while other monitors follow real Windows virtual desktop switches.
+- Stages destination-workspace windows on a named Locking-Glass virtual desktop so a locked monitor does not push them into another user workspace.
 - When you unlock a monitor, it makes a best-effort attempt to return windows that LockingGlass moved for that lock back to their remembered original workspace if that workspace still exists.
 - Uses the helper-backed live controller path. Run the proof scripts for current live Windows validation.
 - Fails closed when the live controller cannot start instead of pretending replay or prototype behavior is live.
@@ -16,6 +17,7 @@ Requirements
 - Windows only.
 - At least two monitors.
 - At least two Windows virtual desktops.
+- VirtualDesktopAccessor.dll with the live hook, move, and desktop lifecycle exports bundled beside the app.
 - No separate .NET runtime is required for normal installed use; the bundled live desktop probe is published as a self-contained Windows executable.
 
 Files that must stay together
@@ -50,6 +52,7 @@ Startup note
 - The session file still remembers monitor identity and review state, but it does not automatically re-lock monitors from a previous run.
 
 Unlock return note
+- LockingGlass may create a virtual desktop named Locking-Glass while monitors are locked; it only reuses a staging desktop identity it created during the same app run.
 - Remembered original workspaces are tracked only in memory for the current app run.
 - Only windows that LockingGlass itself moved successfully are eligible for automatic return on unlock.
 - If the remembered workspace no longer exists, the window stays where it is.

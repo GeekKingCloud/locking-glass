@@ -241,6 +241,15 @@ namespace LockingGlass.WindowsLiveDesktopProbe
         [UnmanagedFunctionPointer(CallingConvention.Winapi)]
         private delegate Guid GetDesktopIdByNumberDelegate(int desktopNumber);
 
+        [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+        private delegate int CreateDesktopDelegate();
+
+        [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+        private delegate int SetDesktopNameDelegate(int desktopNumber, string desktopName);
+
+        [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+        private delegate int RemoveDesktopDelegate(int desktopNumber, int fallbackDesktopNumber);
+
         private readonly IntPtr _libraryHandle;
         private readonly GetDesktopCountDelegate _getDesktopCount;
         private readonly GetCurrentDesktopNumberDelegate _getCurrentDesktopNumber;
@@ -249,8 +258,11 @@ namespace LockingGlass.WindowsLiveDesktopProbe
         private readonly GoToDesktopNumberDelegate _goToDesktopNumber;
         private readonly RegisterPostMessageHookDelegate _registerPostMessageHook;
         private readonly UnregisterPostMessageHookDelegate _unregisterPostMessageHook;
-        private readonly GetDesktopNameDelegate? _getDesktopName;
+        private readonly GetDesktopNameDelegate _getDesktopName;
         private readonly GetDesktopIdByNumberDelegate _getDesktopIdByNumber;
+        private readonly CreateDesktopDelegate _createDesktop;
+        private readonly SetDesktopNameDelegate _setDesktopName;
+        private readonly RemoveDesktopDelegate _removeDesktop;
 
         public VirtualDesktopAccessor(string helperDllPath)
         {
@@ -278,9 +290,12 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             _unregisterPostMessageHook =
                 LoadRequiredDelegate<UnregisterPostMessageHookDelegate>(
                     "UnregisterPostMessageHook");
-            _getDesktopName = LoadOptionalDelegate<GetDesktopNameDelegate>("GetDesktopName");
+            _getDesktopName = LoadRequiredDelegate<GetDesktopNameDelegate>("GetDesktopName");
             _getDesktopIdByNumber =
                 LoadRequiredDelegate<GetDesktopIdByNumberDelegate>("GetDesktopIdByNumber");
+            _createDesktop = LoadRequiredDelegate<CreateDesktopDelegate>("CreateDesktop");
+            _setDesktopName = LoadRequiredDelegate<SetDesktopNameDelegate>("SetDesktopName");
+            _removeDesktop = LoadRequiredDelegate<RemoveDesktopDelegate>("RemoveDesktop");
         }
 
         public int GetDesktopCount()
@@ -320,11 +335,6 @@ namespace LockingGlass.WindowsLiveDesktopProbe
 
         public string GetDesktopName(int desktopNumber)
         {
-            if (_getDesktopName == null)
-            {
-                return string.Empty;
-            }
-
             var buffer = new byte[1024];
             var pinned = GCHandle.Alloc(buffer, GCHandleType.Pinned);
             try
@@ -351,6 +361,21 @@ namespace LockingGlass.WindowsLiveDesktopProbe
         public Guid GetDesktopIdByNumber(int desktopNumber)
         {
             return _getDesktopIdByNumber(desktopNumber);
+        }
+
+        public int CreateDesktop()
+        {
+            return _createDesktop();
+        }
+
+        public int SetDesktopName(int desktopNumber, string desktopName)
+        {
+            return _setDesktopName(desktopNumber, desktopName);
+        }
+
+        public int RemoveDesktop(int desktopNumber, int fallbackDesktopNumber)
+        {
+            return _removeDesktop(desktopNumber, fallbackDesktopNumber);
         }
 
         public void Dispose()
@@ -752,6 +777,11 @@ namespace LockingGlass.WindowsLiveDesktopProbe
                 return;
             }
 
+            if (!_options.WatchStream && !ExerciseStagingDesktopLifecycle())
+            {
+                return;
+            }
+
             if (_options.TimeoutSeconds > 0 &&
                 SetTimer(
                     _windowHandle,
@@ -893,6 +923,75 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             _logger.Info(
                 "Move-path exercise succeeded with IVirtualDesktopManager plus the live helper's desktop lookup.");
             return true;
+        }
+
+        private bool ExerciseStagingDesktopLifecycle()
+        {
+            var beforeCount = _controller.GetDesktopCount();
+            var createdDesktopNumber = _controller.CreateDesktop();
+            if (createdDesktopNumber < 0)
+            {
+                FailClosed(
+                    "VirtualDesktopAccessor.CreateDesktop failed during the staging lifecycle exercise.");
+                return false;
+            }
+
+            var removeFallbackDesktop = _initialDesktopNumber >= 0 ? _initialDesktopNumber : 0;
+            var shouldRemoveCreatedDesktop = true;
+            try
+            {
+                if (_controller.SetDesktopName(createdDesktopNumber, "Locking-Glass-Proof") < 0)
+                {
+                    FailClosed(
+                        "VirtualDesktopAccessor.SetDesktopName failed during the staging lifecycle exercise.");
+                    return false;
+                }
+
+                var resolvedName = _controller.GetDesktopName(createdDesktopNumber);
+                if (resolvedName != "Locking-Glass-Proof")
+                {
+                    FailClosed(
+                        "VirtualDesktopAccessor.GetDesktopName returned '" + resolvedName +
+                        "' for the staging lifecycle exercise.");
+                    return false;
+                }
+
+                var createdDesktopId = _controller.GetDesktopIdByNumber(createdDesktopNumber);
+                if (createdDesktopId == Guid.Empty)
+                {
+                    FailClosed(
+                        "VirtualDesktopAccessor.GetDesktopIdByNumber returned an empty GUID for the staging lifecycle exercise.");
+                    return false;
+                }
+
+                if (_controller.RemoveDesktop(createdDesktopNumber, removeFallbackDesktop) < 0)
+                {
+                    FailClosed(
+                        "VirtualDesktopAccessor.RemoveDesktop failed during the staging lifecycle exercise.");
+                    return false;
+                }
+                shouldRemoveCreatedDesktop = false;
+
+                var afterCount = _controller.GetDesktopCount();
+                if (afterCount != beforeCount)
+                {
+                    FailClosed(
+                        "The staging lifecycle exercise changed the desktop count from " +
+                        beforeCount + " to " + afterCount + ".");
+                    return false;
+                }
+
+                _logger.Info(
+                    "Staging desktop lifecycle exercise succeeded with CreateDesktop, SetDesktopName, GetDesktopName, GetDesktopIdByNumber, and RemoveDesktop.");
+                return true;
+            }
+            finally
+            {
+                if (shouldRemoveCreatedDesktop)
+                {
+                    _controller.RemoveDesktop(createdDesktopNumber, removeFallbackDesktop);
+                }
+            }
         }
 
         private bool TryWaitForDesktopAssignment(

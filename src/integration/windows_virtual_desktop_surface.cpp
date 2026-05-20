@@ -118,6 +118,14 @@ WindowsVirtualDesktopSurfaceProbe ProbeWindowsVirtualDesktopSurface() {
       helper_library != nullptr &&
       GetProcAddress(helper_library, "MoveWindowToDesktopNumber") != nullptr &&
       GetProcAddress(helper_library, "GetWindowDesktopNumber") != nullptr;
+  probe.helper_lifecycle_ready =
+      helper_library != nullptr &&
+      GetProcAddress(helper_library, "GetDesktopCount") != nullptr &&
+      GetProcAddress(helper_library, "GetDesktopName") != nullptr &&
+      GetProcAddress(helper_library, "GetDesktopIdByNumber") != nullptr &&
+      GetProcAddress(helper_library, "CreateDesktop") != nullptr &&
+      GetProcAddress(helper_library, "SetDesktopName") != nullptr &&
+      GetProcAddress(helper_library, "RemoveDesktop") != nullptr;
 
   if (helper_library != nullptr) {
     FreeLibrary(helper_library);

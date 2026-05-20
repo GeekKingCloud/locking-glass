@@ -38,6 +38,7 @@ struct WindowsSurfaceProbe {
   bool helper_library_ready = false;
   bool helper_watch_ready = false;
   bool helper_move_ready = false;
+  bool helper_lifecycle_ready = false;
 };
 
 #if defined(_WIN32)
@@ -49,6 +50,7 @@ WindowsSurfaceProbe ProbeWindowsSurface() {
   probe.helper_library_ready = desktop_probe.helper_library_ready;
   probe.helper_watch_ready = desktop_probe.helper_watch_ready;
   probe.helper_move_ready = desktop_probe.helper_move_ready;
+  probe.helper_lifecycle_ready = desktop_probe.helper_lifecycle_ready;
 
   HMODULE user32 = LoadLibraryW(L"user32.dll");
   HMODULE shell32 = LoadLibraryW(L"shell32.dll");
@@ -104,12 +106,13 @@ CapabilityReport ProbeVirtualDesktopBoundary() {
 #if defined(_WIN32)
   const auto probe = ProbeWindowsSurface();
   if (probe.com_ready && probe.virtual_desktop_manager_ready &&
-      probe.helper_watch_ready && probe.helper_move_ready) {
+      probe.helper_watch_ready && probe.helper_move_ready &&
+      probe.helper_lifecycle_ready) {
     return CapabilityReport{
         .component = "virtual-desktop-control",
         .status = CapabilityStatus::kReady,
         .detail =
-            "COM, IVirtualDesktopManager, and VirtualDesktopAccessor.dll are available; live desktop notifications flow through RegisterPostMessageHook and window moves through MoveWindowToDesktopNumber inside this isolated boundary.",
+            "COM, IVirtualDesktopManager, and VirtualDesktopAccessor.dll are available; live desktop notifications, window moves, and the Locking-Glass staging desktop are isolated behind the Windows boundary.",
     };
   }
 
@@ -117,7 +120,7 @@ CapabilityReport ProbeVirtualDesktopBoundary() {
       .component = "virtual-desktop-control",
       .status = CapabilityStatus::kUnavailable,
       .detail =
-          "Virtual desktop control fails closed until LockingGlass can resolve both IVirtualDesktopManager and VirtualDesktopAccessor.dll with RegisterPostMessageHook, UnregisterPostMessageHook, GetCurrentDesktopNumber, GoToDesktopNumber, MoveWindowToDesktopNumber, and GetWindowDesktopNumber.",
+          "Virtual desktop control fails closed until LockingGlass can resolve both IVirtualDesktopManager and VirtualDesktopAccessor.dll with RegisterPostMessageHook, UnregisterPostMessageHook, GetCurrentDesktopNumber, GoToDesktopNumber, GetDesktopCount, GetDesktopName, GetDesktopIdByNumber, MoveWindowToDesktopNumber, GetWindowDesktopNumber, CreateDesktop, SetDesktopName, and RemoveDesktop.",
   };
 #else
   return CapabilityReport{
@@ -147,12 +150,12 @@ class WindowsApiProbeImpl final : public WindowsApiProbe {
     const auto probe = ProbeWindowsSurface();
     if (probe.com_ready && probe.monitor_api_ready && probe.tray_api_ready &&
         probe.virtual_desktop_manager_ready && probe.helper_watch_ready &&
-        probe.helper_move_ready) {
+        probe.helper_move_ready && probe.helper_lifecycle_ready) {
       return CapabilityReport{
           .component = "windows-api",
           .status = CapabilityStatus::kReady,
           .detail =
-              "Resolved tray, monitor, IVirtualDesktopManager, and VirtualDesktopAccessor entry points; live desktop notifications and move calls stay isolated behind the Windows boundary.",
+              "Resolved tray, monitor, IVirtualDesktopManager, and VirtualDesktopAccessor entry points; live desktop notifications, move calls, and Locking-Glass staging desktop lifecycle stay isolated behind the Windows boundary.",
       };
     }
 
@@ -178,7 +181,7 @@ class WindowsApiProbeImpl final : public WindowsApiProbe {
     prototype.boundaries.push_back(WindowsApiBoundary{
         .name = "virtual-desktop-control",
         .purpose =
-            "Own COM readiness, the VirtualDesktopAccessor live hook, and the isolated boundary that translates desktop switch notifications into explicit move calls.",
+            "Own COM readiness, the VirtualDesktopAccessor live hook, staging desktop lifecycle, and the isolated boundary that translates desktop switch notifications into explicit move calls.",
         .capability = ProbeVirtualDesktopBoundary(),
         .windows_apis =
             {
@@ -189,13 +192,21 @@ class WindowsApiProbeImpl final : public WindowsApiProbe {
                 "VirtualDesktopAccessor.dll:UnregisterPostMessageHook",
                 "VirtualDesktopAccessor.dll:GetCurrentDesktopNumber",
                 "VirtualDesktopAccessor.dll:GoToDesktopNumber",
+                "VirtualDesktopAccessor.dll:GetDesktopCount",
+                "VirtualDesktopAccessor.dll:GetDesktopName",
+                "VirtualDesktopAccessor.dll:GetDesktopIdByNumber",
                 "VirtualDesktopAccessor.dll:MoveWindowToDesktopNumber",
+                "VirtualDesktopAccessor.dll:GetWindowDesktopNumber",
+                "VirtualDesktopAccessor.dll:CreateDesktop",
+                "VirtualDesktopAccessor.dll:SetDesktopName",
+                "VirtualDesktopAccessor.dll:RemoveDesktop",
             },
         .in_scope =
             {
                 "Resolve the supported IVirtualDesktopManager and VirtualDesktopAccessor entry points before any monitor lock orchestration runs.",
                 "Receive real desktop switch notifications through the helper post-message hook and translate them into app-level events with source and target desktop context.",
-                "Move already-selected top-level windows between desktops through the isolated move call when the core policy decides they should follow an unlocked monitor.",
+                "Create the named Locking-Glass staging desktop, or reuse the same-run identity LockingGlass created itself, before moving target-desktop occupants out of a locked monitor's way.",
+                "Move already-selected top-level windows between desktops through the isolated move call when the core policy decides they should follow a locked monitor.",
             },
         .out_of_scope =
             {
@@ -206,6 +217,7 @@ class WindowsApiProbeImpl final : public WindowsApiProbe {
         .expected_behavior =
             {
                 "Fail closed when IVirtualDesktopManager or the VirtualDesktopAccessor hook/move exports are unavailable instead of guessing at desktop state.",
+                "Fail closed when the staging desktop cannot be resolved; do not fall back to pushing target-desktop windows onto another user desktop.",
                 "Accept only top-level window handles from the core policy layer and report per-window move failures explicitly.",
                 "Keep the helper-based live hook boundary isolated so replay remains an optional test seam rather than the product path.",
             },
@@ -255,7 +267,7 @@ class WindowsApiProbeImpl final : public WindowsApiProbe {
     prototype.interaction_steps.push_back(
         "Desktop switch: receive the real switch event through VirtualDesktopAccessor RegisterPostMessageHook, pair it with current desktop identity, and hand the event to the core policy layer.");
     prototype.interaction_steps.push_back(
-        "Window move: after the core selects eligible top-level windows on unlocked monitors, the virtual desktop boundary issues MoveWindowToDesktopNumber and reports any failed HWND operations without touching persistence or tray state.");
+        "Window move: after the core selects eligible top-level windows on locked monitors, the virtual desktop boundary creates the named Locking-Glass staging desktop or reuses its same-run identity, issues MoveWindowToDesktopNumber, and reports any failed HWND operations without touching persistence or tray state.");
     return prototype;
   }
 };

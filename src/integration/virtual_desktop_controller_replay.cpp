@@ -111,12 +111,13 @@ std::vector<core::DesktopSwitchScenario> LoadDesktopScript(
       continue;
     }
 
-    if (fields[0] == "event" && fields.size() == 5U &&
+    if (fields[0] == "event" && (fields.size() == 5U || fields.size() == 6U) &&
         fields[1] == "desktop-switch") {
       scenarios.push_back(core::DesktopSwitchScenario{
           .trigger = fields[2],
           .source_desktop_id = fields[3],
           .target_desktop_id = fields[4],
+          .staging_desktop_id = fields.size() == 6U ? fields[5] : std::string{},
           .monitors = {},
           .windows = {},
       });

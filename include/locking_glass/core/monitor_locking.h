@@ -21,6 +21,7 @@ struct DesktopSwitchScenario {
   std::string trigger;
   std::string source_desktop_id;
   std::string target_desktop_id;
+  std::string staging_desktop_id;
   std::vector<platform::MonitorDescriptor> monitors;
   std::vector<DesktopWindow> windows;
 };
@@ -41,6 +42,7 @@ struct MonitorLockingPlan {
   SessionRefreshResult session;
   std::string source_desktop_id;
   std::string target_desktop_id;
+  std::string staging_desktop_id;
   std::vector<std::string> locked_monitors;
   std::vector<MonitorLockingMove> moves;
   std::vector<MonitorLockingSkip> skipped_windows;
