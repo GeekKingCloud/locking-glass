@@ -88,8 +88,8 @@ bool RunMonitorWatchChecks() {
         formatted.find("Prompt:") != std::string::npos,
         "formatted monitor refresh output should include a prompt section for new monitors");
     failures += !Expect(
-        formatted.find("Confirm new monitor") != std::string::npos,
-        "formatted monitor refresh output should explain that the user needs to confirm the new monitor");
+        formatted.find("Confirm monitor") != std::string::npos,
+        "formatted monitor refresh output should explain that the user needs to confirm the added monitor");
     failures += !Expect(
         formatted.find("Display 3") != std::string::npos,
         "formatted monitor refresh output should include the added monitor label");

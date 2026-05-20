@@ -119,9 +119,6 @@ std::string BuildMonitorMenuLabel(const TrayMonitorState& monitor) {
     builder << ", primary";
   }
   builder << ")";
-  if (monitor.requires_confirmation) {
-    builder << " [new]";
-  }
   return builder.str();
 }
 
@@ -168,7 +165,7 @@ TrayIconState BuildTrayIconState(const TrayMenuModel& model) {
   tooltip << "Locking Glass - " << model.locked_monitors << " of "
           << model.monitors.size() << " locked";
   if (model.review_monitors > 0U) {
-    tooltip << ", " << model.review_monitors << " new";
+    tooltip << ", " << model.review_monitors << " pending confirmation";
   }
   icon.tooltip = tooltip.str();
 
@@ -288,7 +285,7 @@ MonitorReviewPrompt BuildMonitorReviewPrompt(
   };
 
   if (prompt.monitors.size() == 1U) {
-    prompt.title = "Confirm new monitor";
+    prompt.title = "Confirm monitor";
     prompt.message =
         BuildMonitorDisplayLabel(prompt.monitors.front()) +
         " was added unlocked. Open the Locking Glass tray icon to confirm its "
@@ -296,7 +293,7 @@ MonitorReviewPrompt BuildMonitorReviewPrompt(
     return prompt;
   }
 
-  prompt.title = "Confirm new monitors";
+  prompt.title = "Confirm monitors";
   prompt.message = std::to_string(prompt.monitors.size()) +
                    " monitors were added unlocked: " +
                    BuildPromptMonitorList(prompt.monitors) +

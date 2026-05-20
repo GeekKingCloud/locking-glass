@@ -53,9 +53,9 @@ bool RunTraySessionChecks() {
     failures += !Expect(events[0].prompt.visible,
                         "startup snapshot should prompt for first-run monitor confirmation");
     failures += !Expect(events[0].tray_icon_variant == "review",
-                        "new monitors should place the tray icon in review mode");
+                        "unconfirmed monitors should place the tray icon in review mode");
     failures += !Expect(events[0].tray_icon_review_badge,
-                        "new monitors should add the tray review badge");
+                        "unconfirmed monitors should add the tray review badge");
     failures += !Expect(events[1].trigger == "tray-click",
                         "first tray interaction should open the monitor menu");
     failures += !Expect(events[1].tray_menu_visible,
@@ -201,7 +201,7 @@ bool RunTraySessionChecks() {
 
     failures += !Expect(events[9].prompt.visible,
                         "adding a new monitor should emit a confirmation prompt");
-    failures += !Expect(events[9].prompt.title == "Confirm new monitor",
+    failures += !Expect(events[9].prompt.title == "Confirm monitor",
                         "single-monitor additions should use the singular confirmation prompt");
     failures += !Expect(
         events[9].prompt.message.find("Display 3 - LG UltraFine") != std::string::npos,
@@ -214,23 +214,23 @@ bool RunTraySessionChecks() {
                         "topology refresh should expose new monitors in the tray snapshot");
     if (added_monitor != nullptr) {
       failures += !Expect(!added_monitor->locked,
-                          "new tray monitors should default to unlocked");
+                          "added tray monitors should default to unlocked");
       failures += !Expect(added_monitor->requires_confirmation,
-                          "new tray monitors should require confirmation");
+                          "added tray monitors should require confirmation");
       failures += !Expect(added_monitor->padlock_variant == "unlocked",
-                          "new tray monitors should expose the unlocked padlock variant");
+                          "added tray monitors should expose the unlocked padlock variant");
       failures += !Expect(added_monitor->padlock_accent == "amber",
-                          "new tray monitors should use the confirmation padlock accent");
+                          "added tray monitors should use the confirmation padlock accent");
       failures += !Expect(!added_monitor->padlock_filled,
-                          "new tray monitors should use an outline padlock icon");
+                          "added tray monitors should use an outline padlock icon");
       failures += !Expect(added_monitor->padlock_review_badge,
-                          "new tray monitors should mark the padlock icon with the confirmation badge");
+                          "added tray monitors should mark the padlock icon with the confirmation badge");
       failures += !Expect(added_monitor->identify_label.find("Display 3") !=
                               std::string::npos,
                           "tray menu items should describe the identify-hover behavior");
       failures += !Expect(added_monitor->menu_label.find("1920x1080 @ -1920,0") !=
                               std::string::npos,
-                          "new tray monitors should expose layout metadata in the menu label");
+                          "added tray monitors should expose layout metadata in the menu label");
     }
 
     const auto* reopened_right = FindBackgroundMonitor(events[10], "Display 2");
@@ -287,9 +287,9 @@ bool RunTraySessionChecks() {
                           std::string::npos,
                       "formatted tray menu output should include monitor labels");
   failures += !Expect(
-      formatted.find("Display 3 - LG UltraFine (1920x1080 @ -1920,0) [new]") !=
+      formatted.find("Display 3 - LG UltraFine (1920x1080 @ -1920,0)") !=
                           std::string::npos,
-                      "formatted tray menu output should flag new monitors");
+                      "formatted tray menu output should include added monitor labels without a new status");
   failures += !Expect(formatted.find("padlock: locked, emerald, filled") !=
                           std::string::npos,
                       "formatted tray menu output should describe locked padlock icons");
