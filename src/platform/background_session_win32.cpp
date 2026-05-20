@@ -399,6 +399,9 @@ HICON CreateTrayStatusIcon(const core::TrayIconState& icon) {
   std::vector<DWORD> pixels(static_cast<std::size_t>(kTrayIconPixels) *
                             static_cast<std::size_t>(kTrayIconPixels), 0);
 
+  // The tray icon is generated only when state changes. Keeping the state
+  // variants in code avoids shipping several tiny icon assets that can drift
+  // from the tray model.
   FillRect(&pixels, 1, 2, 13, 10, accent);
   FillRect(&pixels, 2, 3, 12, 9, screen_fill);
   FillRect(&pixels, 5, 10, 9, 12, accent);
@@ -605,6 +608,8 @@ bool EnsureIdentifyOverlayWindow(HINSTANCE instance,
     return true;
   }
 
+  // The identify overlay must stay out of Alt-Tab, avoid activation, and pass
+  // clicks through to the desktop while still drawing above normal windows.
   state->identify_overlay_window = CreateWindowExW(
       WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE |
           WS_EX_TRANSPARENT,
@@ -811,6 +816,8 @@ bool AddTrayIcon(HWND window, BackgroundSessionState* state) {
   }
   state->tray_icon.hIcon = state->tray_icon_handle;
 
+  // Shell_NotifyIcon keeps its own icon reference; we still track ownership so
+  // dynamically-created HICONs are destroyed when the tray icon is replaced.
   const auto tooltip = Widen(model.icon.tooltip);
   wcsncpy_s(state->tray_icon.szTip, tooltip.c_str(), _TRUNCATE);
 
@@ -820,6 +827,8 @@ bool AddTrayIcon(HWND window, BackgroundSessionState* state) {
   }
 
   state->tray_icon.uVersion = NOTIFYICON_VERSION_4;
+  // Version 4 gives the tray callback the compact lParam event code shape that
+  // the window procedure decodes with LOWORD(l_param).
   Shell_NotifyIconW(NIM_SETVERSION, &state->tray_icon);
   return true;
 }
@@ -860,6 +869,8 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state) {
     state->tray_menu_open = true;
     HideIdentifyOverlay(state);
 
+    // Win32 menu items borrow string and bitmap storage while the menu is open,
+    // so these backing containers must live until after TrackPopupMenu returns.
     std::vector<std::wstring> labels;
     std::vector<HBITMAP> menu_bitmaps;
     labels.reserve(model.monitors.size() + 8U);
@@ -917,6 +928,9 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state) {
     POINT cursor{};
     GetCursorPos(&cursor);
     SetForegroundWindow(window);
+    // TrackPopupMenu's foreground-window dance and trailing WM_NULL are the
+    // standard Win32 tray-menu pattern; without them the popup can linger after
+    // focus moves away from the hidden message window.
     const UINT command =
         TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, cursor.x,
                        cursor.y, 0, window, nullptr);
@@ -1018,6 +1032,8 @@ bool StartLiveControllerWatcher(
   const auto report_path = ReadBackgroundDesktopReportPathFromEnv();
   const auto window_return_tracker = state->window_return_tracker;
   try {
+    // The watcher thread can outlive the hidden window. Capture only values
+    // that remain valid independently and report failures back with PostMessage.
     std::thread(
         [window, session_store, report_path, window_return_tracker,
          live_controller = std::move(live_controller)]() mutable {
@@ -1068,6 +1084,8 @@ LRESULT CALLBACK BackgroundWindowProc(HWND window, UINT message, WPARAM w_param,
   auto* state = reinterpret_cast<BackgroundSessionState*>(
       GetWindowLongPtrW(window, GWLP_USERDATA));
   if (state != nullptr && message == state->taskbar_created_message) {
+    // Explorer broadcasts TaskbarCreated after shell restarts. Re-add the icon
+    // from the current model so the background app survives explorer.exe resets.
     AddTrayIcon(window, state);
     RepublishCurrentModel(window, state, "taskbar-created", false);
     return 0;

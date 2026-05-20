@@ -103,6 +103,8 @@ namespace LockingGlass.WindowsInstallerBootstrapper
                 payloadStream.CopyTo(payloadFile);
             }
 
+            // Treat the embedded zip as untrusted even though we built it. The
+            // bootstrapper is the last line of defense before writing files.
             ValidatePayloadZip(payloadPath);
             ZipFile.ExtractToDirectory(payloadPath, extractionDirectory);
             File.Delete(payloadPath);
@@ -114,6 +116,9 @@ namespace LockingGlass.WindowsInstallerBootstrapper
             using var archive = ZipFile.OpenRead(payloadPath);
             foreach (var entry in archive.Entries)
             {
+                // The payload is expected to be a flat file set. Reject nested
+                // or rooted entries before extraction so Zip Slip-style paths
+                // cannot escape the temp extraction directory.
                 if (string.IsNullOrWhiteSpace(entry.FullName) ||
                     entry.FullName.EndsWith("/", StringComparison.Ordinal) ||
                     entry.FullName.EndsWith("\\", StringComparison.Ordinal))
@@ -180,6 +185,9 @@ namespace LockingGlass.WindowsInstallerBootstrapper
                 expected[fileName] = hash;
             }
 
+            // The manifest check catches accidental packaging drift and also
+            // proves the extracted bytes are exactly the files we hashed during
+            // staging.
             foreach (var filePath in Directory.GetFiles(extractionDirectory))
             {
                 var fileName = Path.GetFileName(filePath);
@@ -263,6 +271,8 @@ namespace LockingGlass.WindowsInstallerBootstrapper
                 startInfo.ArgumentList.Add("-LaunchAfterInstall");
             }
 
+            // ArgumentList avoids command-line quoting bugs for paths with
+            // spaces, including the public "Locking Glass" install path.
             using var process = Process.Start(startInfo)
                 ?? throw new InvalidOperationException(
                     "Failed to launch the Locking Glass installer script.");
@@ -316,6 +326,9 @@ namespace LockingGlass.WindowsInstallerBootstrapper
                 startInfo.ArgumentList.Add("-RemoveUserData");
             }
 
+            // The uninstaller uses the same validated payload as the installer,
+            // so release downloads stay to three simple executables without a
+            // separate loose script bundle.
             using var process = Process.Start(startInfo)
                 ?? throw new InvalidOperationException(
                     "Failed to launch the Locking Glass uninstaller script.");

@@ -80,6 +80,8 @@ std::vector<DISPLAYCONFIG_PATH_INFO> QueryActiveDisplayPaths() {
       return paths;
     }
 
+    // Display topology can change between the size query and the real query;
+    // retry the documented race instead of treating it as no monitors.
     if (query_result != ERROR_INSUFFICIENT_BUFFER) {
       return {};
     }
@@ -91,6 +93,8 @@ std::vector<DISPLAYCONFIG_PATH_INFO> QueryActiveDisplayPaths() {
 std::vector<std::pair<std::wstring, DisplayIdentity>> CollectDisplayIdentities() {
   std::vector<std::pair<std::wstring, DisplayIdentity>> identities;
 
+  // QueryDisplayConfig gives stable target identity; EnumDisplayMonitors later
+  // gives live bounds. The GDI source name is the join key between those APIs.
   for (const auto& path : QueryActiveDisplayPaths()) {
     DISPLAYCONFIG_SOURCE_DEVICE_NAME source_name{};
     source_name.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;

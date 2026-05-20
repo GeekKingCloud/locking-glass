@@ -927,6 +927,8 @@ namespace LockingGlass.WindowsLiveDesktopProbe
 
         private bool ExerciseStagingDesktopLifecycle()
         {
+            // The proof creates, names, resolves, and removes a disposable
+            // desktop without moving user windows into it.
             var beforeCount = _controller.GetDesktopCount();
             var createdDesktopNumber = _controller.CreateDesktop();
             if (createdDesktopNumber < 0)
@@ -936,6 +938,8 @@ namespace LockingGlass.WindowsLiveDesktopProbe
                 return false;
             }
 
+            // Removing a desktop needs somewhere to send any accidental
+            // occupants; prefer the desktop where the proof started.
             var removeFallbackDesktop = _initialDesktopNumber >= 0 ? _initialDesktopNumber : 0;
             var shouldRemoveCreatedDesktop = true;
             try

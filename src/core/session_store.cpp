@@ -233,6 +233,10 @@ SessionRefreshResult ReconcileSnapshot(
     std::size_t best_index = 0;
     bool best_is_unique = true;
 
+    // Monitor device IDs can drift after driver or topology changes, so the
+    // restore path accepts a saved monitor only when the best fuzzy match is
+    // unique. Ambiguous matches become new, unlocked monitors that require
+    // confirmation instead of silently inheriting an old lock.
     for (std::size_t index = 0; index < result.snapshot.monitors.size(); ++index) {
       if (matched[index]) {
         continue;
@@ -595,6 +599,9 @@ SessionRefreshResult SessionStore::Preview(
 SessionRefreshResult SessionStore::StartUnlocked(
     const std::vector<platform::MonitorDescriptor>& live_monitors) const {
   auto result = Restore(live_monitors);
+  // Startup deliberately persists the unlocked state. A previous run may have
+  // saved locks, but every new process starts inert until the user locks a
+  // monitor from the tray in this run.
   for (auto& monitor_state : result.snapshot.monitors) {
     monitor_state.locked = false;
   }
@@ -615,6 +622,8 @@ SessionRefreshResult SessionStore::Restore(
   result.storage_issue = load_result.storage_issue;
   result.storage_detail = std::move(load_result.storage_detail);
 
+  // Rejected session files are preserved for inspection, then the active file
+  // is rebuilt from live monitors. Bad persistence must not resurrect old locks.
   if (result.storage_issue != SessionStorageIssue::kNone && result.loaded_from_disk) {
     const auto backup_path = InvalidBackupPath(storage_path_);
     if (!CopyFileWithOverwrite(storage_path_, backup_path)) {
@@ -679,6 +688,7 @@ bool SessionStore::SetLocked(SessionSnapshot* snapshot,
 
   best_match->monitor = monitor;
   best_match->locked = locked;
+  // A tray toggle is the user's confirmation boundary for both lock and unlock.
   best_match->requires_confirmation = false;
   return true;
 }

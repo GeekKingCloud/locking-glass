@@ -39,6 +39,8 @@ function Test-SafeInstallDirectory([string]$TargetInstallDir) {
 function Stop-InstalledRuntimeProcesses([string]$TargetInstallDir) {
     $normalizedInstallDir = Resolve-InstallDirectory -TargetInstallDir $TargetInstallDir
     $expectedExecutablePath = Join-Path $normalizedInstallDir 'Locking Glass.exe'
+    # Match the full installed path so uninstall does not kill a portable copy
+    # the user launched for testing.
     $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object {
             if ([string]::IsNullOrWhiteSpace($_.ExecutablePath)) {
@@ -95,6 +97,8 @@ Remove-CurrentUserAutostart
 Remove-StartMenuShortcuts
 Remove-InstallDirectory -TargetInstallDir $InstallDir
 
+# Session state is intentionally preserved by default so uninstall/reinstall is
+# not a destructive troubleshooting step.
 if ($RemoveUserData) {
     Remove-LockingGlassUserData
 }

@@ -138,6 +138,8 @@ Copy-Item -Path $launcherSource -Destination (Join-Path $OutputDir 'Start-Lockin
 Copy-Item -Path (Join-Path $probePublishDir 'LockingGlass.WindowsLiveDesktopProbe*') -Destination $OutputDir -Force
 
 $manifestPath = Join-Path $OutputDir $payloadManifestName
+# This manifest is the bootstrapper's allow-list after extraction, not just a
+# release checksum convenience.
 $manifestLines = Get-ChildItem -Path $OutputDir -File |
     Where-Object { $_.Name -ne $payloadManifestName } |
     Sort-Object -Property Name |

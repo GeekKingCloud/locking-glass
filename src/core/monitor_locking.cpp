@@ -133,6 +133,9 @@ MonitorLockingPlan BuildMonitorLockingPlan(
       continue;
     }
 
+    // Target-desktop occupants are staged before source-desktop windows move
+    // onto the target, so a locked monitor never uses another user workspace as
+    // overflow during a virtual-desktop switch.
     std::string destination;
     if (window.desktop_id == plan.source_desktop_id) {
       destination = plan.target_desktop_id;

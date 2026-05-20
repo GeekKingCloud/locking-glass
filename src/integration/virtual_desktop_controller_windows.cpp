@@ -477,6 +477,9 @@ class WindowsVirtualDesktopHelper {
       owned_staging_desktop_.reset();
     }
 
+    // The staging desktop is only safe when this process created and resolved
+    // its exact identity. Reusing an existing desktop by name could steal a
+    // user's own workspace and hide unrelated windows there.
     if (create_desktop_ == nullptr || set_desktop_name_ == nullptr ||
         remove_desktop_ == nullptr || get_desktop_name_ == nullptr ||
         get_desktop_id_by_number_ == nullptr) {
@@ -785,6 +788,9 @@ BOOL CALLBACK CaptureLiveWindow(HWND window, LPARAM raw_context) {
   std::optional<core::MonitorLockingSkip> extra_skip;
   std::string override_skip_reason;
 
+  // Window capture is intentionally conservative. Tool windows, owned windows,
+  // child windows, and windows outside locked monitor bounds are reported as
+  // skips so the move planner never has to guess about shell/UI internals.
   if (!monitor_match.extra_skip_reason.empty() &&
       monitor_match.touches_locked_monitor) {
     extra_skip = core::MonitorLockingSkip{
@@ -954,6 +960,8 @@ DesktopSwitchReport BuildWindowsLiveDesktopSwitchReport(
     std::string staging_detail;
     staging_desktop = helper.EnsureStagingDesktop(&staging_detail);
     if (!staging_desktop.has_value()) {
+      // Without a verified staging desktop, moving target occupants would push
+      // them into some other user workspace. Block the switch plan instead.
       return BuildBlockedDesktopSwitchReport(
           store, event, monitors, captured_windows,
           "staging desktop unavailable: " + staging_detail);
@@ -1032,6 +1040,8 @@ DesktopSwitchReport BuildWindowsLiveDesktopSwitchReport(
       to_desktop = desktop_context.Resolve(destination_desktop_number);
     } else if (staging_desktop.has_value() &&
                move.to_desktop_id == FormatDesktopIdentity(*staging_desktop)) {
+      // Switch events name only source and target desktops; staging has to be
+      // resolved explicitly from the helper-owned desktop identity.
       destination_desktop_number = staging_desktop->number;
       to_desktop = *staging_desktop;
     }
@@ -1145,6 +1155,9 @@ int WatchWindowsLiveSwitches(const core::SessionStore& store,
   const auto log_path = BuildLiveWatchLogPath();
   const auto command_script_path =
       BuildLiveWatchCommandScript(asset_root, log_path, options);
+  // _popen only gives a narrow command-string surface, so the generated .cmd
+  // file keeps quoting centralized and lets the C++ side stream the helper log
+  // without duplicating the PowerShell watch implementation.
   const std::string command =
       QuoteCommandArgument(command_script_path.string()) + " 2>&1";
   FILE* pipe = _popen(command.c_str(), "r");

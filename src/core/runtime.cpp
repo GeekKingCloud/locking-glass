@@ -72,6 +72,8 @@ StartupDiagnostics CollectStartupDiagnostics(const Runtime& runtime,
                                             const std::string& executable_path) {
   StartupDiagnostics diagnostics;
   diagnostics.monitors = runtime.monitor_gateway->Enumerate();
+  // Diagnostics should be observational: --self-check must not repair,
+  // rewrite, or clear a user's persisted session file.
   diagnostics.session = runtime.session_store.Preview(diagnostics.monitors);
   diagnostics.capabilities.push_back(runtime.background_session->Probe());
   diagnostics.capabilities.push_back(runtime.virtual_desktop_controller->Probe());

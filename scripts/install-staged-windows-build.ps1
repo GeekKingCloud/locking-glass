@@ -45,6 +45,9 @@ function Test-SafeInstallDirectory([string]$TargetInstallDir) {
         throw "InstallDir must end in 'Locking Glass' so the installer cannot overwrite a broad shared directory: '$normalizedInstallDir'."
     }
 
+    # The installer replaces files in place, so it must only ever target the
+    # app-specific leaf directory. This prevents a bad argument from wiping a
+    # profile, temp folder, or shared program directory.
     $blockedParentPaths = @(
         [Environment]::GetFolderPath('UserProfile'),
         $env:LOCALAPPDATA,
@@ -72,6 +75,8 @@ function Test-SafeInstallDirectory([string]$TargetInstallDir) {
 function Stop-InstalledRuntimeProcesses([string]$TargetInstallDir) {
     $normalizedInstallDir = Resolve-InstallDirectory -TargetInstallDir $TargetInstallDir
     $expectedExecutablePath = Join-Path $normalizedInstallDir 'Locking Glass.exe'
+    # Stop only the installed executable path, not every process with the same
+    # image name. A user may be running a portable test build elsewhere.
     $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object {
             if ([string]::IsNullOrWhiteSpace($_.ExecutablePath)) {
@@ -226,6 +231,8 @@ $uninstallShortcut.Description = 'Uninstall Locking Glass for the current user.'
 $uninstallShortcut.Save()
 
 if (-not $NoAutostart) {
+    # Delegate Run-key formatting to the app so installer and runtime quoting
+    # stay in one place, especially now that the installed path contains spaces.
     & $installedExe --install-autostart
     if ($LASTEXITCODE -ne 0) {
         throw "Locking Glass autostart registration failed from '$installedExe'."
