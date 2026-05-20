@@ -78,7 +78,7 @@ if (-not [string]::IsNullOrWhiteSpace($ProbeExecutablePath)) {
     if ($ProbeExecutablePath.EndsWith('.exe', [System.StringComparison]::OrdinalIgnoreCase)) {
         & $ProbeExecutablePath @probeArguments
         $exitCode = $LASTEXITCODE
-        Write-Host "LockingGlass live desktop probe log: $LogPath"
+        Write-Host "Locking Glass live desktop probe log: $LogPath"
         exit $exitCode
     }
 
@@ -90,13 +90,13 @@ if (-not [string]::IsNullOrWhiteSpace($ProbeExecutablePath)) {
 
         & $dotnet.Source $ProbeExecutablePath @probeArguments
         $exitCode = $LASTEXITCODE
-        Write-Host "LockingGlass live desktop probe log: $LogPath"
+        Write-Host "Locking Glass live desktop probe log: $LogPath"
         exit $exitCode
     }
 }
 
 if (-not $usesRepoProject) {
-    throw 'LockingGlass could not find a bundled Windows live desktop probe executable beside the script, and this path is not running from a repo checkout with the source project available.'
+    throw 'Locking Glass could not find a bundled Windows live desktop probe executable beside the script, and this path is not running from a repo checkout with the source project available.'
 }
 
 $dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
@@ -114,5 +114,5 @@ $arguments = @(
 
 & $dotnet.Source @arguments
 $exitCode = $LASTEXITCODE
-Write-Host "LockingGlass live desktop probe log: $LogPath"
+Write-Host "Locking Glass live desktop probe log: $LogPath"
 exit $exitCode

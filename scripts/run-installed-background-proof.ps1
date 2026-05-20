@@ -6,10 +6,10 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$stageDir = Join-Path $repoRoot 'build\windows-install-stage\LockingGlass'
+$stageDir = Join-Path $repoRoot 'build\windows-install-stage\Locking Glass'
 
 if ([string]::IsNullOrWhiteSpace($InstallDir)) {
-    $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\LockingGlassInstalledProof'
+    $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\Locking Glass'
 }
 
 if ([string]::IsNullOrWhiteSpace($ProofDir)) {
@@ -26,7 +26,7 @@ if ($LASTEXITCODE -ne 0) {
     throw 'Failed to install the staged Windows package.'
 }
 
-$installedExe = Join-Path $InstallDir 'LockingGlass.exe'
+$installedExe = Join-Path $InstallDir 'Locking Glass.exe'
 $installedHelper = Join-Path $InstallDir 'VirtualDesktopAccessor.dll'
 $installedWatchScript = Join-Path $InstallDir 'run-live-desktop-probe.ps1'
 $installedProbe = Join-Path $InstallDir 'LockingGlass.WindowsLiveDesktopProbe.exe'

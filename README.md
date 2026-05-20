@@ -1,20 +1,20 @@
-# LockingGlass
+# Locking Glass
 
-LockingGlass is a Windows tray app for pinning selected monitors across Windows virtual desktop switches.
+Locking Glass is a Windows tray app for pinning selected monitors across Windows virtual desktop switches.
 
-Locked monitors keep their visible windows on the same desktop while unlocked monitors continue following normal Windows behavior. If the destination workspace already has windows on the locked monitor, LockingGlass moves those windows to a named `Locking-Glass` staging desktop instead of pushing them onto another user workspace. When you unlock a monitor, LockingGlass makes a best-effort attempt to return the windows it moved for that lock back to their remembered original workspace if that workspace still exists. That remembered workspace is tracked only in memory for the current app run. The app is intentionally fail-closed: if the live desktop hook or staging desktop cannot start, LockingGlass keeps session state and tray controls available but does not pretend desktop locking is active.
+Locked monitors keep their visible windows on the same desktop while unlocked monitors continue following normal Windows behavior. If the destination workspace already has windows on the locked monitor, Locking Glass moves those windows to a named `Locking Glass` staging desktop instead of pushing them onto another user workspace. When you unlock a monitor, Locking Glass makes a best-effort attempt to return the windows it moved for that lock back to their remembered original workspace if that workspace still exists. That remembered workspace is tracked only in memory for the current app run. The app is intentionally fail-closed: if the live desktop hook or staging desktop cannot start, Locking Glass keeps session state and tray controls available but does not pretend desktop locking is active.
 
 ## Behavior Contract
 
 - Locking a monitor keeps the windows on that monitor visually pinned while other monitors continue following normal Windows desktop switches.
-- Destination-workspace windows on a locked monitor are staged on a named `Locking-Glass` virtual desktop so existing user workspaces are not used as overflow.
-- LockingGlass only reuses a staging desktop identity it created during the same app run; it does not claim an existing user-created desktop by name.
-- Unlocking a monitor triggers a best-effort immediate return for windows that LockingGlass itself moved successfully while that monitor was locked.
+- Destination-workspace windows on a locked monitor are staged on a named `Locking Glass` virtual desktop so existing user workspaces are not used as overflow.
+- Locking Glass only reuses a staging desktop identity it created during the same app run; it does not claim an existing user-created desktop by name.
+- Unlocking a monitor triggers a best-effort immediate return for windows that Locking Glass itself moved successfully while that monitor was locked.
 - The first successful follow-move becomes the remembered home workspace for that window during the current run.
-- If the remembered workspace no longer exists, or the window can no longer be resolved safely, LockingGlass leaves the window where it is and reports the skip instead of guessing.
+- If the remembered workspace no longer exists, or the window can no longer be resolved safely, Locking Glass leaves the window where it is and reports the skip instead of guessing.
 - Monitor identity and review state are persisted in the session file. Monitor locks start cleared whenever the app process starts; the tray is the only way to lock a monitor for the current run.
 - Remembered home workspaces are not persisted and are forgotten when the app exits.
-- If the live controller cannot prove the Windows desktop hook path, LockingGlass fails closed.
+- If the live controller cannot prove the Windows desktop hook path, Locking Glass fails closed.
 
 ## Repository Map
 
@@ -27,7 +27,7 @@ Locked monitors keep their visible windows on the same desktop while unlocked mo
 - `tests/wiring_test.cpp`: the automated test harness for the app-level seams.
 - `VERSION`: the single source of truth for the app, installer, and release version.
 - `tools/windows_live_desktop_probe`: the Windows live-hook probe used by proof scripts and installed watch mode.
-- `tools/windows_installer_bootstrapper`: the small self-contained bootstrapper used to produce `LockingGlass-Installer.exe` and `LockingGlass-Uninstaller.exe`.
+- `tools/windows_installer_bootstrapper`: the small self-contained bootstrapper used to produce `Locking Glass Installer.exe` and `Locking Glass Uninstaller.exe`.
 
 ## Build And Test
 
@@ -83,18 +83,18 @@ Release verification is centralized in:
 ## Running On Windows
 
 - repo build: `build-win/bin/locking_glass.exe`
-- release app: `build/release/LockingGlass.exe`
-- installed build: `%LOCALAPPDATA%\Programs\LockingGlass\LockingGlass.exe`
+- release app: `build/release/Locking Glass.exe`
+- installed build: `%LOCALAPPDATA%\Programs\Locking Glass\Locking Glass.exe`
 - launching with no arguments starts the background tray app on Windows
 - `--version` prints the current app version from the repo `VERSION` file
 - `--self-check` prints startup diagnostics
 - `--install-autostart` registers current-user startup with `--background`
 
-LockingGlass stores monitor session state at `%LOCALAPPDATA%\LockingGlass\monitor-session-state.tsv` by default on Windows. Set `LOCKING_GLASS_SESSION_PATH` if you want to override that during testing.
+Locking Glass stores monitor session state at `%LOCALAPPDATA%\Locking Glass\monitor-session-state.tsv` by default on Windows. Set `LOCKING_GLASS_SESSION_PATH` if you want to override that during testing.
 
-Every app start begins with all present monitors unlocked. Saved monitor identity still helps recognize known displays, but LockingGlass does not automatically re-lock a monitor from a previous run.
+Every app start begins with all present monitors unlocked. Saved monitor identity still helps recognize known displays, but Locking Glass does not automatically re-lock a monitor from a previous run.
 
-Unlock return memory is separate from the session store. LockingGlass only remembers original workspaces for windows it moved successfully during the current run, and it forgets that information when the app exits.
+Unlock return memory is separate from the session store. Locking Glass only remembers original workspaces for windows it moved successfully during the current run, and it forgets that information when the app exits.
 
 ## Live Windows Proof Scripts
 
@@ -124,22 +124,22 @@ Reference docs:
 ## Packaging And Release
 
 - `scripts/stage-windows-install.ps1`
-  Stages the installable Windows payload under `build/windows-install-stage/LockingGlass/`.
+  Stages the installable Windows payload under `build/windows-install-stage/Locking Glass/`.
 - `scripts/install-staged-windows-build.ps1`
-  Installs or updates the staged payload in `%LOCALAPPDATA%\Programs\LockingGlass`, creates Start Menu shortcuts, enables current-user autostart by default, and can optionally launch after install. Use `-NoAutostart` for package smoke tests or manual installs that should not write the Run key.
+  Installs or updates the staged payload in `%LOCALAPPDATA%\Programs\Locking Glass`, creates Start Menu shortcuts, enables current-user autostart by default, and can optionally launch after install. Use `-NoAutostart` for package smoke tests or manual installs that should not write the Run key.
 - `scripts/build-windows-installer.ps1`
-  Wraps the staged payload into `LockingGlass-Installer.exe` and `LockingGlass-Uninstaller.exe` through the bootstrapper tool.
+  Wraps the staged payload into `Locking Glass Installer.exe` and `Locking Glass Uninstaller.exe` through the bootstrapper tool.
 - `.github/workflows/windows-release.yml`
   Runs `scripts/test-release.ps1` on pull requests; tag builds also publish release assets after validating that the tag matches `VERSION`.
 
 Public Windows release artifacts should include:
 
-- `LockingGlass.exe`
-- `LockingGlass-Installer.exe`
-- `LockingGlass-Uninstaller.exe`
+- `Locking Glass.exe`
+- `Locking Glass Installer.exe`
+- `Locking Glass Uninstaller.exe`
 - `SHA256SUMS.txt`
 
-`LockingGlass.exe` is the run-once portable app binary. It does not install itself. `LockingGlass-Installer.exe` installs the current-user app, creates shortcuts, enables autostart by default, and launches after install by default. `LockingGlass-Uninstaller.exe` removes the installed current-user app, autostart entry, and shortcuts while preserving session data unless `--remove-user-data` is supplied.
+`Locking Glass.exe` is the run-once portable app binary. It does not install itself. `Locking Glass Installer.exe` installs the current-user app, creates shortcuts, enables autostart by default, and launches after install by default. `Locking Glass Uninstaller.exe` removes the installed current-user app, autostart entry, and shortcuts while preserving session data unless `--remove-user-data` is supplied.
 
 `SHA256SUMS.txt` contains SHA-256 hashes for the published executables so users can verify that the files they downloaded match the files that were released.
 
@@ -147,10 +147,10 @@ GitHub Actions intentionally stops at build, unit-test, packaging, extract-only 
 
 ## How Updates Work
 
-- The supported upgrade path is manual in-place reinstall through a newer `LockingGlass-Installer.exe` or `Install-LockingGlass.ps1`.
+- The supported upgrade path is manual in-place reinstall through a newer `Locking Glass Installer.exe` or `Install-LockingGlass.ps1`.
 - The installer stops the currently installed runtime, overwrites files in the stable install directory, preserves the external session-state file location, enables current-user autostart by default, and can relaunch the tray app.
 - The uninstaller stops the installed runtime, removes the current-user autostart entry, removes Start Menu shortcuts, and removes installed app files. It preserves user data unless explicitly asked to remove it.
-- LockingGlass does not include background update checks, release-feed polling, or self-applying updates.
+- Locking Glass does not include background update checks, release-feed polling, or self-applying updates.
 
 ## Windows Requirements
 
@@ -161,11 +161,11 @@ GitHub Actions intentionally stops at build, unit-test, packaging, extract-only 
 
 Release packages bundle the live desktop probe as a self-contained Windows executable, so normal installed use does not require a separate .NET runtime. Building from source still requires the .NET SDK 8 or newer for the helper projects and installer bootstrapper, plus MSYS2 or Git for Windows shell tools and a MinGW toolchain for the native Windows build.
 
-If the helper DLL, required exports, or `Locking-Glass` staging desktop lifecycle are unavailable, LockingGlass marks live desktop locking as unavailable and fails closed instead of replaying, guessing, or pushing windows onto another user workspace.
+If the helper DLL, required exports, or `Locking Glass` staging desktop lifecycle are unavailable, Locking Glass marks live desktop locking as unavailable and fails closed instead of replaying, guessing, or pushing windows onto another user workspace.
 
 ## License
 
-LockingGlass is licensed under `GPL-3.0-only`. See [LICENSE](LICENSE).
+Locking Glass is licensed under `GPL-3.0-only`. See [LICENSE](LICENSE).
 
 Windows release packages currently bundle `VirtualDesktopAccessor.dll` under the MIT License. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 

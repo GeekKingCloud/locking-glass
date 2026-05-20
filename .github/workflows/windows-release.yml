@@ -43,10 +43,10 @@ jobs:
           }
 
           "version=$version" >> $env:GITHUB_OUTPUT
-          "app_name=LockingGlass.exe" >> $env:GITHUB_OUTPUT
-          "setup_name=LockingGlass-Installer.exe" >> $env:GITHUB_OUTPUT
-          "uninstaller_name=LockingGlass-Uninstaller.exe" >> $env:GITHUB_OUTPUT
-          "artifact_name=Locking-Glass-windows-$version" >> $env:GITHUB_OUTPUT
+          "app_name=Locking Glass.exe" >> $env:GITHUB_OUTPUT
+          "setup_name=Locking Glass Installer.exe" >> $env:GITHUB_OUTPUT
+          "uninstaller_name=Locking Glass Uninstaller.exe" >> $env:GITHUB_OUTPUT
+          "artifact_name=locking-glass-windows-$version" >> $env:GITHUB_OUTPUT
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v4

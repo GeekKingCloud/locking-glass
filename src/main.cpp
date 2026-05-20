@@ -63,7 +63,7 @@ void PrintUsage() {
                "[--install-autostart] [--prototype-windows-apis] [--watch-monitors] "
                "[--watch-virtual-desktops] [--background]\n";
 #if defined(_WIN32)
-  std::cout << "On Windows, launching LockingGlass with no arguments starts the "
+  std::cout << "On Windows, launching Locking Glass with no arguments starts the "
                "background tray app.\n";
 #endif
 }
@@ -84,7 +84,7 @@ int main(int argc, char** argv) {
   }
 
   if (arguments.version) {
-    std::cout << "LockingGlass " << LOCKING_GLASS_VERSION_STR << '\n';
+    std::cout << "Locking Glass " << LOCKING_GLASS_VERSION_STR << '\n';
     return 0;
   }
 
@@ -140,7 +140,7 @@ int main(int argc, char** argv) {
 #if defined(_WIN32)
   return runtime.background_session->Run();
 #else
-  std::cout << "LockingGlass diagnostics\n";
+  std::cout << "Locking Glass diagnostics\n";
   std::cout << locking_glass::core::FormatDiagnostics(diagnostics);
   return 0;
 #endif

@@ -7,8 +7,8 @@
     <RootNamespace>LockingGlass.WindowsInstallerBootstrapper</RootNamespace>
     <LangVersion>8.0</LangVersion>
     <BootstrapperMode Condition="'$(BootstrapperMode)' == ''">install</BootstrapperMode>
-    <Description>LockingGlass Windows setup bootstrapper</Description>
-    <FileDescription>LockingGlass Windows setup bootstrapper</FileDescription>
+    <Description>Locking Glass Windows setup bootstrapper</Description>
+    <FileDescription>Locking Glass Windows setup bootstrapper</FileDescription>
   </PropertyGroup>
 
   <ItemGroup>

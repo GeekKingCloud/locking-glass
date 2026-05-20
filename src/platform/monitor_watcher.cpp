@@ -176,7 +176,7 @@ int RunWindowsMonitorWatch(const MonitorWatchCallback& callback) {
   };
 
   HWND window =
-      CreateWindowExW(WS_EX_TOOLWINDOW, class_name, L"LockingGlass Monitor Watch",
+      CreateWindowExW(WS_EX_TOOLWINDOW, class_name, L"Locking Glass Monitor Watch",
                       WS_OVERLAPPED, 0, 0, 0, 0, nullptr, nullptr, instance,
                       &context);
   if (window == nullptr) {

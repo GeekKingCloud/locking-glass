@@ -45,12 +45,12 @@ BEGIN
   BEGIN
     BLOCK "040904B0"
     BEGIN
-      VALUE "CompanyName", "LockingGlass Contributors\0"
-      VALUE "FileDescription", "LockingGlass monitor pinning tray app\0"
+      VALUE "CompanyName", "Locking Glass Contributors\0"
+      VALUE "FileDescription", "Locking Glass monitor pinning tray app\0"
       VALUE "FileVersion", LOCKING_GLASS_VERSION_STR
       VALUE "InternalName", "locking_glass\0"
-      VALUE "OriginalFilename", "locking_glass.exe\0"
-      VALUE "ProductName", "LockingGlass\0"
+      VALUE "OriginalFilename", "Locking Glass.exe\0"
+      VALUE "ProductName", "Locking Glass\0"
       VALUE "ProductVersion", LOCKING_GLASS_VERSION_STR
     END
   END

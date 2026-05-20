@@ -23,7 +23,7 @@ namespace LockingGlass.WindowsInstallerBootstrapper
 
                 if (options.ExtractOnly)
                 {
-                    Console.WriteLine("Extracted LockingGlass setup payload to: " + extractDirectory);
+                    Console.WriteLine("Extracted Locking Glass setup payload to: " + extractDirectory);
                     return 0;
                 }
 
@@ -43,7 +43,7 @@ namespace LockingGlass.WindowsInstallerBootstrapper
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine("LockingGlass bootstrapper failed: " + ex.Message);
+                Console.Error.WriteLine("Locking Glass bootstrapper failed: " + ex.Message);
                 return 1;
             }
         }
@@ -72,7 +72,7 @@ namespace LockingGlass.WindowsInstallerBootstrapper
                 }
 
                 throw new InvalidOperationException(
-                    "Unknown LockingGlass bootstrapper mode: " + metadata.Value);
+                    "Unknown Locking Glass bootstrapper mode: " + metadata.Value);
             }
 
             return BootstrapperMode.Install;
@@ -82,7 +82,7 @@ namespace LockingGlass.WindowsInstallerBootstrapper
         {
             var extractionRoot = Path.Combine(
                 Path.GetTempPath(),
-                "LockingGlassSetup",
+                "Locking Glass Setup",
                 DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(extractionRoot);
             return extractionRoot;
@@ -265,17 +265,17 @@ namespace LockingGlass.WindowsInstallerBootstrapper
 
             using var process = Process.Start(startInfo)
                 ?? throw new InvalidOperationException(
-                    "Failed to launch the LockingGlass installer script.");
+                    "Failed to launch the Locking Glass installer script.");
 
             process.WaitForExit();
             if (process.ExitCode != 0)
             {
                 throw new InvalidOperationException(
-                    "LockingGlass installation exited with code " + process.ExitCode + ".");
+                    "Locking Glass installation exited with code " + process.ExitCode + ".");
             }
 
             TryDeleteExtractionDirectory(extractionDirectory);
-            Console.WriteLine("LockingGlass installation completed.");
+            Console.WriteLine("Locking Glass installation completed.");
             return 0;
         }
 
@@ -318,17 +318,17 @@ namespace LockingGlass.WindowsInstallerBootstrapper
 
             using var process = Process.Start(startInfo)
                 ?? throw new InvalidOperationException(
-                    "Failed to launch the LockingGlass uninstaller script.");
+                    "Failed to launch the Locking Glass uninstaller script.");
 
             process.WaitForExit();
             if (process.ExitCode != 0)
             {
                 throw new InvalidOperationException(
-                    "LockingGlass uninstallation exited with code " + process.ExitCode + ".");
+                    "Locking Glass uninstallation exited with code " + process.ExitCode + ".");
             }
 
             TryDeleteExtractionDirectory(extractionDirectory);
-            Console.WriteLine("LockingGlass uninstallation completed.");
+            Console.WriteLine("Locking Glass uninstallation completed.");
             return 0;
         }
 

@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve LockingGlass.
+Thanks for helping improve Locking Glass.
 
 ## Before You Open A Pull Request
 

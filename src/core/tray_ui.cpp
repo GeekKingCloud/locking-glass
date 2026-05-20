@@ -155,7 +155,7 @@ TrayMenuHeader BuildTrayMenuHeader(const TrayMenuModel& model) {
 TrayIconState BuildTrayIconState(const TrayMenuModel& model) {
   TrayIconState icon{
       .variant = "idle",
-      .tooltip = "LockingGlass - No monitors detected",
+      .tooltip = "Locking Glass - No monitors detected",
       .accessibility_label = "No monitors detected",
       .review_badge = false,
   };
@@ -175,7 +175,7 @@ TrayIconState BuildTrayIconState(const TrayMenuModel& model) {
   }
 
   std::ostringstream tooltip;
-  tooltip << "LockingGlass - " << model.locked_monitors << " of "
+  tooltip << "Locking Glass - " << model.locked_monitors << " of "
           << model.monitors.size() << " locked";
   if (model.review_monitors > 0U) {
     tooltip << ", " << model.review_monitors << " new";
@@ -301,7 +301,7 @@ MonitorReviewPrompt BuildMonitorReviewPrompt(
     prompt.title = "Confirm new monitor";
     prompt.message =
         BuildMonitorDisplayLabel(prompt.monitors.front()) +
-        " was added unlocked. Open the LockingGlass tray icon to confirm its "
+        " was added unlocked. Open the Locking Glass tray icon to confirm its "
         "lock setting.";
     return prompt;
   }
@@ -310,7 +310,7 @@ MonitorReviewPrompt BuildMonitorReviewPrompt(
   prompt.message = std::to_string(prompt.monitors.size()) +
                    " monitors were added unlocked: " +
                    BuildPromptMonitorList(prompt.monitors) +
-                   ". Open the LockingGlass tray icon to confirm their lock "
+                   ". Open the Locking Glass tray icon to confirm their lock "
                    "settings.";
   return prompt;
 }
@@ -324,7 +324,7 @@ std::string BuildTrayMonitorLabel(const TrayMonitorState& monitor) {
 
 std::string FormatTrayMenuModel(const TrayMenuModel& model) {
   std::ostringstream builder;
-  builder << "LockingGlass tray menu\n";
+  builder << "Locking Glass tray menu\n";
   builder << "Trigger:\n";
   builder << "  - source: " << model.trigger << '\n';
   builder << "Header:\n";

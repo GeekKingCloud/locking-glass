@@ -128,7 +128,7 @@ MonitorRefreshReport RefreshMonitorState(const Runtime& runtime,
 
 std::string FormatDiagnostics(const StartupDiagnostics& diagnostics) {
   std::ostringstream builder;
-  builder << "LockingGlass startup diagnostics\n";
+  builder << "Locking Glass startup diagnostics\n";
   builder << "Capabilities:\n";
   for (const auto& capability : diagnostics.capabilities) {
     builder << "  - " << capability.component << ": "
@@ -175,7 +175,7 @@ std::string FormatDiagnostics(const StartupDiagnostics& diagnostics) {
 
 std::string FormatMonitorRefreshReport(const MonitorRefreshReport& report) {
   std::ostringstream builder;
-  builder << "LockingGlass monitor refresh\n";
+  builder << "Locking Glass monitor refresh\n";
   builder << "Trigger:\n";
   builder << "  - source: " << report.trigger << '\n';
   builder << "  - topology changed: "

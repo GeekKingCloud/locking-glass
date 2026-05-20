@@ -437,7 +437,7 @@ std::string FormatDesktopSwitchReport(const DesktopSwitchReport& report) {
 
 std::string FormatUnlockReturnReport(const UnlockReturnReport& report) {
   std::ostringstream builder;
-  builder << "LockingGlass unlock return\n";
+  builder << "Locking Glass unlock return\n";
   builder << "Monitor:\n";
   builder << "  - label: " << report.monitor.label << '\n';
   builder << "  - id: " << report.monitor.stable_id << '\n';

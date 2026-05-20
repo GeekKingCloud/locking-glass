@@ -112,7 +112,7 @@ CapabilityReport ProbeVirtualDesktopBoundary() {
         .component = "virtual-desktop-control",
         .status = CapabilityStatus::kReady,
         .detail =
-            "COM, IVirtualDesktopManager, and VirtualDesktopAccessor.dll are available; live desktop notifications, window moves, and the Locking-Glass staging desktop are isolated behind the Windows boundary.",
+            "COM, IVirtualDesktopManager, and VirtualDesktopAccessor.dll are available; live desktop notifications, window moves, and the Locking Glass staging desktop are isolated behind the Windows boundary.",
     };
   }
 
@@ -120,7 +120,7 @@ CapabilityReport ProbeVirtualDesktopBoundary() {
       .component = "virtual-desktop-control",
       .status = CapabilityStatus::kUnavailable,
       .detail =
-          "Virtual desktop control fails closed until LockingGlass can resolve both IVirtualDesktopManager and VirtualDesktopAccessor.dll with RegisterPostMessageHook, UnregisterPostMessageHook, GetCurrentDesktopNumber, GoToDesktopNumber, GetDesktopCount, GetDesktopName, GetDesktopIdByNumber, MoveWindowToDesktopNumber, GetWindowDesktopNumber, CreateDesktop, SetDesktopName, and RemoveDesktop.",
+          "Virtual desktop control fails closed until Locking Glass can resolve both IVirtualDesktopManager and VirtualDesktopAccessor.dll with RegisterPostMessageHook, UnregisterPostMessageHook, GetCurrentDesktopNumber, GoToDesktopNumber, GetDesktopCount, GetDesktopName, GetDesktopIdByNumber, MoveWindowToDesktopNumber, GetWindowDesktopNumber, CreateDesktop, SetDesktopName, and RemoveDesktop.",
   };
 #else
   return CapabilityReport{
@@ -155,7 +155,7 @@ class WindowsApiProbeImpl final : public WindowsApiProbe {
           .component = "windows-api",
           .status = CapabilityStatus::kReady,
           .detail =
-              "Resolved tray, monitor, IVirtualDesktopManager, and VirtualDesktopAccessor entry points; live desktop notifications, move calls, and Locking-Glass staging desktop lifecycle stay isolated behind the Windows boundary.",
+              "Resolved tray, monitor, IVirtualDesktopManager, and VirtualDesktopAccessor entry points; live desktop notifications, move calls, and Locking Glass staging desktop lifecycle stay isolated behind the Windows boundary.",
       };
     }
 
@@ -163,7 +163,7 @@ class WindowsApiProbeImpl final : public WindowsApiProbe {
         .component = "windows-api",
         .status = CapabilityStatus::kUnavailable,
         .detail =
-            "Windows API probe failed. Tray, monitor, IVirtualDesktopManager, or VirtualDesktopAccessor entry points were unavailable, so LockingGlass must fail closed on live desktop locking.",
+            "Windows API probe failed. Tray, monitor, IVirtualDesktopManager, or VirtualDesktopAccessor entry points were unavailable, so Locking Glass must fail closed on live desktop locking.",
     };
 #else
     return CapabilityReport{
@@ -205,7 +205,7 @@ class WindowsApiProbeImpl final : public WindowsApiProbe {
             {
                 "Resolve the supported IVirtualDesktopManager and VirtualDesktopAccessor entry points before any monitor lock orchestration runs.",
                 "Receive real desktop switch notifications through the helper post-message hook and translate them into app-level events with source and target desktop context.",
-                "Create the named Locking-Glass staging desktop, or reuse the same-run identity LockingGlass created itself, before moving target-desktop occupants out of a locked monitor's way.",
+                "Create the named Locking Glass staging desktop, or reuse the same-run identity Locking Glass created itself, before moving target-desktop occupants out of a locked monitor's way.",
                 "Move already-selected top-level windows between desktops through the isolated move call when the core policy decides they should follow a locked monitor.",
             },
         .out_of_scope =
@@ -267,14 +267,14 @@ class WindowsApiProbeImpl final : public WindowsApiProbe {
     prototype.interaction_steps.push_back(
         "Desktop switch: receive the real switch event through VirtualDesktopAccessor RegisterPostMessageHook, pair it with current desktop identity, and hand the event to the core policy layer.");
     prototype.interaction_steps.push_back(
-        "Window move: after the core selects eligible top-level windows on locked monitors, the virtual desktop boundary creates the named Locking-Glass staging desktop or reuses its same-run identity, issues MoveWindowToDesktopNumber, and reports any failed HWND operations without touching persistence or tray state.");
+        "Window move: after the core selects eligible top-level windows on locked monitors, the virtual desktop boundary creates the named Locking Glass staging desktop or reuses its same-run identity, issues MoveWindowToDesktopNumber, and reports any failed HWND operations without touching persistence or tray state.");
     return prototype;
   }
 };
 
 std::string FormatWindowsApiPrototype(const WindowsApiPrototype& prototype) {
   std::ostringstream builder;
-  builder << "LockingGlass Windows API integration prototype\n";
+  builder << "Locking Glass Windows API integration prototype\n";
   builder << "Boundaries:\n";
 
   for (const auto& boundary : prototype.boundaries) {

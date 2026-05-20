@@ -15,15 +15,15 @@ $helperResolverPath = Join-Path $repoRoot 'scripts\resolve-virtual-desktop-helpe
 . $helperResolverPath
 
 if ([string]::IsNullOrWhiteSpace($AppExeName)) {
-    $AppExeName = 'LockingGlass.exe'
+    $AppExeName = 'Locking Glass.exe'
 }
 
 if ([string]::IsNullOrWhiteSpace($SetupExeName)) {
-    $SetupExeName = 'LockingGlass-Installer.exe'
+    $SetupExeName = 'Locking Glass Installer.exe'
 }
 
 if ([string]::IsNullOrWhiteSpace($UninstallerExeName)) {
-    $UninstallerExeName = 'LockingGlass-Uninstaller.exe'
+    $UninstallerExeName = 'Locking Glass Uninstaller.exe'
 }
 
 function Write-Step([string]$Message) {
@@ -319,7 +319,7 @@ function Test-Build {
 
 function Get-RequiredPackageFiles {
     return @(
-        'LockingGlass.exe',
+        'Locking Glass.exe',
         'Install-LockingGlass.ps1',
         'Uninstall-LockingGlass.ps1',
         'Start-LockingGlass.cmd',
@@ -414,7 +414,7 @@ function Test-ExtractedPackage([string]$Directory, [string]$Label) {
     Test-PayloadManifest -Directory $Directory -Label $Label
     Test-PinnedVirtualDesktopHelper -Directory $Directory -Label $Label
 
-    $packagedExe = Join-Path $Directory 'LockingGlass.exe'
+    $packagedExe = Join-Path $Directory 'Locking Glass.exe'
     $versionOutput = & $packagedExe --version
     if ($LASTEXITCODE -ne 0) {
         throw "$Label --version check failed with exit code $LASTEXITCODE."
@@ -431,12 +431,12 @@ function Test-ExtractedPackage([string]$Directory, [string]$Label) {
 
 function Test-Package {
     Write-Step 'Staging and packaging Windows release artifacts'
-    $stageDir = Join-Path $repoRoot 'build\windows-install-stage\LockingGlass'
+    $stageDir = Join-Path $repoRoot 'build\windows-install-stage\Locking Glass'
     $installerDir = Join-Path $repoRoot 'build\windows-installer'
     $releaseDir = Join-Path $repoRoot 'build\release'
     $extractDir = Join-Path $repoRoot 'build\windows-installer-smoke'
     $installSmokeRoot = Join-Path $repoRoot 'build\windows-install-smoke'
-    $installDir = Join-Path $installSmokeRoot 'Programs\LockingGlass'
+    $installDir = Join-Path $installSmokeRoot 'Programs\Locking Glass'
     $setupPath = Join-Path $installerDir $SetupExeName
     $uninstallerPath = Join-Path $installerDir $UninstallerExeName
     $releaseAppPath = Join-Path $releaseDir $AppExeName
@@ -460,7 +460,7 @@ function Test-Package {
 
     New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
     Remove-Item -Force $releaseAppPath, $releaseSetupPath, $releaseUninstallerPath, $sumPath -ErrorAction SilentlyContinue
-    Copy-Item -Path (Join-Path $stageDir 'LockingGlass.exe') -Destination $releaseAppPath -Force
+    Copy-Item -Path (Join-Path $stageDir 'Locking Glass.exe') -Destination $releaseAppPath -Force
     Copy-Item -Path $setupPath -Destination $releaseSetupPath -Force
     Copy-Item -Path $uninstallerPath -Destination $releaseUninstallerPath -Force
 
@@ -495,7 +495,7 @@ function Test-Package {
         throw "Uninstaller smoke did not remove install directory '$installDir'."
     }
 
-    $startMenuDir = Join-Path $installSmokeRoot 'Roaming\Microsoft\Windows\Start Menu\Programs\LockingGlass'
+    $startMenuDir = Join-Path $installSmokeRoot 'Roaming\Microsoft\Windows\Start Menu\Programs\Locking Glass'
     if (Test-Path $startMenuDir) {
         throw "Uninstaller smoke did not remove Start Menu directory '$startMenuDir'."
     }

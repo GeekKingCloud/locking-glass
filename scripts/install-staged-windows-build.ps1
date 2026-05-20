@@ -14,7 +14,7 @@ if ([string]::IsNullOrWhiteSpace($SourceDir)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($InstallDir)) {
-    $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\LockingGlass'
+    $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\Locking Glass'
 }
 
 function Resolve-InstallDirectory([string]$TargetInstallDir) {
@@ -33,16 +33,16 @@ function Test-SafeInstallDirectory([string]$TargetInstallDir) {
     if ($normalizedInstallDir -eq $root.TrimEnd(
             [System.IO.Path]::DirectorySeparatorChar,
             [System.IO.Path]::AltDirectorySeparatorChar)) {
-        throw "Refusing to install LockingGlass into a filesystem root: '$normalizedInstallDir'."
+        throw "Refusing to install Locking Glass into a filesystem root: '$normalizedInstallDir'."
     }
 
     $leafName = Split-Path -Path $normalizedInstallDir -Leaf
     if ([string]::IsNullOrWhiteSpace($leafName)) {
-        throw "InstallDir must name a concrete LockingGlass install directory: '$normalizedInstallDir'."
+        throw "InstallDir must name a concrete Locking Glass install directory: '$normalizedInstallDir'."
     }
 
-    if ($leafName -ne 'LockingGlass') {
-        throw "InstallDir must end in 'LockingGlass' so the installer cannot overwrite a broad shared directory: '$normalizedInstallDir'."
+    if ($leafName -ne 'Locking Glass') {
+        throw "InstallDir must end in 'Locking Glass' so the installer cannot overwrite a broad shared directory: '$normalizedInstallDir'."
     }
 
     $blockedParentPaths = @(
@@ -62,7 +62,7 @@ function Test-SafeInstallDirectory([string]$TargetInstallDir) {
                 $normalizedInstallDir,
                 $blockedParentPath,
                 [System.StringComparison]::OrdinalIgnoreCase)) {
-            throw "InstallDir must be an app-specific LockingGlass directory, not a shared parent directory: '$normalizedInstallDir'."
+            throw "InstallDir must be an app-specific Locking Glass directory, not a shared parent directory: '$normalizedInstallDir'."
         }
     }
 
@@ -71,7 +71,7 @@ function Test-SafeInstallDirectory([string]$TargetInstallDir) {
 
 function Stop-InstalledRuntimeProcesses([string]$TargetInstallDir) {
     $normalizedInstallDir = Resolve-InstallDirectory -TargetInstallDir $TargetInstallDir
-    $expectedExecutablePath = Join-Path $normalizedInstallDir 'LockingGlass.exe'
+    $expectedExecutablePath = Join-Path $normalizedInstallDir 'Locking Glass.exe'
     $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object {
             if ([string]::IsNullOrWhiteSpace($_.ExecutablePath)) {
@@ -121,7 +121,7 @@ function Get-VersionText([string]$Path) {
 $InstallDir = Test-SafeInstallDirectory -TargetInstallDir $InstallDir
 
 $requiredFiles = @(
-    'LockingGlass.exe',
+    'Locking Glass.exe',
     'Install-LockingGlass.ps1',
     'Uninstall-LockingGlass.ps1',
     'run-live-desktop-probe.ps1',
@@ -150,7 +150,7 @@ if ($bundledProbeFiles.Count -eq 0) {
     throw 'Staged install source is missing the bundled Windows live desktop probe publish output.'
 }
 
-$installedExe = Join-Path $InstallDir 'LockingGlass.exe'
+$installedExe = Join-Path $InstallDir 'Locking Glass.exe'
 $installedVersionPath = Join-Path $InstallDir 'VERSION.txt'
 $incomingVersionPath = Join-Path $SourceDir 'VERSION.txt'
 $existingVersion = Get-VersionText -Path $installedVersionPath
@@ -161,7 +161,7 @@ Stop-InstalledRuntimeProcesses -TargetInstallDir $InstallDir
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 
 $filesToCopy = @(
-    'LockingGlass.exe',
+    'Locking Glass.exe',
     'run-live-desktop-probe.ps1',
     'resolve-virtual-desktop-helper.ps1',
     'VirtualDesktopAccessor.dll',
@@ -188,47 +188,47 @@ foreach ($probeFile in $bundledProbeFiles) {
     Copy-InstallFile -SourcePath $probeFile.FullName -DestinationPath (Join-Path $InstallDir $probeFile.Name)
 }
 
-$startMenuDir = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\LockingGlass'
+$startMenuDir = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Locking Glass'
 New-Item -ItemType Directory -Force -Path $startMenuDir | Out-Null
 
 $shell = New-Object -ComObject WScript.Shell
-$launchShortcut = $shell.CreateShortcut((Join-Path $startMenuDir 'LockingGlass Tray.lnk'))
+$launchShortcut = $shell.CreateShortcut((Join-Path $startMenuDir 'Locking Glass Tray.lnk'))
 $launchShortcut.TargetPath = Join-Path $InstallDir 'Start-LockingGlass.cmd'
 $launchShortcut.WorkingDirectory = $InstallDir
-$launchShortcut.IconLocation = (Join-Path $InstallDir 'LockingGlass.exe') + ',0'
-$launchShortcut.Description = 'Start the LockingGlass tray app that keeps selected monitors pinned while other monitors follow Windows desktop switches. It fails closed if the live controller cannot start.'
+$launchShortcut.IconLocation = (Join-Path $InstallDir 'Locking Glass.exe') + ',0'
+$launchShortcut.Description = 'Start the Locking Glass tray app that keeps selected monitors pinned while other monitors follow Windows desktop switches. It fails closed if the live controller cannot start.'
 $launchShortcut.Save()
 
-$readmeShortcut = $shell.CreateShortcut((Join-Path $startMenuDir 'LockingGlass README.lnk'))
+$readmeShortcut = $shell.CreateShortcut((Join-Path $startMenuDir 'Locking Glass README.lnk'))
 $readmeShortcut.TargetPath = Join-Path $InstallDir 'README.txt'
 $readmeShortcut.WorkingDirectory = $InstallDir
-$readmeShortcut.Description = 'Open the LockingGlass Windows install notes and current limits.'
+$readmeShortcut.Description = 'Open the Locking Glass Windows install notes and current limits.'
 $readmeShortcut.Save()
 
-$licenseShortcut = $shell.CreateShortcut((Join-Path $startMenuDir 'LockingGlass License.lnk'))
+$licenseShortcut = $shell.CreateShortcut((Join-Path $startMenuDir 'Locking Glass License.lnk'))
 $licenseShortcut.TargetPath = Join-Path $InstallDir 'LICENSE.txt'
 $licenseShortcut.WorkingDirectory = $InstallDir
-$licenseShortcut.Description = 'Open the LockingGlass project license.'
+$licenseShortcut.Description = 'Open the Locking Glass project license.'
 $licenseShortcut.Save()
 
-$thirdPartyShortcut = $shell.CreateShortcut((Join-Path $startMenuDir 'LockingGlass Third-Party Notices.lnk'))
+$thirdPartyShortcut = $shell.CreateShortcut((Join-Path $startMenuDir 'Locking Glass Third-Party Notices.lnk'))
 $thirdPartyShortcut.TargetPath = Join-Path $InstallDir 'THIRD_PARTY_NOTICES.txt'
 $thirdPartyShortcut.WorkingDirectory = $InstallDir
-$thirdPartyShortcut.Description = 'Open bundled third-party license notices for LockingGlass.'
+$thirdPartyShortcut.Description = 'Open bundled third-party license notices for Locking Glass.'
 $thirdPartyShortcut.Save()
 
-$uninstallShortcut = $shell.CreateShortcut((Join-Path $startMenuDir 'Uninstall LockingGlass.lnk'))
+$uninstallShortcut = $shell.CreateShortcut((Join-Path $startMenuDir 'Uninstall Locking Glass.lnk'))
 $uninstallShortcut.TargetPath = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $uninstallShortcut.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $InstallDir 'Uninstall-LockingGlass.ps1') + '"'
 $uninstallShortcut.WorkingDirectory = $InstallDir
-$uninstallShortcut.IconLocation = (Join-Path $InstallDir 'LockingGlass.exe') + ',0'
-$uninstallShortcut.Description = 'Uninstall LockingGlass for the current user.'
+$uninstallShortcut.IconLocation = (Join-Path $InstallDir 'Locking Glass.exe') + ',0'
+$uninstallShortcut.Description = 'Uninstall Locking Glass for the current user.'
 $uninstallShortcut.Save()
 
 if (-not $NoAutostart) {
     & $installedExe --install-autostart
     if ($LASTEXITCODE -ne 0) {
-        throw "LockingGlass autostart registration failed from '$installedExe'."
+        throw "Locking Glass autostart registration failed from '$installedExe'."
     }
 }
 
@@ -237,7 +237,7 @@ if ($LaunchAfterInstall) {
 }
 
 $installVerb = if ($wasInstalled) { 'Updated' } else { 'Installed' }
-Write-Host ($installVerb + ' LockingGlass at: ' + $InstallDir)
+Write-Host ($installVerb + ' Locking Glass at: ' + $InstallDir)
 if (-not [string]::IsNullOrWhiteSpace($incomingVersion)) {
     if ($wasInstalled -and -not [string]::IsNullOrWhiteSpace($existingVersion) -and $existingVersion -ne $incomingVersion) {
         Write-Host ('Version: ' + $existingVersion + ' -> ' + $incomingVersion)
@@ -247,12 +247,12 @@ if (-not [string]::IsNullOrWhiteSpace($incomingVersion)) {
         Write-Host ('Version: ' + $incomingVersion)
     }
 }
-Write-Host ('Launch shortcut: ' + (Join-Path $startMenuDir 'LockingGlass Tray.lnk'))
-Write-Host ('README shortcut: ' + (Join-Path $startMenuDir 'LockingGlass README.lnk'))
-Write-Host ('License shortcut: ' + (Join-Path $startMenuDir 'LockingGlass License.lnk'))
-Write-Host ('Third-party notices shortcut: ' + (Join-Path $startMenuDir 'LockingGlass Third-Party Notices.lnk'))
-Write-Host ('Uninstall shortcut: ' + (Join-Path $startMenuDir 'Uninstall LockingGlass.lnk'))
-Write-Host 'Updates: rerun a newer LockingGlass installer executable or Install-LockingGlass.ps1 over the existing install'
+Write-Host ('Launch shortcut: ' + (Join-Path $startMenuDir 'Locking Glass Tray.lnk'))
+Write-Host ('README shortcut: ' + (Join-Path $startMenuDir 'Locking Glass README.lnk'))
+Write-Host ('License shortcut: ' + (Join-Path $startMenuDir 'Locking Glass License.lnk'))
+Write-Host ('Third-party notices shortcut: ' + (Join-Path $startMenuDir 'Locking Glass Third-Party Notices.lnk'))
+Write-Host ('Uninstall shortcut: ' + (Join-Path $startMenuDir 'Uninstall Locking Glass.lnk'))
+Write-Host 'Updates: rerun a newer Locking Glass installer executable or Install-LockingGlass.ps1 over the existing install'
 if (-not $NoAutostart) {
     Write-Host 'Autostart: enabled for the current user'
 } else {

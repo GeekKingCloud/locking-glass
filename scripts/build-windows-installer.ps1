@@ -1,8 +1,8 @@
 param(
     [string]$StageDir,
     [string]$OutputDir,
-    [string]$SetupExeName = 'LockingGlass-Installer.exe',
-    [string]$UninstallerExeName = 'LockingGlass-Uninstaller.exe',
+    [string]$SetupExeName = 'Locking Glass Installer.exe',
+    [string]$UninstallerExeName = 'Locking Glass Uninstaller.exe',
     [switch]$SkipStage
 )
 
@@ -13,7 +13,7 @@ $stageScript = Join-Path $PSScriptRoot 'stage-windows-install.ps1'
 $bootstrapperProject = Join-Path $repoRoot 'tools\windows_installer_bootstrapper\LockingGlass.WindowsInstallerBootstrapper.csproj'
 
 if ([string]::IsNullOrWhiteSpace($StageDir)) {
-    $StageDir = Join-Path $repoRoot 'build\windows-install-stage\LockingGlass'
+    $StageDir = Join-Path $repoRoot 'build\windows-install-stage\Locking Glass'
 }
 
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
@@ -89,6 +89,6 @@ function Publish-Bootstrapper([string]$Mode, [string]$PublishDir, [string]$Targe
 Publish-Bootstrapper -Mode 'install' -PublishDir $installerPublishDir -TargetPath $targetExe
 Publish-Bootstrapper -Mode 'uninstall' -PublishDir $uninstallerPublishDir -TargetPath $targetUninstallerExe
 
-Write-Host ('Built LockingGlass installer: ' + $targetExe)
-Write-Host ('Built LockingGlass uninstaller: ' + $targetUninstallerExe)
+Write-Host ('Built Locking Glass installer: ' + $targetExe)
+Write-Host ('Built Locking Glass uninstaller: ' + $targetUninstallerExe)
 Write-Host ('Embedded payload zip: ' + $payloadZip)

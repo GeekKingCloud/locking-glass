@@ -148,7 +148,7 @@ void ApplyLiveControllerStatus(
       "but subsequent Windows desktop switches will not follow them.";
 
   if (model->icon.tooltip.empty()) {
-    model->icon.tooltip = "LockingGlass - Live desktop control unavailable";
+    model->icon.tooltip = "Locking Glass - Live desktop control unavailable";
   } else {
     model->icon.tooltip += " | live desktop control unavailable";
   }

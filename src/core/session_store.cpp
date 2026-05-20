@@ -397,12 +397,12 @@ std::filesystem::path ResolveDefaultSessionPath() {
 #if defined(_WIN32)
   if (const char* local_app_data = std::getenv("LOCALAPPDATA");
       local_app_data != nullptr && local_app_data[0] != '\0') {
-    return std::filesystem::path(local_app_data) / "LockingGlass" /
+    return std::filesystem::path(local_app_data) / "Locking Glass" /
            "monitor-session-state.tsv";
   }
   if (const char* roaming_app_data = std::getenv("APPDATA");
       roaming_app_data != nullptr && roaming_app_data[0] != '\0') {
-    return std::filesystem::path(roaming_app_data) / "LockingGlass" /
+    return std::filesystem::path(roaming_app_data) / "Locking Glass" /
            "monitor-session-state.tsv";
   }
 #endif

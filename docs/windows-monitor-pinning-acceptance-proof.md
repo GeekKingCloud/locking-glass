@@ -37,9 +37,9 @@ Verdict: fully accomplished
 
 ## Current Product Behavior
 
-The current app also performs a best-effort immediate return on unlock for windows that LockingGlass itself moved while the monitor was locked.
+The current app also performs a best-effort immediate return on unlock for windows that Locking Glass itself moved while the monitor was locked.
 
-- If the remembered original workspace still exists, LockingGlass tries to move those tracked windows back immediately when the monitor is unlocked.
+- If the remembered original workspace still exists, Locking Glass tries to move those tracked windows back immediately when the monitor is unlocked.
 - If the remembered workspace no longer exists, the window stays where it is.
 - This remembered-workspace state lives only in memory for the current app run and is not written to the session file.
 

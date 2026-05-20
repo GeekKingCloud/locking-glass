@@ -55,7 +55,7 @@ function Resolve-StageOutputDirectory([string]$TargetOutputDir) {
 }
 
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
-    $OutputDir = Join-Path $repoRoot 'build\windows-install-stage\LockingGlass'
+    $OutputDir = Join-Path $repoRoot 'build\windows-install-stage\Locking Glass'
 }
 $OutputDir = Resolve-StageOutputDirectory -TargetOutputDir $OutputDir
 
@@ -122,7 +122,7 @@ if ($LASTEXITCODE -ne 0) {
 Remove-Item -Recurse -Force $OutputDir -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
-Copy-Item -Path $windowsBuild -Destination (Join-Path $OutputDir 'LockingGlass.exe') -Force
+Copy-Item -Path $windowsBuild -Destination (Join-Path $OutputDir 'Locking Glass.exe') -Force
 Copy-Item -Path $probeScriptSource -Destination (Join-Path $OutputDir 'run-live-desktop-probe.ps1') -Force
 Copy-Item -Path $helperResolverSource -Destination (Join-Path $OutputDir 'resolve-virtual-desktop-helper.ps1') -Force
 Copy-Item -Path $HelperDllPath -Destination (Join-Path $OutputDir 'VirtualDesktopAccessor.dll') -Force
@@ -146,8 +146,8 @@ $manifestLines = Get-ChildItem -Path $OutputDir -File |
     }
 Set-Content -Path $manifestPath -Value $manifestLines -Encoding ascii
 
-Write-Host ('Staged LockingGlass Windows install package: ' + $OutputDir)
-Write-Host ('Bundled app: ' + (Join-Path $OutputDir 'LockingGlass.exe'))
+Write-Host ('Staged Locking Glass Windows install package: ' + $OutputDir)
+Write-Host ('Bundled app: ' + (Join-Path $OutputDir 'Locking Glass.exe'))
 Write-Host ('Bundled version file: ' + (Join-Path $OutputDir 'VERSION.txt'))
 Write-Host ('Bundled live watch script: ' + (Join-Path $OutputDir 'run-live-desktop-probe.ps1'))
 Write-Host ('Bundled helper: ' + (Join-Path $OutputDir 'VirtualDesktopAccessor.dll'))

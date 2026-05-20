@@ -117,7 +117,7 @@ void EmitBackgroundDesktopSwitchReport(
   std::ofstream output(report_path,
                        std::ios::out | std::ios::app | std::ios::binary);
   if (!output.is_open()) {
-    std::cerr << "LockingGlass could not append the background desktop switch "
+    std::cerr << "Locking Glass could not append the background desktop switch "
                  "report to "
               << report_path << '\n';
     return;
@@ -608,7 +608,7 @@ bool EnsureIdentifyOverlayWindow(HINSTANCE instance,
   state->identify_overlay_window = CreateWindowExW(
       WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE |
           WS_EX_TRANSPARENT,
-      kIdentifyOverlayWindowClassName, L"LockingGlass Identify Overlay",
+      kIdentifyOverlayWindowClassName, L"Locking Glass Identify Overlay",
       WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, instance, state);
   if (state->identify_overlay_window == nullptr) {
     return false;
@@ -716,7 +716,7 @@ void ShowControllerUnavailableNotification(HWND window,
   notification.uTimeout = 10000;
 
   const auto title =
-      Widen("LockingGlass live desktop control unavailable");
+      Widen("Locking Glass live desktop control unavailable");
   const auto message = Widen(
       "Tray lock toggles are still saved, but Windows desktop switches will "
       "not follow them until the live controller is available.");
@@ -732,7 +732,7 @@ void LogControllerUnavailable(
     return;
   }
 
-  std::cerr << "LockingGlass background live desktop control unavailable: "
+  std::cerr << "Locking Glass background live desktop control unavailable: "
             << capability.detail << '\n';
 }
 
@@ -912,7 +912,7 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state) {
     }
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kMenuCommandRefresh, L"Refresh monitor list");
-    AppendMenuW(menu, MF_STRING, kMenuCommandExit, L"Exit LockingGlass");
+    AppendMenuW(menu, MF_STRING, kMenuCommandExit, L"Exit Locking Glass");
 
     POINT cursor{};
     GetCursorPos(&cursor);
@@ -1166,7 +1166,7 @@ int RunWindowsTraySession(const BackgroundSessionObserver& observer) {
     state->live_controller_capability =
         live_controller != nullptr ? live_controller->Probe()
                                    : MakeUnavailableControllerCapability(
-                                         "LockingGlass could not create the "
+                                         "Locking Glass could not create the "
                                          "virtual desktop controller.");
   }
   state->live_controller_watcher_started = false;
@@ -1174,7 +1174,7 @@ int RunWindowsTraySession(const BackgroundSessionObserver& observer) {
       state->session_store.StartUnlocked(state->monitor_gateway->Enumerate());
 
   HWND window = CreateWindowExW(WS_EX_TOOLWINDOW, kBackgroundWindowClassName,
-                                L"LockingGlass Background", WS_OVERLAPPED, 0, 0,
+                                L"Locking Glass Background", WS_OVERLAPPED, 0, 0,
                                 0, 0, nullptr, nullptr, instance, state.get());
   if (window == nullptr) {
     return 1;
@@ -1189,7 +1189,7 @@ int RunWindowsTraySession(const BackgroundSessionObserver& observer) {
       !StartLiveControllerWatcher(window, state.get(),
                                   std::move(live_controller))) {
     state->live_controller_capability = MakeUnavailableControllerCapability(
-        "LockingGlass failed to start the live desktop watcher thread.");
+        "Locking Glass failed to start the live desktop watcher thread.");
   }
   LogControllerUnavailable(state->live_controller_capability);
 

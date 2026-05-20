@@ -814,7 +814,7 @@ bool RunTraySessionChecks() {
   const auto formatted =
       locking_glass::core::FormatTrayMenuModel(
           locking_glass::core::BuildTrayMenuModel(preview, "verification"));
-  failures += !Expect(formatted.find("LockingGlass tray menu") != std::string::npos,
+  failures += !Expect(formatted.find("Locking Glass tray menu") != std::string::npos,
                       "formatted tray menu output should include the tray heading");
   failures += !Expect(formatted.find("title: \n") !=
                           std::string::npos,
@@ -1268,9 +1268,9 @@ bool RunUnlockReturnChecks() {
       "desktop\t0\tguid-alpha\tAlpha\tdesktop-alpha\n"
       "desktop\t1\tguid-beta\tBeta\tdesktop-beta\n"
       "desktop\t2\tguid-gamma\tGamma\tdesktop-gamma\n"
-      "desktop\t3\tguid-locking-glass\tLockingGlass\tdesktop-locking-glass\n"
+      "desktop\t3\tguid-locking-glass\tLocking Glass\tdesktop-locking-glass\n"
       "window\tleft-doc\tDocs Renamed\tstable-left\tDisplay 1\t2\tguid-gamma\tGamma\tdesktop-gamma\t1\t1\n"
-      "window\tleft-chat\tChat\tstable-left\tDisplay 1\t3\tguid-locking-glass\tLockingGlass\tdesktop-locking-glass\t1\t1\n"
+      "window\tleft-chat\tChat\tstable-left\tDisplay 1\t3\tguid-locking-glass\tLocking Glass\tdesktop-locking-glass\t1\t1\n"
       "window\tleft-static\tTimer\tstable-left\tDisplay 1\t2\tguid-gamma\tGamma\tdesktop-gamma\t1\t1\n");
   WriteTextFile(
       tray_script_path,
@@ -1317,7 +1317,7 @@ bool RunUnlockReturnChecks() {
 
   const auto output = captured_output.str();
   failures += !Expect(
-      output.find("LockingGlass unlock return") != std::string::npos,
+      output.find("Locking Glass unlock return") != std::string::npos,
       "background unlocks should log a formatted unlock-return report");
   failures += !Expect(
       output.find("desktop-gamma -> desktop-alpha") != std::string::npos,
@@ -1473,7 +1473,7 @@ bool RunDesktopLockingChecks() {
     const auto formatted_locked =
         locking_glass::integration::FormatDesktopSwitchReport(locked_report);
     failures += !Expect(
-        formatted_locked.find("LockingGlass desktop switch policy") !=
+        formatted_locked.find("Locking Glass desktop switch policy") !=
             std::string::npos,
         "formatted desktop report should include the policy heading");
     failures += !Expect(
@@ -1525,7 +1525,7 @@ int main() {
 
   const auto runtime = locking_glass::core::BuildRuntime();
   const std::string test_install_path =
-      "C:\\Program Files\\LockingGlass\\LockingGlass.exe";
+      "C:\\Program Files\\Locking Glass\\Locking Glass.exe";
   const auto diagnostics =
       locking_glass::core::CollectStartupDiagnostics(runtime, test_install_path);
   const auto formatted = locking_glass::core::FormatDiagnostics(diagnostics);
@@ -1558,7 +1558,7 @@ int main() {
   failures += !Expect(formatted.find("Session:") != std::string::npos,
                       "formatted diagnostics should include a session summary section");
   failures += !Expect(
-      formatted.find("\"C:\\Program Files\\LockingGlass\\LockingGlass.exe\" --background") !=
+      formatted.find("\"C:\\Program Files\\Locking Glass\\Locking Glass.exe\" --background") !=
           std::string::npos,
       "formatted diagnostics should expose the quoted Windows autostart command");
   failures += !Expect(
@@ -1619,13 +1619,13 @@ int main() {
   const auto quoted_path =
       locking_glass::integration::QuoteWindowsCommandArg(test_install_path);
   failures += !Expect(
-      quoted_path == "\"C:\\Program Files\\LockingGlass\\LockingGlass.exe\"",
+      quoted_path == "\"C:\\Program Files\\Locking Glass\\Locking Glass.exe\"",
       "QuoteWindowsCommandArg should quote Windows paths that contain spaces");
-  failures += !Expect(diagnostics.autostart.entry_name == "LockingGlass",
-                      "autostart diagnostics should use the LockingGlass Run entry name");
+  failures += !Expect(diagnostics.autostart.entry_name == "Locking Glass",
+                      "autostart diagnostics should use the Locking Glass Run entry name");
   failures += !Expect(
       diagnostics.autostart.launch_command ==
-          "\"C:\\Program Files\\LockingGlass\\LockingGlass.exe\" --background",
+          "\"C:\\Program Files\\Locking Glass\\Locking Glass.exe\" --background",
       "autostart diagnostics should launch the executable in background mode");
   RunCheckGroup("session store", RunSessionStoreChecks, &failures);
   RunCheckGroup("monitor watch", RunMonitorWatchChecks, &failures);

@@ -161,7 +161,7 @@ MonitorLockingPlan BuildMonitorLockingPlan(
 
 std::string FormatMonitorLockingPlan(const MonitorLockingPlan& plan) {
   std::ostringstream builder;
-  builder << "LockingGlass desktop switch policy\n";
+  builder << "Locking Glass desktop switch policy\n";
   builder << "Trigger:\n";
   builder << "  - source: " << plan.trigger << '\n';
   builder << "  - from desktop: " << plan.source_desktop_id << '\n';

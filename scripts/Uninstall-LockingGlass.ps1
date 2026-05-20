@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if ([string]::IsNullOrWhiteSpace($InstallDir)) {
-    $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\LockingGlass'
+    $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\Locking Glass'
 }
 
 function Resolve-InstallDirectory([string]$TargetInstallDir) {
@@ -29,8 +29,8 @@ function Test-SafeInstallDirectory([string]$TargetInstallDir) {
     }
 
     $leafName = Split-Path -Path $normalizedInstallDir -Leaf
-    if ($leafName -ne 'LockingGlass') {
-        throw "InstallDir must end in 'LockingGlass' so uninstall cannot remove a broad shared directory: '$normalizedInstallDir'."
+    if ($leafName -ne 'Locking Glass') {
+        throw "InstallDir must end in 'Locking Glass' so uninstall cannot remove a broad shared directory: '$normalizedInstallDir'."
     }
 
     return $normalizedInstallDir
@@ -38,7 +38,7 @@ function Test-SafeInstallDirectory([string]$TargetInstallDir) {
 
 function Stop-InstalledRuntimeProcesses([string]$TargetInstallDir) {
     $normalizedInstallDir = Resolve-InstallDirectory -TargetInstallDir $TargetInstallDir
-    $expectedExecutablePath = Join-Path $normalizedInstallDir 'LockingGlass.exe'
+    $expectedExecutablePath = Join-Path $normalizedInstallDir 'Locking Glass.exe'
     $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object {
             if ([string]::IsNullOrWhiteSpace($_.ExecutablePath)) {
@@ -64,12 +64,12 @@ function Stop-InstalledRuntimeProcesses([string]$TargetInstallDir) {
 function Remove-CurrentUserAutostart {
     $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
     if (Test-Path $runKey) {
-        Remove-ItemProperty -Path $runKey -Name 'LockingGlass' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $runKey -Name 'Locking Glass' -ErrorAction SilentlyContinue
     }
 }
 
 function Remove-StartMenuShortcuts {
-    $startMenuDir = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\LockingGlass'
+    $startMenuDir = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Locking Glass'
     if (Test-Path $startMenuDir) {
         Remove-Item -Recurse -Force -Path $startMenuDir
     }
@@ -82,7 +82,7 @@ function Remove-InstallDirectory([string]$TargetInstallDir) {
 }
 
 function Remove-LockingGlassUserData {
-    $dataDir = Join-Path $env:LOCALAPPDATA 'LockingGlass'
+    $dataDir = Join-Path $env:LOCALAPPDATA 'Locking Glass'
     if (Test-Path $dataDir) {
         Remove-Item -Recurse -Force -Path $dataDir
     }
@@ -99,7 +99,7 @@ if ($RemoveUserData) {
     Remove-LockingGlassUserData
 }
 
-Write-Host ('Uninstalled LockingGlass from: ' + $InstallDir)
+Write-Host ('Uninstalled Locking Glass from: ' + $InstallDir)
 if ($RemoveUserData) {
     Write-Host 'User data: removed'
 } else {

@@ -536,7 +536,7 @@ function Get-BackgroundReportCount([string]$path) {
     }
 
     $content = [System.IO.File]::ReadAllText($path)
-    return ([regex]::Matches($content, [regex]::Escape('LockingGlass desktop switch policy'))).Count
+    return ([regex]::Matches($content, [regex]::Escape('Locking Glass desktop switch policy'))).Count
 }
 
 function Wait-ForBackgroundReportCount([string]$path, [int]$expectedMinimum) {
@@ -572,7 +572,7 @@ function Get-BackgroundReportSummary([string]$path, [array]$windowTitles) {
     $excerpt = @(
         $lines |
             Where-Object {
-                $_ -eq 'LockingGlass desktop switch policy' -or
+                $_ -eq 'Locking Glass desktop switch policy' -or
                 $_ -eq 'Locked monitors:' -or
                 $_ -eq 'Moves:' -or
                 $_ -eq 'Move results:' -or
@@ -591,7 +591,7 @@ function Get-BackgroundReportSummary([string]$path, [array]$windowTitles) {
     return [pscustomobject]@{
         exists = $true
         path = $path
-        report_count = ([regex]::Matches($content, [regex]::Escape('LockingGlass desktop switch policy'))).Count
+        report_count = ([regex]::Matches($content, [regex]::Escape('Locking Glass desktop switch policy'))).Count
         size_bytes = $item.Length
         window_mentions = $windowMentions
         excerpt = $excerpt
@@ -626,7 +626,7 @@ function Stop-ProcessTree([int]$parentProcessId) {
 
 function Open-TrayMenu([IntPtr]$backgroundWindow) {
     if ($backgroundWindow -eq [IntPtr]::Zero) {
-        throw 'Could not find LockingGlass background window.'
+        throw 'Could not find Locking Glass background window.'
     }
 
     [void][LockingGlassBackgroundProofWin32]::PostMessageW($backgroundWindow, 0x8001, [IntPtr]::Zero, [IntPtr]0x0202)

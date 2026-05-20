@@ -1,6 +1,6 @@
-# LockingGlass Style Guide
+# Locking Glass Style Guide
 
-LockingGlass favors boring, explicit code over clever abstractions. Keep changes
+Locking Glass favors boring, explicit code over clever abstractions. Keep changes
 small and easy to audit.
 
 ## C++ Style

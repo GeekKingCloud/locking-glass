@@ -1,15 +1,15 @@
-# LockingGlass Agent Instructions
+# Locking Glass Agent Instructions
 
 Start with the global coding-agent instructions at `C:\Users\thete\AGENTS.md`.
 Those instructions remain authoritative for shared workflow, skills, safety,
 memory, and collaboration rules.
 
-This file adds project-local rules for LockingGlass. Read `STYLE.md` before
+This file adds project-local rules for Locking Glass. Read `STYLE.md` before
 editing source, scripts, tests, or docs in this repository.
 
 ## Project Boundary
 
-LockingGlass is a Windows-specific tray tool. Keep release work focused on the
+Locking Glass is a Windows-specific tray tool. Keep release work focused on the
 Windows build, Windows packaging, and Windows runtime proof path. Do not add
 cross-platform runtime promises or broad portability layers.
 

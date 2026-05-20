@@ -22,8 +22,8 @@ namespace LockingGlass.WindowsLiveDesktopProbe
                 {
                     logger.Info(
                         options.WatchStream
-                            ? "LockingGlass live desktop watch starting."
-                            : "LockingGlass live desktop probe starting.");
+                            ? "Locking Glass live desktop watch starting."
+                            : "Locking Glass live desktop probe starting.");
                     logger.Info("Mode: " + (options.WatchStream ? "watch-stream" : "probe"));
                     logger.Info("Helper DLL: " + options.HelperDllPath);
                     logger.Info("Required desktop events: " + options.RequiredEvents);
@@ -269,7 +269,7 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             if (!File.Exists(helperDllPath))
             {
                 throw new InvalidOperationException(
-                    "LockingGlass fails closed because the live helper DLL is missing: " +
+                    "Locking Glass fails closed because the live helper DLL is missing: " +
                     helperDllPath);
             }
 
@@ -392,7 +392,7 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             if (!NativeLibrary.TryGetExport(_libraryHandle, exportName, out exportHandle))
             {
                 throw new InvalidOperationException(
-                    "LockingGlass fails closed because VirtualDesktopAccessor.dll is missing export '" +
+                    "Locking Glass fails closed because VirtualDesktopAccessor.dll is missing export '" +
                     exportName + "'.");
             }
 
@@ -444,7 +444,7 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             if (desktopManagerType == null)
             {
                 throw new InvalidOperationException(
-                    "LockingGlass fails closed because the VirtualDesktopManager class type " +
+                    "Locking Glass fails closed because the VirtualDesktopManager class type " +
                     "could not be resolved.");
             }
 
@@ -453,7 +453,7 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             if (desktopManager == null)
             {
                 throw new InvalidOperationException(
-                    "LockingGlass fails closed because IVirtualDesktopManager could not be created.");
+                    "Locking Glass fails closed because IVirtualDesktopManager could not be created.");
             }
 
             _desktopManager = desktopManager;
@@ -568,8 +568,8 @@ namespace LockingGlass.WindowsLiveDesktopProbe
                 WS_EX_TOOLWINDOW,
                 _className,
                 _options.WatchStream
-                    ? "LockingGlass Live Desktop Watch"
-                    : "LockingGlass Live Desktop Probe",
+                    ? "Locking Glass Live Desktop Watch"
+                    : "Locking Glass Live Desktop Probe",
                 _options.WatchStream
                     ? WS_OVERLAPPED
                     : WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE,
@@ -731,7 +731,7 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             if (desktopCount < 2)
             {
                 FailClosed(
-                    "Desktop count is below 2. LockingGlass cannot prove the live hook or " +
+                    "Desktop count is below 2. Locking Glass cannot prove the live hook or " +
                     "move path on a single-desktop shell.");
                 return;
             }
@@ -754,7 +754,7 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             if (registerResult < 0)
             {
                 FailClosed(
-                    "RegisterPostMessageHook failed. LockingGlass must fail closed because the " +
+                    "RegisterPostMessageHook failed. Locking Glass must fail closed because the " +
                     "live notification source is unavailable.");
                 return;
             }
@@ -940,7 +940,7 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             var shouldRemoveCreatedDesktop = true;
             try
             {
-                if (_controller.SetDesktopName(createdDesktopNumber, "Locking-Glass-Proof") < 0)
+                if (_controller.SetDesktopName(createdDesktopNumber, "Locking Glass Proof") < 0)
                 {
                     FailClosed(
                         "VirtualDesktopAccessor.SetDesktopName failed during the staging lifecycle exercise.");
@@ -948,7 +948,7 @@ namespace LockingGlass.WindowsLiveDesktopProbe
                 }
 
                 var resolvedName = _controller.GetDesktopName(createdDesktopNumber);
-                if (resolvedName != "Locking-Glass-Proof")
+                if (resolvedName != "Locking Glass Proof")
                 {
                     FailClosed(
                         "VirtualDesktopAccessor.GetDesktopName returned '" + resolvedName +
@@ -1062,7 +1062,7 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             _moveTargetFilePath = Path.Combine(Path.GetTempPath(), moveTargetFileName);
             File.WriteAllText(
                 _moveTargetFilePath,
-                "LockingGlass move-path proof target" + Environment.NewLine);
+                "Locking Glass move-path proof target" + Environment.NewLine);
 
             try
             {

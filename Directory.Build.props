@@ -5,7 +5,7 @@
     <AssemblyVersion Condition="'$(AssemblyVersion)' == ''">$(LockingGlassVersion).0</AssemblyVersion>
     <FileVersion Condition="'$(FileVersion)' == ''">$(LockingGlassVersion).0</FileVersion>
     <InformationalVersion Condition="'$(InformationalVersion)' == ''">$(LockingGlassVersion)</InformationalVersion>
-    <Company Condition="'$(Company)' == ''">LockingGlass Contributors</Company>
-    <Product Condition="'$(Product)' == ''">LockingGlass</Product>
+    <Company Condition="'$(Company)' == ''">Locking Glass Contributors</Company>
+    <Product Condition="'$(Product)' == ''">Locking Glass</Product>
   </PropertyGroup>
 </Project>

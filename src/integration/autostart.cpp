@@ -17,7 +17,7 @@ namespace {
 constexpr char kAutostartScope[] = "current-user logon";
 constexpr char kAutostartLocation[] =
     "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-constexpr char kAutostartEntryName[] = "LockingGlass";
+constexpr char kAutostartEntryName[] = "Locking Glass";
 constexpr char kBackgroundArgument[] = "--background";
 
 #if defined(_WIN32)
@@ -137,7 +137,7 @@ class AutostartManagerImpl final : public AutostartManager {
           .success = false,
           .changed = false,
           .detail =
-              "Failed to open the current-user Run key for LockingGlass autostart.",
+              "Failed to open the current-user Run key for Locking Glass autostart.",
       };
     }
 
@@ -151,7 +151,7 @@ class AutostartManagerImpl final : public AutostartManager {
           .success = true,
           .changed = false,
           .detail =
-              "LockingGlass autostart was already enabled for the current user.",
+              "Locking Glass autostart was already enabled for the current user.",
       };
     }
 
@@ -166,14 +166,14 @@ class AutostartManagerImpl final : public AutostartManager {
           .success = false,
           .changed = false,
           .detail =
-              "Failed to write the LockingGlass Run entry for background startup.",
+              "Failed to write the Locking Glass Run entry for background startup.",
       };
     }
 
     return AutostartRegistrationResult{
         .success = true,
         .changed = true,
-        .detail = "Enabled current-user LockingGlass autostart in the Windows Run key.",
+        .detail = "Enabled current-user Locking Glass autostart in the Windows Run key.",
     };
 #else
     return AutostartRegistrationResult{

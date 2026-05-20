@@ -24,7 +24,7 @@ namespace locking_glass::integration::internal {
 
 namespace {
 
-constexpr char kStagingDesktopName[] = "Locking-Glass";
+constexpr char kStagingDesktopName[] = "Locking Glass";
 
 bool GuidIsZero(const GUID& guid) {
   return guid.Data1 == 0 && guid.Data2 == 0 && guid.Data3 == 0 &&
@@ -483,7 +483,7 @@ class WindowsVirtualDesktopHelper {
       if (detail != nullptr) {
         *detail =
             "VirtualDesktopAccessor.dll is missing CreateDesktop or "
-            "SetDesktopName lifecycle support, so LockingGlass cannot create "
+            "SetDesktopName lifecycle support, so Locking Glass cannot create "
             "the staging desktop safely.";
       }
       return std::nullopt;
@@ -1118,7 +1118,7 @@ CapabilityReport ProbeWindowsController() {
         .component = "desktop-locking",
         .status = CapabilityStatus::kReady,
         .detail =
-            "Live desktop locking is available through the VirtualDesktopAccessor post-message hook, move exports, and Locking-Glass staging desktop lifecycle exports; replay through LOCKING_GLASS_DESKTOP_SCRIPT stays test-only and is not completion evidence for the core feature.",
+            "Live desktop locking is available through the VirtualDesktopAccessor post-message hook, move exports, and Locking Glass staging desktop lifecycle exports; replay through LOCKING_GLASS_DESKTOP_SCRIPT stays test-only and is not completion evidence for the core feature.",
     };
   }
 
@@ -1136,7 +1136,7 @@ int WatchWindowsLiveSwitches(const core::SessionStore& store,
   const auto asset_root = FindLiveWatchAssetRoot();
   if (asset_root.empty()) {
     std::cerr
-        << "LockingGlass could not locate bundled live desktop watch assets "
+        << "Locking Glass could not locate bundled live desktop watch assets "
            "beside the executable or in the executable's repository ancestors, "
            "so the live Windows desktop watch path cannot start.\n";
     return 1;
@@ -1150,7 +1150,7 @@ int WatchWindowsLiveSwitches(const core::SessionStore& store,
   FILE* pipe = _popen(command.c_str(), "r");
   if (pipe == nullptr) {
     std::cerr
-        << "LockingGlass could not launch the live Windows desktop watch helper.\n";
+        << "Locking Glass could not launch the live Windows desktop watch helper.\n";
     return 1;
   }
 
@@ -1174,7 +1174,7 @@ int WatchWindowsLiveSwitches(const core::SessionStore& store,
         helper = WindowsVirtualDesktopHelper::Load(asset_root,
                                                    &helper_library_detail);
         if (helper == nullptr) {
-          std::cerr << "LockingGlass could not load VirtualDesktopAccessor.dll "
+          std::cerr << "Locking Glass could not load VirtualDesktopAccessor.dll "
                        "for live window moves: "
                     << helper_library_detail << '\n';
           break;
@@ -1202,7 +1202,7 @@ int WatchWindowsLiveSwitches(const core::SessionStore& store,
     return 0;
   }
 
-  std::cerr << "LockingGlass live Windows desktop watch failed";
+  std::cerr << "Locking Glass live Windows desktop watch failed";
   if (!log_path.empty()) {
     std::cerr << "; helper log: " << log_path.string();
   }

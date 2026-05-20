@@ -1,8 +1,8 @@
 # Third-Party Notices
 
-This file is the public notice file for dependencies bundled into LockingGlass release artifacts. It intentionally lists bundled runtime dependencies, not every build-only tool used during development.
+This file is the public notice file for dependencies bundled into Locking Glass release artifacts. It intentionally lists bundled runtime dependencies, not every build-only tool used during development.
 
-LockingGlass currently bundles the following third-party runtime components in its Windows release packages.
+Locking Glass currently bundles the following third-party runtime components in its Windows release packages.
 
 ## VirtualDesktopAccessor.dll
 
@@ -14,7 +14,7 @@ LockingGlass currently bundles the following third-party runtime components in i
 - License: `MIT`
 - Copyright: `Jari Pennanen, 2015-2024`
 
-LockingGlass copies this notice into staged and installed Windows packages as `THIRD_PARTY_NOTICES.txt`.
+Locking Glass copies this notice into staged and installed Windows packages as `THIRD_PARTY_NOTICES.txt`.
 
 ## Microsoft .NET Runtime Components
 
