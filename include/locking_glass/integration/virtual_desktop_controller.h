@@ -34,6 +34,8 @@ struct DesktopSwitchReport {
 };
 
 struct DesktopWatchOptions {
+  // Replay is a test seam; live Windows proof still requires helper-backed
+  // desktop-switch events from VirtualDesktopAccessor.
   bool allow_script_replay = true;
   int required_events = 2;
   int timeout_seconds = 0;

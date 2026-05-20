@@ -1,4 +1,6 @@
 $script:LockingGlassVirtualDesktopAccessorReleaseUrl = 'https://github.com/Ciantic/VirtualDesktopAccessor/releases/download/2024-12-16-windows11/VirtualDesktopAccessor.dll'
+# This hash pin is the trust boundary for the downloaded helper DLL bundled
+# into release packages.
 $script:LockingGlassVirtualDesktopAccessorSha256 = '8740C572A1C000E3B87FFEB1E4C397EAE9AF3BD4A2ABDC3BCFFACAB4493F8FF5'
 
 function Get-LockingGlassSha256 {

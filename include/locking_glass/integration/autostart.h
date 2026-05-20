@@ -12,6 +12,7 @@ struct AutostartPlan {
   std::string location;
   std::string entry_name;
   std::string launch_mode;
+  // Already quoted for HKCU Run. Callers should write this string as-is.
   std::string launch_command;
 };
 

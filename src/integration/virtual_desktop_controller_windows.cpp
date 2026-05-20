@@ -501,6 +501,8 @@ class WindowsVirtualDesktopHelper {
     }
 
     if (set_desktop_name_(created_desktop_number, kStagingDesktopName) < 0) {
+      // No user windows have been staged yet, so removing this new desktop is
+      // safe and avoids leaving behind a nameless scratch workspace.
       remove_desktop_(created_desktop_number, 0);
       if (detail != nullptr) {
         *detail = "SetDesktopName returned a failure status for the staging desktop.";

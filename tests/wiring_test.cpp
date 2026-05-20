@@ -4,6 +4,9 @@
 #include "locking_glass/integration/autostart.h"
 #include "locking_glass/platform/window_return_tracker.h"
 
+// Single-executable harness for core policy plus scripted platform seams.
+// Scripted replay proves wiring and invariants, not live Windows desktop hooks.
+
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -223,6 +226,8 @@ void ExpectWindowsAwareCapability(
 }
 
 bool RunSessionStoreChecks() {
+  // Covers monitor identity reconciliation, startup unlock reset, topology
+  // persistence, and fail-closed recovery from rejected session files.
   int failures = 0;
 
   const auto temp_directory = MakeTempDirectory();
@@ -977,6 +982,8 @@ bool RunBackgroundControllerStatusChecks() {
 }
 
 bool RunUnlockReturnChecks() {
+  // Combines tracker memory, replay return scripts, and background tray unlock
+  // flow so return-to-home state is proven as current-run behavior.
   int failures = 0;
 
   const auto temp_directory = MakeTempDirectory();
@@ -1338,6 +1345,8 @@ bool RunUnlockReturnChecks() {
 }
 
 bool RunDesktopLockingChecks() {
+  // The replay-only staging desktop field tests production move ordering and
+  // non-Windows fail-closed gating without claiming live helper coverage.
   int failures = 0;
 
   const auto temp_directory = MakeTempDirectory();

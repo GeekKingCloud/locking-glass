@@ -21,6 +21,8 @@ struct DesktopSwitchScenario {
   std::string trigger;
   std::string source_desktop_id;
   std::string target_desktop_id;
+  // Supplied by integration when it owns a safe scratch desktop; core only
+  // plans move ordering and never creates or removes Windows desktops.
   std::string staging_desktop_id;
   std::vector<platform::MonitorDescriptor> monitors;
   std::vector<DesktopWindow> windows;

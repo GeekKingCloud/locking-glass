@@ -59,6 +59,8 @@ Remove-Item -Recurse -Force $installerPublishDir, $uninstallerPublishDir -ErrorA
 Remove-Item -Force $payloadZip -ErrorAction SilentlyContinue
 Remove-Item -Force $targetExe, $targetUninstallerExe -ErrorAction SilentlyContinue
 
+# The payload is intentionally flat; the bootstrapper rejects nested or rooted
+# entries before extraction.
 Compress-Archive -Path $stagedFiles.FullName -DestinationPath $payloadZip -Force
 
 function Publish-Bootstrapper([string]$Mode, [string]$PublishDir, [string]$TargetPath) {

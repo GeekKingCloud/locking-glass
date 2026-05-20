@@ -59,6 +59,8 @@ HMODULE LoadHelperFromAncestorSearch(const std::filesystem::path& start) {
 }
 
 HMODULE LoadVirtualDesktopHelper() {
+  // The environment override is for proof/dev runs. Installed runtime prefers
+  // the adjacent packaged DLL, then repository build locations for local tests.
   wchar_t helper_path[MAX_PATH];
   const DWORD length = GetEnvironmentVariableW(
       L"LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER", helper_path, MAX_PATH);
@@ -118,6 +120,8 @@ WindowsVirtualDesktopSurfaceProbe ProbeWindowsVirtualDesktopSurface() {
       helper_library != nullptr &&
       GetProcAddress(helper_library, "MoveWindowToDesktopNumber") != nullptr &&
       GetProcAddress(helper_library, "GetWindowDesktopNumber") != nullptr;
+  // Lifecycle exports are required for the owned staging desktop; without them
+  // live locking fails closed instead of using a user's workspace as overflow.
   probe.helper_lifecycle_ready =
       helper_library != nullptr &&
       GetProcAddress(helper_library, "GetDesktopCount") != nullptr &&

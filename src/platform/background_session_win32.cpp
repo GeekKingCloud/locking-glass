@@ -70,6 +70,8 @@ struct IconColor {
 };
 
 struct BackgroundSessionState {
+  // Owned by the hidden-window message thread. The window return tracker is the
+  // only state intentionally shared with the desktop-watch worker.
   core::SessionStore session_store;
   std::unique_ptr<MonitorGateway> monitor_gateway = CreateMonitorGateway();
   std::shared_ptr<WindowReturnTracker> window_return_tracker =

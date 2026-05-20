@@ -115,6 +115,8 @@ std::vector<MonitorWatchEvent> LoadScriptedEvents(
 
 #if defined(_WIN32)
 struct MonitorWatchContext {
+  // Stack-owned by RunWindowsMonitorWatch; the hidden window and message loop
+  // are destroyed before this callback reference can go out of scope.
   const MonitorWatchCallback* callback = nullptr;
 };
 
@@ -143,6 +145,8 @@ LRESULT CALLBACK MonitorWatchWindowProc(HWND window, UINT message,
     case WM_DISPLAYCHANGE:
       if (context != nullptr &&
           !DispatchMonitorUpdate(*context, "WM_DISPLAYCHANGE")) {
+        // A false callback return is the watcher shutdown signal. Destroying
+        // the hidden window exits through WM_DESTROY and PostQuitMessage.
         DestroyWindow(window);
       }
       return 0;

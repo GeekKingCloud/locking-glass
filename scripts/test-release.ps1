@@ -379,6 +379,8 @@ function Test-PinnedVirtualDesktopHelper([string]$Directory, [string]$Label) {
         throw "$Label is missing VirtualDesktopAccessor.dll under '$Directory'."
     }
 
+    # Re-check staged and extracted payloads against the resolver's pinned hash
+    # so packaging cannot silently swap the helper DLL.
     $actualHash = (Get-FileHash -Algorithm SHA256 $helperPath).Hash.ToUpperInvariant()
     if ($actualHash -ne $script:LockingGlassVirtualDesktopAccessorSha256) {
         throw "$Label bundled VirtualDesktopAccessor.dll SHA-256 '$actualHash' did not match expected '$script:LockingGlassVirtualDesktopAccessorSha256'."

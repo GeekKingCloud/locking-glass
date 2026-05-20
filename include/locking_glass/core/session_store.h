@@ -68,6 +68,8 @@ class SessionStore {
   locking_glass::integration::CapabilityReport Probe() const;
   SessionLoadResult Load() const;
   bool Save(const SessionSnapshot& snapshot) const;
+  // Preview is read-only diagnostics, StartUnlocked is process startup policy,
+  // and Restore is in-run reconciliation that may preserve active locks.
   SessionRefreshResult Preview(
       const std::vector<platform::MonitorDescriptor>& live_monitors) const;
   SessionRefreshResult StartUnlocked(

@@ -70,6 +70,8 @@ class BackgroundSession {
  public:
   virtual ~BackgroundSession() = default;
   virtual locking_glass::integration::CapabilityReport Probe() const = 0;
+  // Observation is for scripted tests and proof logs. Runtime behavior must not
+  // depend on an observer being installed.
   virtual int Run(
       const BackgroundSessionObserver& observer = BackgroundSessionObserver{}) const = 0;
 };

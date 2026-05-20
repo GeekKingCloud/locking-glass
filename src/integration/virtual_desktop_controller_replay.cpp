@@ -111,6 +111,8 @@ std::vector<core::DesktopSwitchScenario> LoadDesktopScript(
       continue;
     }
 
+    // The optional sixth replay field is the staging desktop id. It exercises
+    // production move policy without pretending to be live helper proof.
     if (fields[0] == "event" && (fields.size() == 5U || fields.size() == 6U) &&
         fields[1] == "desktop-switch") {
       scenarios.push_back(core::DesktopSwitchScenario{

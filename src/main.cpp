@@ -137,6 +137,8 @@ int main(int argc, char** argv) {
     return runtime.background_session->Run();
   }
 
+  // No-argument Windows launches are the tray app. Non-Windows keeps a
+  // diagnostic path for CI/smoke output without promising runtime support.
 #if defined(_WIN32)
   return runtime.background_session->Run();
 #else

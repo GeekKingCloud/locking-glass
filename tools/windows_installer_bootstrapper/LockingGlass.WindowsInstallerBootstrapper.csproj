@@ -6,6 +6,7 @@
     <AssemblyName>LockingGlass.WindowsInstallerBootstrapper</AssemblyName>
     <RootNamespace>LockingGlass.WindowsInstallerBootstrapper</RootNamespace>
     <LangVersion>8.0</LangVersion>
+    <!-- The same source builds installer and uninstaller executables. -->
     <BootstrapperMode Condition="'$(BootstrapperMode)' == ''">install</BootstrapperMode>
     <Description>Locking Glass Windows setup bootstrapper</Description>
     <FileDescription>Locking Glass Windows setup bootstrapper</FileDescription>
@@ -18,6 +19,7 @@
     </AssemblyAttribute>
   </ItemGroup>
 
+  <!-- The embedded flat payload is validated against LOCKING_GLASS_PAYLOAD_MANIFEST.txt. -->
   <ItemGroup Condition="Exists('$(PayloadZip)')">
     <EmbeddedResource Include="$(PayloadZip)" LogicalName="payload.zip" />
   </ItemGroup>

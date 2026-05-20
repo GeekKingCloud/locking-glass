@@ -1,5 +1,7 @@
 #include <winver.h>
 
+// Release builds inject VERSION-derived macros. The zero fallbacks only keep
+// ad hoc resource compilation possible outside the release pipeline.
 #ifndef LOCKING_GLASS_VERSION_MAJOR
 #define LOCKING_GLASS_VERSION_MAJOR 0
 #endif
