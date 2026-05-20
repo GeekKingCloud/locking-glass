@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   windows-build:
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     permissions:
       contents: read
     outputs:
@@ -23,7 +23,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Resolve release version
         id: version
@@ -49,7 +49,7 @@ jobs:
           "artifact_name=locking-glass-windows-$version" >> $env:GITHUB_OUTPUT
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 8.0.x
 
@@ -85,7 +85,7 @@ jobs:
             -UninstallerExeName '${{ steps.version.outputs.uninstaller_name }}'
 
       - name: Upload workflow artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.version.outputs.artifact_name }}
           path: |
@@ -105,13 +105,13 @@ jobs:
 
     steps:
       - name: Download release artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ${{ needs.windows-build.outputs.artifact_name }}
           path: dist
 
       - name: Publish GitHub release assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/*
