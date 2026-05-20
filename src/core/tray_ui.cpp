@@ -79,7 +79,7 @@ std::string BuildMonitorStatusLabel(const TrayMonitorState& monitor) {
   std::ostringstream builder;
   builder << (monitor.locked ? "locked" : "unlocked");
   if (monitor.requires_confirmation) {
-    builder << ", review required";
+    builder << ", confirm monitor";
   }
   return builder.str();
 }
@@ -120,14 +120,14 @@ std::string BuildMonitorMenuLabel(const TrayMonitorState& monitor) {
   }
   builder << ")";
   if (monitor.requires_confirmation) {
-    builder << " [review]";
+    builder << " [new]";
   }
   return builder.str();
 }
 
 std::string BuildMonitorIdentifyLabel(const TrayMonitorState& monitor) {
   std::ostringstream builder;
-  builder << "Hover highlights " << monitor.monitor.label << " on screen";
+  builder << monitor.monitor.label << " on screen";
   if (!monitor.monitor.display_name.empty()) {
     builder << " (" << monitor.monitor.display_name << ", ";
   } else {
@@ -143,27 +143,12 @@ std::string BuildMonitorIdentifyLabel(const TrayMonitorState& monitor) {
 }
 
 TrayMenuHeader BuildTrayMenuHeader(const TrayMenuModel& model) {
+  (void)model;
   TrayMenuHeader header{
-      .title = "Keep selected monitors pinned",
+      .title = {},
       .subtitle = {},
-      .instruction =
-          "Hover a monitor to identify it, then click to choose whether it "
-          "stays pinned while other monitors follow Windows desktop "
-          "switches.",
+      .instruction = {},
   };
-
-  std::ostringstream subtitle;
-  subtitle << model.monitors.size() << " visible";
-  if (model.monitors.size() == 1U) {
-    subtitle << " monitor";
-  } else {
-    subtitle << " monitors";
-  }
-  subtitle << " | " << model.locked_monitors << " locked";
-  if (model.review_monitors > 0U) {
-    subtitle << " | " << model.review_monitors << " need review";
-  }
-  header.subtitle = subtitle.str();
   return header;
 }
 
@@ -193,7 +178,7 @@ TrayIconState BuildTrayIconState(const TrayMenuModel& model) {
   tooltip << "LockingGlass - " << model.locked_monitors << " of "
           << model.monitors.size() << " locked";
   if (model.review_monitors > 0U) {
-    tooltip << ", " << model.review_monitors << " need review";
+    tooltip << ", " << model.review_monitors << " new";
   }
   icon.tooltip = tooltip.str();
 
@@ -203,7 +188,7 @@ TrayIconState BuildTrayIconState(const TrayMenuModel& model) {
                       << " unlocked";
   if (model.review_monitors > 0U) {
     accessibility_label << ", " << model.review_monitors
-                        << " pending review";
+                        << " pending confirmation";
     icon.review_badge = true;
   }
   icon.accessibility_label = accessibility_label.str();
@@ -313,20 +298,20 @@ MonitorReviewPrompt BuildMonitorReviewPrompt(
   };
 
   if (prompt.monitors.size() == 1U) {
-    prompt.title = "Review new monitor lock state";
+    prompt.title = "Confirm new monitor";
     prompt.message =
         BuildMonitorDisplayLabel(prompt.monitors.front()) +
-        " was added unlocked. Open the LockingGlass tray icon to review its "
-        "lock state.";
+        " was added unlocked. Open the LockingGlass tray icon to confirm its "
+        "lock setting.";
     return prompt;
   }
 
-  prompt.title = "Review new monitor lock states";
+  prompt.title = "Confirm new monitors";
   prompt.message = std::to_string(prompt.monitors.size()) +
                    " monitors were added unlocked: " +
                    BuildPromptMonitorList(prompt.monitors) +
-                   ". Open the LockingGlass tray icon to review their lock "
-                   "states.";
+                   ". Open the LockingGlass tray icon to confirm their lock "
+                   "settings.";
   return prompt;
 }
 
@@ -354,7 +339,7 @@ std::string FormatTrayMenuModel(const TrayMenuModel& model) {
   builder << "Summary:\n";
   builder << "  - visible monitors: " << model.monitors.size() << '\n';
   builder << "  - locked monitors: " << model.locked_monitors << '\n';
-  builder << "  - review required: " << model.review_monitors << '\n';
+  builder << "  - confirmation required: " << model.review_monitors << '\n';
   builder << "Monitors:\n";
   if (model.monitors.empty()) {
     builder << "  - none available\n";

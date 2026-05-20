@@ -864,11 +864,20 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state) {
     std::vector<HBITMAP> menu_bitmaps;
     labels.reserve(model.monitors.size() + 8U);
     menu_bitmaps.reserve(model.monitors.size());
-    labels.push_back(Widen(model.header.title));
-    AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
-    labels.push_back(Widen(model.header.subtitle));
-    AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
-    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    bool appended_header = false;
+    if (!model.header.title.empty()) {
+      labels.push_back(Widen(model.header.title));
+      AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
+      appended_header = true;
+    }
+    if (!model.header.subtitle.empty()) {
+      labels.push_back(Widen(model.header.subtitle));
+      AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
+      appended_header = true;
+    }
+    if (appended_header) {
+      AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    }
 
     if (model.monitors.empty()) {
       AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, L"No monitors detected");
@@ -896,9 +905,11 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state) {
       }
     }
 
-    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    labels.push_back(Widen(model.header.instruction));
-    AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
+    if (!model.header.instruction.empty()) {
+      AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+      labels.push_back(Widen(model.header.instruction));
+      AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
+    }
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kMenuCommandRefresh, L"Refresh monitor list");
     AppendMenuW(menu, MF_STRING, kMenuCommandExit, L"Exit LockingGlass");
