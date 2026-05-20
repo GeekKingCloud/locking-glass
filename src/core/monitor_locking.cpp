@@ -175,7 +175,8 @@ std::string FormatMonitorLockingPlan(const MonitorLockingPlan& plan) {
           << '\n';
   builder << "  - restored locks: " << plan.session.restored_locked_monitors
           << '\n';
-  builder << "  - review required: " << plan.session.review_monitors << '\n';
+  builder << "  - confirmation required: " << plan.session.review_monitors
+          << '\n';
 
   builder << "Policy:\n";
   builder << "  - locked monitors: " << plan.locked_monitors.size() << '\n';

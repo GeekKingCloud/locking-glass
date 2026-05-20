@@ -154,8 +154,8 @@ std::string FormatDiagnostics(const StartupDiagnostics& diagnostics) {
           << diagnostics.session.restored_locked_monitors << '\n';
   builder << "  - disconnected monitors: "
           << diagnostics.session.disconnected_monitors << '\n';
-  builder << "  - review required: " << diagnostics.session.review_monitors
-          << '\n';
+  builder << "  - confirmation required: "
+          << diagnostics.session.review_monitors << '\n';
   if (!diagnostics.session.invalid_storage_backup_path.empty()) {
     builder << "  - rejected backup: "
             << diagnostics.session.invalid_storage_backup_path.string() << '\n';
@@ -191,7 +191,8 @@ std::string FormatMonitorRefreshReport(const MonitorRefreshReport& report) {
   builder << "  - disconnected monitors: "
           << report.session.disconnected_monitors << '\n';
   builder << "  - new monitors: " << report.session.new_monitors << '\n';
-  builder << "  - review required: " << report.session.review_monitors << '\n';
+  builder << "  - confirmation required: " << report.session.review_monitors
+          << '\n';
   if (report.session.recovered_invalid_data) {
     builder << "  - invalid data recovered: yes\n";
   }

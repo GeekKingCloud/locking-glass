@@ -329,7 +329,7 @@ class BackgroundSessionImpl final : public BackgroundSession {
         .component = "background-session",
         .status = locking_glass::integration::CapabilityStatus::kStubbed,
         .detail =
-            "Tray session is stubbed on non-Windows hosts; LOCKING_GLASS_TRAY_SCRIPT can still replay tray clicks, hover-identify and hover-clear overlay events, monitor toggles, and new-monitor review prompts for local verification.",
+            "Tray session is stubbed on non-Windows hosts; LOCKING_GLASS_TRAY_SCRIPT can still replay tray clicks, hover-identify and hover-clear overlay events, monitor toggles, and new-monitor confirmation prompts for local verification.",
     };
 #endif
   }
