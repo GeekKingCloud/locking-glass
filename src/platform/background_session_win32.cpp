@@ -47,6 +47,11 @@ constexpr int kIdentifyOverlayCardHeight = 108;
 constexpr BYTE kIdentifyOverlayOpacity = 168;
 constexpr UINT kMenuHoverPollMilliseconds = 45;
 
+enum class TrayMenuMode {
+  kMonitorOnly,
+  kManagement,
+};
+
 std::wstring Widen(const std::string& value) {
   if (value.empty()) {
     return L"";
@@ -549,7 +554,8 @@ void RemoveTrayIcon(BackgroundSessionState* state) {
   ReleaseTrayIconHandle(state);
 }
 
-void ShowTrayMenu(HWND window, BackgroundSessionState* state) {
+void ShowTrayMenu(HWND window, BackgroundSessionState* state,
+                  const TrayMenuMode menu_mode) {
   if (window == nullptr || state == nullptr) {
     return;
   }
@@ -619,9 +625,11 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state) {
       labels.push_back(Widen(model.menu_instruction));
       AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
     }
-    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, kMenuCommandRefresh, L"Refresh monitor list");
-    AppendMenuW(menu, MF_STRING, kMenuCommandExit, L"Exit Locking Glass");
+    if (menu_mode == TrayMenuMode::kManagement) {
+      AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+      AppendMenuW(menu, MF_STRING, kMenuCommandRefresh, L"Refresh monitor list");
+      AppendMenuW(menu, MF_STRING, kMenuCommandExit, L"Exit Locking Glass");
+    }
 
     SetForegroundWindow(window);
     // TrackPopupMenu's foreground-window dance and trailing WM_NULL are the
@@ -675,12 +683,14 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state) {
       continue;
     }
 
-    if (command == kMenuCommandRefresh) {
+    if (menu_mode == TrayMenuMode::kManagement &&
+        command == kMenuCommandRefresh) {
       RefreshTrayModel(window, state, "tray-refresh", false, true);
       return;
     }
 
-    if (command == kMenuCommandExit) {
+    if (menu_mode == TrayMenuMode::kManagement &&
+        command == kMenuCommandExit) {
       DestroyWindow(window);
     }
     return;
@@ -862,9 +872,11 @@ LRESULT CALLBACK BackgroundWindowProc(HWND window, UINT message, WPARAM w_param,
         const UINT notification =
             LOWORD(static_cast<DWORD_PTR>(l_param));
         if (notification == WM_CONTEXTMENU || notification == WM_RBUTTONUP ||
-            notification == WM_LBUTTONUP || notification == NIN_SELECT ||
             notification == NIN_KEYSELECT) {
-          ShowTrayMenu(window, state);
+          ShowTrayMenu(window, state, TrayMenuMode::kManagement);
+        } else if (notification == WM_LBUTTONUP ||
+                   notification == NIN_SELECT) {
+          ShowTrayMenu(window, state, TrayMenuMode::kMonitorOnly);
         }
       }
       return 0;
