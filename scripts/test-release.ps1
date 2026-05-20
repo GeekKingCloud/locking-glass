@@ -1,8 +1,9 @@
 param(
     [ValidateSet('All', 'Hygiene', 'Build', 'Package')]
     [string]$Mode = 'All',
+    [string]$AppExeName,
     [string]$SetupExeName,
-    [string]$ZipName
+    [string]$UninstallerExeName
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,12 +14,16 @@ $version = (Get-Content (Join-Path $repoRoot 'VERSION') -Raw).Trim()
 $helperResolverPath = Join-Path $repoRoot 'scripts\resolve-virtual-desktop-helper.ps1'
 . $helperResolverPath
 
-if ([string]::IsNullOrWhiteSpace($SetupExeName)) {
-    $SetupExeName = "LockingGlass-$version-setup-x64.exe"
+if ([string]::IsNullOrWhiteSpace($AppExeName)) {
+    $AppExeName = 'LockingGlass.exe'
 }
 
-if ([string]::IsNullOrWhiteSpace($ZipName)) {
-    $ZipName = "LockingGlass-$version-windows-x64.zip"
+if ([string]::IsNullOrWhiteSpace($SetupExeName)) {
+    $SetupExeName = 'LockingGlass-Installer.exe'
+}
+
+if ([string]::IsNullOrWhiteSpace($UninstallerExeName)) {
+    $UninstallerExeName = 'LockingGlass-Uninstaller.exe'
 }
 
 function Write-Step([string]$Message) {
@@ -126,6 +131,7 @@ function Test-RequiredSourceTracked {
     $requiredTrackedFiles = @(
         '.github/workflows/windows-release.yml',
         'scripts/test-release.ps1',
+        'scripts/Uninstall-LockingGlass.ps1',
         'tools/windows_live_desktop_probe/LockingGlass.WindowsLiveDesktopProbe.csproj',
         'tools/windows_live_desktop_probe/Program.cs',
         'tools/windows_installer_bootstrapper/LockingGlass.WindowsInstallerBootstrapper.csproj',
@@ -315,6 +321,7 @@ function Get-RequiredPackageFiles {
     return @(
         'LockingGlass.exe',
         'Install-LockingGlass.ps1',
+        'Uninstall-LockingGlass.ps1',
         'Start-LockingGlass.cmd',
         'run-live-desktop-probe.ps1',
         'resolve-virtual-desktop-helper.ps1',
@@ -344,20 +351,17 @@ function Assert-PackagePayload([string]$Directory) {
     }
 }
 
-function Test-Sha256Sums([string]$SumPath, [string]$SetupPath, [string]$ZipPath) {
+function Test-Sha256Sums([string]$SumPath, [string[]]$ExpectedPaths) {
     if (-not (Test-Path $SumPath)) {
         throw "Missing checksum file: $SumPath"
     }
 
     $lines = @(Get-Content -Path $SumPath)
-    if ($lines.Count -ne 2) {
-        throw "SHA256SUMS.txt should contain exactly two lines, found $($lines.Count)."
+    if ($lines.Count -ne $ExpectedPaths.Count) {
+        throw "SHA256SUMS.txt should contain exactly $($ExpectedPaths.Count) lines, found $($lines.Count)."
     }
 
-    $expectedFiles = @(
-        (Get-Item $SetupPath),
-        (Get-Item $ZipPath)
-    )
+    $expectedFiles = $ExpectedPaths | ForEach-Object { Get-Item $_ }
     foreach ($expectedFile in $expectedFiles) {
         $expectedHash = (Get-FileHash -Algorithm SHA256 $expectedFile.FullName).Hash.ToLowerInvariant()
         $expectedName = $expectedFile.Name
@@ -431,11 +435,13 @@ function Test-Package {
     $installerDir = Join-Path $repoRoot 'build\windows-installer'
     $releaseDir = Join-Path $repoRoot 'build\release'
     $extractDir = Join-Path $repoRoot 'build\windows-installer-smoke'
-    $zipExtractDir = Join-Path $repoRoot 'build\windows-zip-smoke'
     $installSmokeRoot = Join-Path $repoRoot 'build\windows-install-smoke'
     $installDir = Join-Path $installSmokeRoot 'Programs\LockingGlass'
     $setupPath = Join-Path $installerDir $SetupExeName
-    $zipPath = Join-Path $releaseDir $ZipName
+    $uninstallerPath = Join-Path $installerDir $UninstallerExeName
+    $releaseAppPath = Join-Path $releaseDir $AppExeName
+    $releaseSetupPath = Join-Path $releaseDir $SetupExeName
+    $releaseUninstallerPath = Join-Path $releaseDir $UninstallerExeName
     $sumPath = Join-Path $releaseDir 'SHA256SUMS.txt'
 
     & (Join-Path $repoRoot 'scripts\stage-windows-install.ps1')
@@ -448,28 +454,27 @@ function Test-Package {
         -StageDir $stageDir `
         -OutputDir $installerDir `
         -SetupExeName $SetupExeName `
+        -UninstallerExeName $UninstallerExeName `
         -SkipStage
     Assert-LastCommandSucceeded 'build-windows-installer.ps1'
 
     New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
-    Remove-Item -Force $zipPath, $sumPath -ErrorAction SilentlyContinue
-    Compress-Archive -Path (Join-Path $stageDir '*') -DestinationPath $zipPath -Force
+    Remove-Item -Force $releaseAppPath, $releaseSetupPath, $releaseUninstallerPath, $sumPath -ErrorAction SilentlyContinue
+    Copy-Item -Path (Join-Path $stageDir 'LockingGlass.exe') -Destination $releaseAppPath -Force
+    Copy-Item -Path $setupPath -Destination $releaseSetupPath -Force
+    Copy-Item -Path $uninstallerPath -Destination $releaseUninstallerPath -Force
 
     $sumLines = @(
-        "$((Get-FileHash -Algorithm SHA256 $setupPath).Hash.ToLowerInvariant())  $SetupExeName",
-        "$((Get-FileHash -Algorithm SHA256 $zipPath).Hash.ToLowerInvariant())  $ZipName"
+        "$((Get-FileHash -Algorithm SHA256 $releaseAppPath).Hash.ToLowerInvariant())  $AppExeName",
+        "$((Get-FileHash -Algorithm SHA256 $releaseSetupPath).Hash.ToLowerInvariant())  $SetupExeName",
+        "$((Get-FileHash -Algorithm SHA256 $releaseUninstallerPath).Hash.ToLowerInvariant())  $UninstallerExeName"
     )
     Set-Content -Path $sumPath -Value $sumLines -Encoding ascii
-    Test-Sha256Sums -SumPath $sumPath -SetupPath $setupPath -ZipPath $zipPath
+    Test-Sha256Sums -SumPath $sumPath -ExpectedPaths @($releaseAppPath, $releaseSetupPath, $releaseUninstallerPath)
 
     Remove-Item -Recurse -Force $extractDir -ErrorAction SilentlyContinue
-    Invoke-Checked $setupPath -Arguments @('--extract-only', $extractDir)
+    Invoke-Checked $releaseSetupPath -Arguments @('--extract-only', $extractDir)
     Test-ExtractedPackage -Directory $extractDir -Label 'Setup extract-only smoke'
-
-    Remove-Item -Recurse -Force $zipExtractDir -ErrorAction SilentlyContinue
-    New-Item -ItemType Directory -Force -Path $zipExtractDir | Out-Null
-    Expand-Archive -Path $zipPath -DestinationPath $zipExtractDir -Force
-    Test-ExtractedPackage -Directory $zipExtractDir -Label 'Zip smoke'
 
     Remove-Item -Recurse -Force $installSmokeRoot -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $installSmokeRoot | Out-Null
@@ -479,12 +484,21 @@ function Test-Package {
         $env:APPDATA = Join-Path $installSmokeRoot 'Roaming'
         $env:LOCALAPPDATA = Join-Path $installSmokeRoot 'Local'
         New-Item -ItemType Directory -Force -Path $env:APPDATA, $env:LOCALAPPDATA | Out-Null
-        Invoke-Checked $setupPath -Arguments @('--install-dir', $installDir, '--no-autostart', '--no-launch-after-install')
+        Invoke-Checked $releaseSetupPath -Arguments @('--install-dir', $installDir, '--no-autostart', '--no-launch-after-install')
+        Test-ExtractedPackage -Directory $installDir -Label 'Installed setup smoke'
+        Invoke-Checked $releaseUninstallerPath -Arguments @('--install-dir', $installDir)
     } finally {
         $env:APPDATA = $previousAppData
         $env:LOCALAPPDATA = $previousLocalAppData
     }
-    Test-ExtractedPackage -Directory $installDir -Label 'Installed setup smoke'
+    if (Test-Path $installDir) {
+        throw "Uninstaller smoke did not remove install directory '$installDir'."
+    }
+
+    $startMenuDir = Join-Path $installSmokeRoot 'Roaming\Microsoft\Windows\Start Menu\Programs\LockingGlass'
+    if (Test-Path $startMenuDir) {
+        throw "Uninstaller smoke did not remove Start Menu directory '$startMenuDir'."
+    }
 }
 
 if ($Mode -eq 'All' -or $Mode -eq 'Hygiene') {

@@ -1,7 +1,8 @@
 param(
     [string]$StageDir,
     [string]$OutputDir,
-    [string]$SetupExeName = 'LockingGlass-setup-x64.exe',
+    [string]$SetupExeName = 'LockingGlass-Installer.exe',
+    [string]$UninstallerExeName = 'LockingGlass-Uninstaller.exe',
     [switch]$SkipStage
 )
 
@@ -49,36 +50,45 @@ if ($null -eq $dotnet) {
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 $payloadZip = Join-Path $OutputDir 'LockingGlass-stage-payload.zip'
-$publishDir = Join-Path $OutputDir 'publish'
+$installerPublishDir = Join-Path $OutputDir 'publish-installer'
+$uninstallerPublishDir = Join-Path $OutputDir 'publish-uninstaller'
 $targetExe = Join-Path $OutputDir $SetupExeName
+$targetUninstallerExe = Join-Path $OutputDir $UninstallerExeName
 
-Remove-Item -Recurse -Force $publishDir -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force $installerPublishDir, $uninstallerPublishDir -ErrorAction SilentlyContinue
 Remove-Item -Force $payloadZip -ErrorAction SilentlyContinue
-Remove-Item -Force $targetExe -ErrorAction SilentlyContinue
+Remove-Item -Force $targetExe, $targetUninstallerExe -ErrorAction SilentlyContinue
 
 Compress-Archive -Path $stagedFiles.FullName -DestinationPath $payloadZip -Force
 
-& $dotnet.Source publish $bootstrapperProject `
-    -c Release `
-    -f net8.0 `
-    -r win-x64 `
-    --self-contained true `
-    -o $publishDir `
-    /p:PublishSingleFile=true `
-    /p:EnableCompressionInSingleFile=true `
-    /p:IncludeNativeLibrariesForSelfExtract=true `
-    /p:PayloadZip=$payloadZip
+function Publish-Bootstrapper([string]$Mode, [string]$PublishDir, [string]$TargetPath) {
+    & $dotnet.Source publish $bootstrapperProject `
+        -c Release `
+        -f net8.0 `
+        -r win-x64 `
+        --self-contained true `
+        -o $PublishDir `
+        /p:PublishSingleFile=true `
+        /p:EnableCompressionInSingleFile=true `
+        /p:IncludeNativeLibrariesForSelfExtract=true `
+        /p:PayloadZip=$payloadZip `
+        /p:BootstrapperMode=$Mode
 
-if ($LASTEXITCODE -ne 0) {
-    throw 'dotnet publish failed for the Windows installer bootstrapper.'
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet publish failed for the Windows $Mode bootstrapper."
+    }
+
+    $publishedExe = Join-Path $PublishDir 'LockingGlass.WindowsInstallerBootstrapper.exe'
+    if (-not (Test-Path $publishedExe)) {
+        throw "Bootstrapper publish output did not create '$publishedExe'."
+    }
+
+    Copy-Item -Path $publishedExe -Destination $TargetPath -Force
 }
 
-$publishedExe = Join-Path $publishDir 'LockingGlass.WindowsInstallerBootstrapper.exe'
-if (-not (Test-Path $publishedExe)) {
-    throw "Bootstrapper publish output did not create '$publishedExe'."
-}
-
-Copy-Item -Path $publishedExe -Destination $targetExe -Force
+Publish-Bootstrapper -Mode 'install' -PublishDir $installerPublishDir -TargetPath $targetExe
+Publish-Bootstrapper -Mode 'uninstall' -PublishDir $uninstallerPublishDir -TargetPath $targetUninstallerExe
 
 Write-Host ('Built LockingGlass installer: ' + $targetExe)
+Write-Host ('Built LockingGlass uninstaller: ' + $targetUninstallerExe)
 Write-Host ('Embedded payload zip: ' + $payloadZip)

@@ -14,6 +14,7 @@ $versionSource = Join-Path $repoRoot 'VERSION'
 $licenseSource = Join-Path $repoRoot 'LICENSE'
 $thirdPartySource = Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md'
 $installerSource = Join-Path $repoRoot 'scripts\install-staged-windows-build.ps1'
+$uninstallerSource = Join-Path $repoRoot 'scripts\Uninstall-LockingGlass.ps1'
 $launcherSource = Join-Path $repoRoot 'scripts\Start-LockingGlass.cmd'
 $probeScriptSource = Join-Path $repoRoot 'scripts\run-live-desktop-probe.ps1'
 $helperResolverSource = Join-Path $repoRoot 'scripts\resolve-virtual-desktop-helper.ps1'
@@ -132,6 +133,7 @@ Copy-Item -Path $thirdPartySource -Destination (Join-Path $OutputDir 'THIRD_PART
 Copy-Item -Path $dotnetLicenseSource -Destination (Join-Path $OutputDir 'DOTNET_RUNTIME_LICENSE.txt') -Force
 Copy-Item -Path $dotnetThirdPartySource -Destination (Join-Path $OutputDir 'DOTNET_RUNTIME_THIRD_PARTY_NOTICES.txt') -Force
 Copy-Item -Path $installerSource -Destination (Join-Path $OutputDir 'Install-LockingGlass.ps1') -Force
+Copy-Item -Path $uninstallerSource -Destination (Join-Path $OutputDir 'Uninstall-LockingGlass.ps1') -Force
 Copy-Item -Path $launcherSource -Destination (Join-Path $OutputDir 'Start-LockingGlass.cmd') -Force
 Copy-Item -Path (Join-Path $probePublishDir 'LockingGlass.WindowsLiveDesktopProbe*') -Destination $OutputDir -Force
 

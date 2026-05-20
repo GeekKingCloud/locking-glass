@@ -27,6 +27,7 @@ Thanks for helping improve LockingGlass.
   `scripts/stage-windows-install.ps1`
   `scripts/build-windows-installer.ps1`
   `scripts/install-staged-windows-build.ps1`
+  `scripts/Uninstall-LockingGlass.ps1`
 
 ## Windows Runtime Changes
 

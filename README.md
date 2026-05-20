@@ -27,7 +27,7 @@ Locked monitors keep their visible windows on the same desktop while unlocked mo
 - `tests/wiring_test.cpp`: the automated test harness for the app-level seams.
 - `VERSION`: the single source of truth for the app, installer, and release version.
 - `tools/windows_live_desktop_probe`: the Windows live-hook probe used by proof scripts and installed watch mode.
-- `tools/windows_installer_bootstrapper`: the small self-contained installer bootstrapper used to produce `LockingGlass-<version>-setup-x64.exe`.
+- `tools/windows_installer_bootstrapper`: the small self-contained bootstrapper used to produce `LockingGlass-Installer.exe` and `LockingGlass-Uninstaller.exe`.
 
 ## Build And Test
 
@@ -78,11 +78,12 @@ Release verification is centralized in:
 ./scripts/test-release.ps1 -Mode Package
 ```
 
-`-Mode All` runs the same checks end to end. The runner verifies repo hygiene, required helper source tracking, .NET SDK 8-or-newer helper builds, Windows native build/tests, setup and zip smoke, installed-path smoke, and `SHA256SUMS.txt`. The Windows native build expects `make`, `g++`, `windres`, and a Unix-like shell from MSYS2 or Git for Windows. The live desktop proof scripts remain manual because hosted CI cannot provide the required interactive Windows desktop, monitor, virtual desktop, or tray conditions.
+`-Mode All` runs the same checks end to end. The runner verifies repo hygiene, required helper source tracking, .NET SDK 8-or-newer helper builds, Windows native build/tests, installer extract smoke, installed-path smoke, uninstaller smoke, and `SHA256SUMS.txt`. The Windows native build expects `make`, `g++`, `windres`, and a Unix-like shell from MSYS2 or Git for Windows. The live desktop proof scripts remain manual because hosted CI cannot provide the required interactive Windows desktop, monitor, virtual desktop, or tray conditions.
 
 ## Running On Windows
 
 - repo build: `build-win/bin/locking_glass.exe`
+- release app: `build/release/LockingGlass.exe`
 - installed build: `%LOCALAPPDATA%\Programs\LockingGlass\LockingGlass.exe`
 - launching with no arguments starts the background tray app on Windows
 - `--version` prints the current app version from the repo `VERSION` file
@@ -127,24 +128,28 @@ Reference docs:
 - `scripts/install-staged-windows-build.ps1`
   Installs or updates the staged payload in `%LOCALAPPDATA%\Programs\LockingGlass`, creates Start Menu shortcuts, enables current-user autostart by default, and can optionally launch after install. Use `-NoAutostart` for package smoke tests or manual installs that should not write the Run key.
 - `scripts/build-windows-installer.ps1`
-  Wraps the staged payload into `LockingGlass-<version>-setup-x64.exe` through the bootstrapper tool.
+  Wraps the staged payload into `LockingGlass-Installer.exe` and `LockingGlass-Uninstaller.exe` through the bootstrapper tool.
 - `.github/workflows/windows-release.yml`
   Runs `scripts/test-release.ps1` on pull requests; tag builds also publish release assets after validating that the tag matches `VERSION`.
 
 Public Windows release artifacts should include:
 
-- `LockingGlass-<version>-setup-x64.exe`
-- `LockingGlass-<version>-windows-x64.zip`
+- `LockingGlass.exe`
+- `LockingGlass-Installer.exe`
+- `LockingGlass-Uninstaller.exe`
 - `SHA256SUMS.txt`
 
-`SHA256SUMS.txt` contains SHA-256 hashes for the published installer and zip so users can verify that the files they downloaded match the files that were released.
+`LockingGlass.exe` is the run-once portable app binary. It does not install itself. `LockingGlass-Installer.exe` installs the current-user app, creates shortcuts, enables autostart by default, and launches after install by default. `LockingGlass-Uninstaller.exe` removes the installed current-user app, autostart entry, and shortcuts while preserving session data unless `--remove-user-data` is supplied.
+
+`SHA256SUMS.txt` contains SHA-256 hashes for the published executables so users can verify that the files they downloaded match the files that were released.
 
 GitHub Actions intentionally stops at build, unit-test, packaging, extract-only installer smoke, and packaged `--self-check`. It does not run the live proof scripts because GitHub-hosted runners do not provide an interactive Windows desktop shell, multiple monitors, multiple virtual desktops, or tray interaction.
 
 ## How Updates Work
 
-- The supported upgrade path is manual in-place reinstall through a newer `LockingGlass-<version>-setup-x64.exe` or `Install-LockingGlass.ps1`.
+- The supported upgrade path is manual in-place reinstall through a newer `LockingGlass-Installer.exe` or `Install-LockingGlass.ps1`.
 - The installer stops the currently installed runtime, overwrites files in the stable install directory, preserves the external session-state file location, enables current-user autostart by default, and can relaunch the tray app.
+- The uninstaller stops the installed runtime, removes the current-user autostart entry, removes Start Menu shortcuts, and removes installed app files. It preserves user data unless explicitly asked to remove it.
 - LockingGlass does not include background update checks, release-feed polling, or self-applying updates.
 
 ## Windows Requirements

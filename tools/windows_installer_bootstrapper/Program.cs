@@ -16,6 +16,7 @@ namespace LockingGlass.WindowsInstallerBootstrapper
             try
             {
                 var options = InstallerOptions.Parse(args);
+                var mode = GetBootstrapperMode();
                 var extractDirectory = options.ExtractDirectory ?? CreateExtractionDirectory();
 
                 ExtractPayload(extractDirectory);
@@ -26,6 +27,14 @@ namespace LockingGlass.WindowsInstallerBootstrapper
                     return 0;
                 }
 
+                if (mode == BootstrapperMode.Uninstall)
+                {
+                    return RunUninstaller(
+                        extractDirectory,
+                        options.InstallDirectory,
+                        options.RemoveUserData);
+                }
+
                 return RunInstaller(
                     extractDirectory,
                     options.InstallDirectory,
@@ -34,9 +43,39 @@ namespace LockingGlass.WindowsInstallerBootstrapper
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine("LockingGlass Setup failed: " + ex.Message);
+                Console.Error.WriteLine("LockingGlass bootstrapper failed: " + ex.Message);
                 return 1;
             }
+        }
+
+        private static BootstrapperMode GetBootstrapperMode()
+        {
+            foreach (var metadata in Assembly.GetExecutingAssembly()
+                         .GetCustomAttributes<AssemblyMetadataAttribute>())
+            {
+                if (!string.Equals(
+                        metadata.Key,
+                        "LockingGlassBootstrapperMode",
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (string.Equals(metadata.Value, "uninstall", StringComparison.OrdinalIgnoreCase))
+                {
+                    return BootstrapperMode.Uninstall;
+                }
+
+                if (string.Equals(metadata.Value, "install", StringComparison.OrdinalIgnoreCase))
+                {
+                    return BootstrapperMode.Install;
+                }
+
+                throw new InvalidOperationException(
+                    "Unknown LockingGlass bootstrapper mode: " + metadata.Value);
+            }
+
+            return BootstrapperMode.Install;
         }
 
         private static string CreateExtractionDirectory()
@@ -240,6 +279,59 @@ namespace LockingGlass.WindowsInstallerBootstrapper
             return 0;
         }
 
+        private static int RunUninstaller(
+            string extractionDirectory,
+            string? installDirectory,
+            bool removeUserData)
+        {
+            var uninstallerScript =
+                Path.Combine(extractionDirectory, "Uninstall-LockingGlass.ps1");
+            if (!File.Exists(uninstallerScript))
+            {
+                throw new InvalidOperationException(
+                    "The extracted payload is missing Uninstall-LockingGlass.ps1.");
+            }
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = ResolveWindowsPowerShellPath(),
+                WorkingDirectory = extractionDirectory,
+                UseShellExecute = false
+            };
+
+            startInfo.ArgumentList.Add("-NoProfile");
+            startInfo.ArgumentList.Add("-ExecutionPolicy");
+            startInfo.ArgumentList.Add("Bypass");
+            startInfo.ArgumentList.Add("-File");
+            startInfo.ArgumentList.Add(uninstallerScript);
+
+            if (!string.IsNullOrWhiteSpace(installDirectory))
+            {
+                startInfo.ArgumentList.Add("-InstallDir");
+                startInfo.ArgumentList.Add(installDirectory);
+            }
+
+            if (removeUserData)
+            {
+                startInfo.ArgumentList.Add("-RemoveUserData");
+            }
+
+            using var process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException(
+                    "Failed to launch the LockingGlass uninstaller script.");
+
+            process.WaitForExit();
+            if (process.ExitCode != 0)
+            {
+                throw new InvalidOperationException(
+                    "LockingGlass uninstallation exited with code " + process.ExitCode + ".");
+            }
+
+            TryDeleteExtractionDirectory(extractionDirectory);
+            Console.WriteLine("LockingGlass uninstallation completed.");
+            return 0;
+        }
+
         private static string ResolveWindowsPowerShellPath()
         {
             var windowsDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
@@ -284,6 +376,8 @@ namespace LockingGlass.WindowsInstallerBootstrapper
 
         public bool LaunchAfterInstall { get; private set; } = true;
 
+        public bool RemoveUserData { get; private set; }
+
         public static InstallerOptions Parse(string[] args)
         {
             var options = new InstallerOptions();
@@ -308,6 +402,9 @@ namespace LockingGlass.WindowsInstallerBootstrapper
                     case "--no-launch-after-install":
                         options.LaunchAfterInstall = false;
                         break;
+                    case "--remove-user-data":
+                        options.RemoveUserData = true;
+                        break;
                     default:
                         throw new InvalidOperationException("Unknown argument: " + args[index]);
                 }
@@ -326,5 +423,11 @@ namespace LockingGlass.WindowsInstallerBootstrapper
             index += 1;
             return args[index];
         }
+    }
+
+    internal enum BootstrapperMode
+    {
+        Install,
+        Uninstall
     }
 }

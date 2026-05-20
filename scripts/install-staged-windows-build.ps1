@@ -123,6 +123,7 @@ $InstallDir = Test-SafeInstallDirectory -TargetInstallDir $InstallDir
 $requiredFiles = @(
     'LockingGlass.exe',
     'Install-LockingGlass.ps1',
+    'Uninstall-LockingGlass.ps1',
     'run-live-desktop-probe.ps1',
     'resolve-virtual-desktop-helper.ps1',
     'VirtualDesktopAccessor.dll',
@@ -172,7 +173,8 @@ $filesToCopy = @(
     'DOTNET_RUNTIME_LICENSE.txt',
     'DOTNET_RUNTIME_THIRD_PARTY_NOTICES.txt',
     'LOCKING_GLASS_PAYLOAD_MANIFEST.txt',
-    'Install-LockingGlass.ps1'
+    'Install-LockingGlass.ps1',
+    'Uninstall-LockingGlass.ps1'
 )
 
 foreach ($fileName in $filesToCopy) {
@@ -215,6 +217,14 @@ $thirdPartyShortcut.WorkingDirectory = $InstallDir
 $thirdPartyShortcut.Description = 'Open bundled third-party license notices for LockingGlass.'
 $thirdPartyShortcut.Save()
 
+$uninstallShortcut = $shell.CreateShortcut((Join-Path $startMenuDir 'Uninstall LockingGlass.lnk'))
+$uninstallShortcut.TargetPath = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$uninstallShortcut.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $InstallDir 'Uninstall-LockingGlass.ps1') + '"'
+$uninstallShortcut.WorkingDirectory = $InstallDir
+$uninstallShortcut.IconLocation = (Join-Path $InstallDir 'LockingGlass.exe') + ',0'
+$uninstallShortcut.Description = 'Uninstall LockingGlass for the current user.'
+$uninstallShortcut.Save()
+
 if (-not $NoAutostart) {
     & $installedExe --install-autostart
     if ($LASTEXITCODE -ne 0) {
@@ -241,7 +251,8 @@ Write-Host ('Launch shortcut: ' + (Join-Path $startMenuDir 'LockingGlass Tray.ln
 Write-Host ('README shortcut: ' + (Join-Path $startMenuDir 'LockingGlass README.lnk'))
 Write-Host ('License shortcut: ' + (Join-Path $startMenuDir 'LockingGlass License.lnk'))
 Write-Host ('Third-party notices shortcut: ' + (Join-Path $startMenuDir 'LockingGlass Third-Party Notices.lnk'))
-Write-Host 'Updates: rerun a newer LockingGlass setup executable or Install-LockingGlass.ps1 over the existing install'
+Write-Host ('Uninstall shortcut: ' + (Join-Path $startMenuDir 'Uninstall LockingGlass.lnk'))
+Write-Host 'Updates: rerun a newer LockingGlass installer executable or Install-LockingGlass.ps1 over the existing install'
 if (-not $NoAutostart) {
     Write-Host 'Autostart: enabled for the current user'
 } else {

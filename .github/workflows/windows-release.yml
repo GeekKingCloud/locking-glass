@@ -43,9 +43,10 @@ jobs:
           }
 
           "version=$version" >> $env:GITHUB_OUTPUT
-          "setup_name=LockingGlass-$version-setup-x64.exe" >> $env:GITHUB_OUTPUT
-          "zip_name=LockingGlass-$version-windows-x64.zip" >> $env:GITHUB_OUTPUT
-          "artifact_name=locking-glass-windows-$version" >> $env:GITHUB_OUTPUT
+          "app_name=LockingGlass.exe" >> $env:GITHUB_OUTPUT
+          "setup_name=LockingGlass-Installer.exe" >> $env:GITHUB_OUTPUT
+          "uninstaller_name=LockingGlass-Uninstaller.exe" >> $env:GITHUB_OUTPUT
+          "artifact_name=Locking-Glass-windows-$version" >> $env:GITHUB_OUTPUT
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
@@ -79,16 +80,18 @@ jobs:
         run: |
           ./scripts/test-release.ps1 `
             -Mode Package `
+            -AppExeName '${{ steps.version.outputs.app_name }}' `
             -SetupExeName '${{ steps.version.outputs.setup_name }}' `
-            -ZipName '${{ steps.version.outputs.zip_name }}'
+            -UninstallerExeName '${{ steps.version.outputs.uninstaller_name }}'
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.version.outputs.artifact_name }}
           path: |
-            build/windows-installer/${{ steps.version.outputs.setup_name }}
-            build/release/${{ steps.version.outputs.zip_name }}
+            build/release/${{ steps.version.outputs.app_name }}
+            build/release/${{ steps.version.outputs.setup_name }}
+            build/release/${{ steps.version.outputs.uninstaller_name }}
             build/release/SHA256SUMS.txt
 
   publish-release:

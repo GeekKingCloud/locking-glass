@@ -30,7 +30,7 @@ LockingGlass must mark live desktop locking as unavailable instead of guessing w
 ## Evidence Hierarchy
 
 - The automated `wiring_test` harness proves host-side policy and scripted seam behavior, including unlock-return logic.
-- GitHub Actions package smoke checks prove that the built setup executable can unpack the expected payload and launch the packaged app for diagnostic checks.
+- GitHub Actions package smoke checks prove that the built installer can unpack the expected payload, launch the packaged app for diagnostic checks, and uninstall the current-user install path.
 - The PowerShell proof scripts prove the live helper-backed Windows path on a real desktop shell.
 - Dated proof notes under `docs/` are audit artifacts for specific runs. When runtime behavior changes, they must either be updated with a new proof run or clearly marked as predating the change.
 

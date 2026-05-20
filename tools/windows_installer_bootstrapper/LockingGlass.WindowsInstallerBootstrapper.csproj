@@ -6,9 +6,17 @@
     <AssemblyName>LockingGlass.WindowsInstallerBootstrapper</AssemblyName>
     <RootNamespace>LockingGlass.WindowsInstallerBootstrapper</RootNamespace>
     <LangVersion>8.0</LangVersion>
+    <BootstrapperMode Condition="'$(BootstrapperMode)' == ''">install</BootstrapperMode>
     <Description>LockingGlass Windows setup bootstrapper</Description>
     <FileDescription>LockingGlass Windows setup bootstrapper</FileDescription>
   </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>LockingGlassBootstrapperMode</_Parameter1>
+      <_Parameter2>$(BootstrapperMode)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
 
   <ItemGroup Condition="Exists('$(PayloadZip)')">
     <EmbeddedResource Include="$(PayloadZip)" LogicalName="payload.zip" />
