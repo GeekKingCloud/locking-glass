@@ -28,50 +28,18 @@ bool RunBackgroundControllerStatusChecks() {
         events.push_back(event);
       });
 
-  failures += !Expect(run_result == 0,
-                      "scripted tray session should still exit successfully when the live controller is unavailable");
-  failures += !Expect(events.size() == 4U,
-                      "unavailable-controller tray script should emit startup, click, toggle, and exit events");
-  if (events.size() == 4U) {
-    failures += !Expect(!events[0].live_controller_available,
-                        "startup tray state should admit that the live controller is unavailable");
-    failures += !Expect(!events[0].live_controller_watcher_started,
-                        "unavailable-controller startup should not claim the watcher is running");
-    failures += !Expect(
-        events[0].live_controller_detail.find("VirtualDesktopAccessor.dll missing") !=
-            std::string::npos,
-        "unavailable-controller tray state should surface the underlying controller detail");
-    failures += !Expect(
-        events[0].menu_status.find("live controller unavailable") !=
-            std::string::npos,
-        "tray status should stop implying that live desktop control is active");
-    failures += !Expect(
-        events[0].menu_instruction.find("Live desktop control unavailable") !=
-            std::string::npos,
-        "tray instruction should explain that live desktop switching will not follow toggles");
-    failures += !Expect(
-        events[0].tray_icon_tooltip.find("live desktop control unavailable") !=
-            std::string::npos,
-        "tray tooltip should expose the unavailable live-controller state");
-
-    const auto* toggled_monitor = FindBackgroundMonitor(events[2], "Display 1");
-    failures += !Expect(toggled_monitor != nullptr,
-                        "tray toggle should still expose the monitor while the controller is unavailable");
-    if (toggled_monitor != nullptr) {
-      failures += !Expect(toggled_monitor->locked,
-                          "tray toggle should still persist the requested lock state");
-    }
-    failures += !Expect(!events[2].live_controller_available,
-                        "tray toggles should keep reporting the unavailable live-controller state");
-  }
+  failures += !Expect(run_result != 0,
+                      "scripted tray session should fail closed when the live controller is unavailable");
+  failures += !Expect(events.empty(),
+                      "unavailable-controller tray script should not publish an interactive tray model");
 
   const auto left_monitor =
       MakeMonitor("stable-left", "DISPLAY#LEFT", "SERIAL-LEFT", "Dell U2720Q",
                   "Display 1", 0, 0, 2560, 1440, true);
   const auto preview =
       locking_glass::core::SessionStore(session_path).Preview({left_monitor});
-  failures += !Expect(preview.restored_locked_monitors == 1U,
-                      "controller-unavailable tray toggles should still persist the saved lock state");
+  failures += !Expect(preview.restored_locked_monitors == 0U,
+                      "controller-unavailable tray toggles should not persist a saved lock state");
 
   SetEnvironmentVariable("LOCKING_GLASS_BACKGROUND_CONTROLLER_STATUS", "");
   SetEnvironmentVariable("LOCKING_GLASS_TRAY_SCRIPT", "");

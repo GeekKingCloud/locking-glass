@@ -12,13 +12,15 @@ CPPFLAGS := -Iinclude -DLOCKING_GLASS_VERSION_STR=\"$(VERSION)\"
 CXXFLAGS ?= -std=c++20 -Wall -Wextra -Werror -pedantic -g -MMD -MP
 LDFLAGS :=
 LDLIBS :=
+APP_LDFLAGS :=
 APP_RESOURCE_OBJECTS :=
 WINDRES ?= windres
 
 ifeq ($(OS),Windows_NT)
 EXE_EXT := .exe
 CPPFLAGS += -DUNICODE -D_UNICODE -DWINVER=0x0601 -D_WIN32_WINNT=0x0601 -D_WIN32_IE=0x0600
-LDFLAGS += -static-libgcc -static-libstdc++
+LDFLAGS += -static -static-libgcc -static-libstdc++
+APP_LDFLAGS += -mwindows
 LDLIBS += -ladvapi32 -lgdi32 -lole32 -lshell32 -luuid -luser32
 LOCKING_GLASS_FILE_VERSION := $(VERSION_MAJOR),$(VERSION_MINOR),$(VERSION_PATCH),0
 APP_RESOURCE_OBJECTS := $(OBJ_DIR)/src/windows_version.res.o
@@ -43,7 +45,7 @@ all: $(APP) $(TEST_BIN)
 
 $(APP): $(APP_LINK_OBJECTS)
 	mkdir -p $(dir $@)
-	$(CXX) $(APP_LINK_OBJECTS) -o $@ $(LDFLAGS) $(LDLIBS)
+	$(CXX) $(APP_LINK_OBJECTS) -o $@ $(APP_LDFLAGS) $(LDFLAGS) $(LDLIBS)
 
 $(TEST_BIN): $(APP_LIB_OBJECTS) $(TEST_OBJECTS)
 	mkdir -p $(dir $@)

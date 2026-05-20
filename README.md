@@ -2,7 +2,7 @@
 
 Locking Glass is a Windows tray app for pinning selected monitors across Windows virtual desktop switches.
 
-Locked monitors keep their visible windows on the same desktop while unlocked monitors continue following normal Windows behavior. If the destination workspace already has windows on the locked monitor, Locking Glass moves those windows to a named `Locking Glass` staging desktop instead of pushing them onto another user workspace. When you unlock a monitor, Locking Glass makes a best-effort attempt to return the windows it moved for that lock back to their remembered original workspace if that workspace still exists. That remembered workspace is tracked only in memory for the current app run. The app is intentionally fail-closed: if the live desktop hook or staging desktop cannot start, Locking Glass keeps session state and tray controls available but does not pretend desktop locking is active.
+Locked monitors keep their visible windows on the same desktop while unlocked monitors continue following normal Windows behavior. If the destination workspace already has windows on the locked monitor, Locking Glass moves those windows to a named `Locking Glass` staging desktop instead of pushing them onto another user workspace. When you unlock a monitor, Locking Glass makes a best-effort attempt to return the windows it moved for that lock back to their remembered original workspace if that workspace still exists. That remembered workspace is tracked only in memory for the current app run. The app is intentionally fail-closed: if the live desktop hook or staging desktop cannot start, Locking Glass closes instead of accepting lock changes it cannot enforce.
 
 ## Behavior Contract
 

@@ -51,6 +51,53 @@ function Invoke-Checked {
     }
 }
 
+function Invoke-ExecutableOutput {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+        [string[]]$Arguments = @(),
+        [string]$Description = $FilePath
+    )
+
+    $outputDir = Join-Path $repoRoot 'build\release-command-output'
+    New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+    $name = [System.IO.Path]::GetRandomFileName()
+    $stdoutPath = Join-Path $outputDir ($name + '.stdout.txt')
+    $stderrPath = Join-Path $outputDir ($name + '.stderr.txt')
+
+    try {
+        $process = Start-Process `
+            -FilePath $FilePath `
+            -ArgumentList $Arguments `
+            -WorkingDirectory $repoRoot `
+            -NoNewWindow `
+            -RedirectStandardOutput $stdoutPath `
+            -RedirectStandardError $stderrPath `
+            -Wait `
+            -PassThru
+        $stdout = if (Test-Path $stdoutPath) {
+            [System.IO.File]::ReadAllText($stdoutPath)
+        } else {
+            ''
+        }
+        $stderr = if (Test-Path $stderrPath) {
+            [System.IO.File]::ReadAllText($stderrPath)
+        } else {
+            ''
+        }
+        if ($process.ExitCode -ne 0) {
+            throw "$Description failed with exit code $($process.ExitCode).`n$stderr"
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($stderr)) {
+            Write-Host $stderr.TrimEnd()
+        }
+        return $stdout
+    } finally {
+        Remove-Item -Force $stdoutPath, $stderrPath -ErrorAction SilentlyContinue
+    }
+}
+
 function Invoke-Git {
     param([string[]]$Arguments)
 
@@ -303,18 +350,12 @@ function Test-Build {
         throw "Expected Windows app was not built: $app"
     }
 
-    $versionOutput = & $app --version
-    if ($LASTEXITCODE -ne 0) {
-        throw "Built --version check failed with exit code $LASTEXITCODE."
-    }
+    $versionOutput = Invoke-ExecutableOutput $app -Arguments @('--version') -Description 'Built --version check'
     if ($versionOutput -notmatch [regex]::Escape($version)) {
         throw "Built --version output '$versionOutput' did not include expected version '$version'."
     }
 
-    & $app --self-check
-    if ($LASTEXITCODE -ne 0) {
-        throw "Built --self-check failed with exit code $LASTEXITCODE."
-    }
+    $null = Invoke-ExecutableOutput $app -Arguments @('--self-check') -Description 'Built --self-check'
 }
 
 function Get-RequiredPackageFiles {
@@ -417,18 +458,12 @@ function Test-ExtractedPackage([string]$Directory, [string]$Label) {
     Test-PinnedVirtualDesktopHelper -Directory $Directory -Label $Label
 
     $packagedExe = Join-Path $Directory 'Locking Glass.exe'
-    $versionOutput = & $packagedExe --version
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Label --version check failed with exit code $LASTEXITCODE."
-    }
+    $versionOutput = Invoke-ExecutableOutput $packagedExe -Arguments @('--version') -Description "$Label --version check"
     if ($versionOutput -notmatch [regex]::Escape($version)) {
         throw "$Label --version output '$versionOutput' did not include expected version '$version'."
     }
 
-    & $packagedExe --self-check
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Label --self-check failed with exit code $LASTEXITCODE."
-    }
+    $null = Invoke-ExecutableOutput $packagedExe -Arguments @('--self-check') -Description "$Label --self-check"
 }
 
 function Test-Package {

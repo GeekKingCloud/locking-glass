@@ -19,9 +19,6 @@ std::optional<locking_glass::integration::CapabilityReport>
 ResolveBackgroundControllerCapabilityOverride();
 bool IsLiveControllerAvailable(
     const locking_glass::integration::CapabilityReport& capability);
-void ApplyLiveControllerStatus(
-    const locking_glass::integration::CapabilityReport& capability,
-    bool watcher_started, core::TrayMenuModel* model);
 
 bool SessionStateMatchesWindowMonitor(
     const locking_glass::core::SessionMonitorState& monitor_state,

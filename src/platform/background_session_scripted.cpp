@@ -210,14 +210,8 @@ const platform::MonitorDescriptor* FindScriptMonitor(
 }
 
 core::TrayMenuModel BuildScriptTrayMenuModel(
-    const core::SessionRefreshResult& session, std::string trigger,
-    const locking_glass::integration::CapabilityReport&
-        live_controller_capability,
-    const bool live_controller_watcher_started) {
-  auto model = core::BuildTrayMenuModel(session, std::move(trigger));
-  ApplyLiveControllerStatus(live_controller_capability,
-                            live_controller_watcher_started, &model);
-  return model;
+    const core::SessionRefreshResult& session, std::string trigger) {
+  return core::BuildTrayMenuModel(session, std::move(trigger));
 }
 
 }  // namespace
@@ -245,6 +239,10 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
   const auto live_controller_capability =
       ResolveBackgroundControllerCapabilityOverride().value_or(
           MakeReadyControllerCapability());
+  if (!IsLiveControllerAvailable(live_controller_capability)) {
+    return 1;
+  }
+
   const bool live_controller_watcher_started =
       IsLiveControllerAvailable(live_controller_capability);
 
@@ -258,9 +256,7 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
         has_session = true;
         tray_menu_visible = false;
         PublishEvent(observer,
-                     BuildScriptTrayMenuModel(
-                         session, step.trigger, live_controller_capability,
-                         live_controller_watcher_started),
+                     BuildScriptTrayMenuModel(session, step.trigger),
                      live_controller_capability,
                      live_controller_watcher_started, false,
                      core::BuildMonitorReviewPrompt(session));
@@ -272,9 +268,7 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
         }
         tray_menu_visible = true;
         PublishEvent(observer,
-                     BuildScriptTrayMenuModel(
-                         session, "tray-click", live_controller_capability,
-                         live_controller_watcher_started),
+                     BuildScriptTrayMenuModel(session, "tray-click"),
                      live_controller_capability,
                      live_controller_watcher_started, true);
         break;
@@ -282,9 +276,7 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
         if (!has_session || !tray_menu_visible) {
           return 1;
         }
-        const auto model = BuildScriptTrayMenuModel(
-            session, "tray-hover", live_controller_capability,
-            live_controller_watcher_started);
+        const auto model = BuildScriptTrayMenuModel(session, "tray-hover");
         const auto* monitor = FindScriptMonitor(model, step.target);
         if (monitor == nullptr) {
           return 1;
@@ -313,9 +305,7 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
           return 1;
         }
         PublishEvent(observer,
-                     BuildScriptTrayMenuModel(
-                         session, "tray-hover-clear", live_controller_capability,
-                         live_controller_watcher_started),
+                     BuildScriptTrayMenuModel(session, "tray-hover-clear"),
                      live_controller_capability,
                      live_controller_watcher_started, true);
         break;
@@ -324,9 +314,7 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
           session = session_store.Restore(current_monitors);
           has_session = true;
         }
-        const auto model = BuildScriptTrayMenuModel(
-            session, "tray-click", live_controller_capability,
-            live_controller_watcher_started);
+        const auto model = BuildScriptTrayMenuModel(session, "tray-click");
         const auto* monitor = FindScriptMonitor(model, step.target);
         bool locked_after = false;
         if (monitor == nullptr ||
@@ -346,9 +334,7 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
         session = session_store.Preview(current_monitors);
         tray_menu_visible = true;
         PublishEvent(observer,
-                     BuildScriptTrayMenuModel(
-                         session, "tray-toggle", live_controller_capability,
-                         live_controller_watcher_started),
+                     BuildScriptTrayMenuModel(session, "tray-toggle"),
                      live_controller_capability,
                      live_controller_watcher_started, true,
                      core::MonitorReviewPrompt{}, core::TrayIdentifyOverlay{},
@@ -385,9 +371,7 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
         has_session = true;
         tray_menu_visible = false;
         PublishEvent(observer,
-                     BuildScriptTrayMenuModel(
-                         session, "tray-refresh", live_controller_capability,
-                         live_controller_watcher_started),
+                     BuildScriptTrayMenuModel(session, "tray-refresh"),
                      live_controller_capability,
                      live_controller_watcher_started, false,
                      core::BuildMonitorReviewPrompt(session));
@@ -395,9 +379,7 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
       case TrayScriptStepType::kExit:
         tray_menu_visible = false;
         PublishEvent(observer,
-                     BuildScriptTrayMenuModel(
-                         session, "exit", live_controller_capability,
-                         live_controller_watcher_started),
+                     BuildScriptTrayMenuModel(session, "exit"),
                      live_controller_capability,
                      live_controller_watcher_started, false);
         return 0;

@@ -41,9 +41,14 @@ foreach ($helperLocation in $helperLocations) {
 
 $env:LOCKING_GLASS_SESSION_PATH = $sessionPath
 
-$process = Start-Process -FilePath $watchExe -ArgumentList '--background' -WorkingDirectory $repoRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+$process = Start-Process -FilePath $watchExe -ArgumentList '--background' -WorkingDirectory $repoRoot -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
 try {
-    Start-Sleep -Seconds 5
+    if (-not $process.WaitForExit(15000)) {
+        throw 'Locking Glass stayed running even though the live desktop controller was unavailable.'
+    }
+    if ($process.ExitCode -eq 0) {
+        throw 'Locking Glass exited successfully even though the live desktop controller was unavailable.'
+    }
 }
 finally {
     if ($process -and -not $process.HasExited) {
@@ -63,6 +68,7 @@ finally {
     if ($stderr.Length -gt 0) {
         $stderr
     }
+    Write-Host ('background exit code: ' + $process.ExitCode)
 
     Remove-Item Env:LOCKING_GLASS_SESSION_PATH -ErrorAction SilentlyContinue
 }

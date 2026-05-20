@@ -167,35 +167,6 @@ bool IsLiveControllerAvailable(
          locking_glass::integration::CapabilityStatus::kReady;
 }
 
-void ApplyLiveControllerStatus(
-    const locking_glass::integration::CapabilityReport& capability,
-    const bool watcher_started, core::TrayMenuModel* model) {
-  if (model == nullptr ||
-      (IsLiveControllerAvailable(capability) && watcher_started)) {
-    return;
-  }
-
-  if (!model->menu_status.empty()) {
-    model->menu_status += " | ";
-  }
-  model->menu_status += "live controller unavailable";
-  model->menu_instruction =
-      "Live desktop control unavailable. Tray lock toggles are still saved, "
-      "but subsequent Windows desktop switches will not follow them.";
-
-  if (model->icon.tooltip.empty()) {
-    model->icon.tooltip = "Locking Glass - Live desktop control unavailable";
-  } else {
-    model->icon.tooltip += " | live desktop control unavailable";
-  }
-
-  if (model->icon.accessibility_label.empty()) {
-    model->icon.accessibility_label = "live desktop control unavailable";
-  } else {
-    model->icon.accessibility_label += ", live desktop control unavailable";
-  }
-}
-
 bool SessionStateMatchesWindowMonitor(
     const locking_glass::core::SessionMonitorState& monitor_state,
     const locking_glass::core::DesktopWindow& window) {
@@ -362,7 +333,7 @@ class BackgroundSessionImpl final : public BackgroundSession {
         .component = "background-session",
         .status = locking_glass::integration::CapabilityStatus::kReady,
         .detail =
-            "Background startup enters a hidden Win32 message loop, renders a status-aware Shell_NotifyIcon tray icon, starts the live desktop watcher when the controller is available, and fails closed in the tray UI when live desktop control is unavailable.",
+            "Background startup enters a hidden Win32 message loop, renders a status-aware Shell_NotifyIcon tray icon, starts the live desktop watcher, and exits instead of accepting lock changes when live desktop control is unavailable.",
     };
 #else
     return locking_glass::integration::CapabilityReport{

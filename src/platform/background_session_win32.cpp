@@ -89,7 +89,6 @@ struct BackgroundSessionState {
   locking_glass::integration::CapabilityReport live_controller_capability =
       MakeReadyControllerCapability();
   bool live_controller_watcher_started = true;
-  bool live_controller_notification_shown = false;
 };
 
 std::string ReadBackgroundDesktopReportPathFromEnv() {
@@ -347,10 +346,7 @@ void ShowIdentifyOverlay(BackgroundSessionState* state,
 
 core::TrayMenuModel BuildBackgroundTrayMenuModel(BackgroundSessionState* state,
                                                  std::string trigger) {
-  auto model = core::BuildTrayMenuModel(state->session, std::move(trigger));
-  ApplyLiveControllerStatus(state->live_controller_capability,
-                            state->live_controller_watcher_started, &model);
-  return model;
+  return core::BuildTrayMenuModel(state->session, std::move(trigger));
 }
 
 void PublishHoverClearEvent(BackgroundSessionState* state) {
@@ -385,34 +381,6 @@ void ShowReviewNotification(HWND window, BackgroundSessionState* state,
   Shell_NotifyIconW(NIM_MODIFY, &notification);
 }
 
-void ShowControllerUnavailableNotification(HWND window,
-                                           BackgroundSessionState* state) {
-  if (window == nullptr || state == nullptr ||
-      state->live_controller_notification_shown ||
-      (IsLiveControllerAvailable(state->live_controller_capability) &&
-       state->live_controller_watcher_started)) {
-    return;
-  }
-
-  auto notification = state->tray_icon;
-  notification.cbSize = sizeof(notification);
-  notification.hWnd = window;
-  notification.uID = 1;
-  notification.uFlags = NIF_INFO;
-  notification.dwInfoFlags = NIIF_WARNING;
-  notification.uTimeout = 10000;
-
-  const auto title =
-      Widen("Locking Glass live desktop control unavailable");
-  const auto message = Widen(
-      "Tray lock toggles are still saved, but Windows desktop switches will "
-      "not follow them until the live controller is available.");
-  wcsncpy_s(notification.szInfoTitle, title.c_str(), _TRUNCATE);
-  wcsncpy_s(notification.szInfo, message.c_str(), _TRUNCATE);
-  Shell_NotifyIconW(NIM_MODIFY, &notification);
-  state->live_controller_notification_shown = true;
-}
-
 void LogControllerUnavailable(
     const locking_glass::integration::CapabilityReport& capability) {
   if (IsLiveControllerAvailable(capability)) {
@@ -421,6 +389,17 @@ void LogControllerUnavailable(
 
   std::cerr << "Locking Glass background live desktop control unavailable: "
             << capability.detail << '\n';
+}
+
+void ShowControllerUnavailableError(
+    HWND owner,
+    const locking_glass::integration::CapabilityReport& capability) {
+  const std::wstring message =
+      Widen("Locking Glass is closing because live desktop control is "
+            "unavailable.\n\n" +
+            capability.detail);
+  MessageBoxW(owner, message.c_str(), L"Locking Glass unavailable",
+              MB_OK | MB_ICONERROR | MB_TASKMODAL);
 }
 
 core::TrayMenuModel RefreshTrayModel(
@@ -441,7 +420,6 @@ core::TrayMenuModel RefreshTrayModel(
   PublishEvent(state->observer, model, state->live_controller_capability,
                state->live_controller_watcher_started, tray_menu_visible,
                prompt, core::TrayIdentifyOverlay{}, unlock_return);
-  ShowControllerUnavailableNotification(window, state);
   if (IsLiveControllerAvailable(state->live_controller_capability) &&
       state->live_controller_watcher_started) {
     ShowReviewNotification(window, state, prompt);
@@ -491,7 +469,6 @@ void RepublishCurrentModel(
   PublishEvent(state->observer, model, state->live_controller_capability,
                state->live_controller_watcher_started, tray_menu_visible,
                prompt, highlight, unlock_return);
-  ShowControllerUnavailableNotification(window, state);
   if (IsLiveControllerAvailable(state->live_controller_capability) &&
       state->live_controller_watcher_started) {
     ShowReviewNotification(window, state, prompt);
@@ -845,14 +822,12 @@ LRESULT CALLBACK BackgroundWindowProc(HWND window, UINT message, WPARAM w_param,
       return 0;
     case kLiveControllerWatchFailedMessage:
       if (state != nullptr) {
-        state->live_controller_capability = MakeUnavailableControllerCapability(
-            "The live desktop watcher stopped, so tray lock toggles are saved "
-            "but no longer drive Windows desktop switches.");
-        state->live_controller_watcher_started = false;
-        state->live_controller_notification_shown = false;
-        LogControllerUnavailable(state->live_controller_capability);
-        RepublishCurrentModel(window, state, "live-controller-unavailable",
-                              false);
+        const auto unavailable = MakeUnavailableControllerCapability(
+            "The live desktop watcher stopped. Locking Glass is closing "
+            "instead of accepting lock changes it cannot enforce.");
+        LogControllerUnavailable(unavailable);
+        ShowControllerUnavailableError(window, unavailable);
+        DestroyWindow(window);
       }
       return 0;
     case kTrayIconMessage:
@@ -933,6 +908,12 @@ int RunWindowsTraySession(const BackgroundSessionObserver& observer) {
   state->session =
       state->session_store.StartUnlocked(state->monitor_gateway->Enumerate());
 
+  if (!IsLiveControllerAvailable(state->live_controller_capability)) {
+    LogControllerUnavailable(state->live_controller_capability);
+    ShowControllerUnavailableError(nullptr, state->live_controller_capability);
+    return 1;
+  }
+
   HWND window = CreateWindowExW(WS_EX_TOOLWINDOW, kBackgroundWindowClassName,
                                 L"Locking Glass Background", WS_OVERLAPPED, 0, 0,
                                 0, 0, nullptr, nullptr, instance, state.get());
@@ -948,10 +929,13 @@ int RunWindowsTraySession(const BackgroundSessionObserver& observer) {
   if (IsLiveControllerAvailable(state->live_controller_capability) &&
       !StartLiveControllerWatcher(window, state.get(),
                                   std::move(live_controller))) {
-    state->live_controller_capability = MakeUnavailableControllerCapability(
+    const auto unavailable = MakeUnavailableControllerCapability(
         "Locking Glass failed to start the live desktop watcher thread.");
+    LogControllerUnavailable(unavailable);
+    ShowControllerUnavailableError(window, unavailable);
+    DestroyWindow(window);
+    return 1;
   }
-  LogControllerUnavailable(state->live_controller_capability);
 
   if (!AddTrayIcon(window, state.get())) {
     DestroyWindow(window);
