@@ -1,6 +1,5 @@
 @echo off
 setlocal
-pushd "%~dp0"
-start "" "%~dp0Locking Glass.exe" --background
-popd
+start "" /D "%~dp0" "%~dp0Locking Glass.exe" --background
 endlocal
+exit /b 0

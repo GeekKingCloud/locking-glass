@@ -46,21 +46,6 @@ void FillRect(std::vector<DWORD>* pixels, const int left, const int top,
   }
 }
 
-void FillCircle(std::vector<DWORD>* pixels, const int center_x,
-                const int center_y, const int radius,
-                const IconColor color) {
-  const int radius_squared = radius * radius;
-  for (int y = center_y - radius; y <= center_y + radius; ++y) {
-    for (int x = center_x - radius; x <= center_x + radius; ++x) {
-      const int dx = x - center_x;
-      const int dy = y - center_y;
-      if ((dx * dx) + (dy * dy) <= radius_squared) {
-        SetPixel(pixels, x, y, color);
-      }
-    }
-  }
-}
-
 void DrawLockBadge(std::vector<DWORD>* pixels, const IconColor accent,
                    const bool open_shackle) {
   const IconColor white{255, 255, 255, 255};
@@ -270,32 +255,21 @@ HBITMAP CreateMenuPadlockBitmap(const core::TrayPadlockIconState& icon) {
 }
 
 HICON CreateTrayStatusIcon(const core::TrayIconState& icon) {
-  IconColor accent{115, 134, 148, 255};
-  if (icon.variant == "review") {
-    accent = IconColor{217, 148, 31, 255};
-  } else if (icon.variant == "locked") {
-    accent = IconColor{47, 157, 90, 255};
-  } else if (icon.variant == "mixed") {
-    accent = IconColor{47, 143, 255, 255};
-  }
+  (void)icon;
 
+  const IconColor accent{47, 143, 255, 255};
   const IconColor screen_fill{18, 25, 36, 255};
   std::vector<DWORD> pixels(static_cast<std::size_t>(kTrayIconPixels) *
                             static_cast<std::size_t>(kTrayIconPixels), 0);
 
-  // The tray icon is generated only when state changes. Keeping the state
-  // variants in code avoids shipping several tiny icon assets that can drift
-  // from the tray model.
+  // Keep the shell tray icon as a stable app identity. Lock state belongs in
+  // the tooltip and per-monitor menu padlocks, not in a changing app icon.
   FillRect(&pixels, 1, 2, 13, 10, accent);
   FillRect(&pixels, 2, 3, 12, 9, screen_fill);
   FillRect(&pixels, 5, 10, 9, 12, accent);
   FillRect(&pixels, 3, 12, 11, 14, accent);
 
-  DrawLockBadge(&pixels, accent,
-                icon.variant == "unlocked" || icon.variant == "idle");
-  if (icon.review_badge) {
-    FillCircle(&pixels, 13, 3, 2, IconColor{214, 59, 72, 255});
-  }
+  DrawLockBadge(&pixels, accent, false);
 
   BITMAPV5HEADER header{};
   header.bV5Size = sizeof(header);

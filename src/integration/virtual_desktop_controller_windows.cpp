@@ -45,6 +45,128 @@ struct WindowDesktopContextFormatter {
   }
 };
 
+std::wstring ResolveCommandProcessorPath() {
+  wchar_t comspec[MAX_PATH];
+  const DWORD comspec_length =
+      GetEnvironmentVariableW(L"COMSPEC", comspec, MAX_PATH);
+  if (comspec_length > 0 && comspec_length < MAX_PATH) {
+    return comspec;
+  }
+
+  wchar_t windir[MAX_PATH];
+  const DWORD windir_length = GetEnvironmentVariableW(L"WINDIR", windir, MAX_PATH);
+  if (windir_length > 0 && windir_length < MAX_PATH) {
+    return (std::filesystem::path(windir) / "System32" / "cmd.exe").wstring();
+  }
+
+  return L"C:\\Windows\\System32\\cmd.exe";
+}
+
+struct HiddenWatchProcess {
+  HANDLE output_read = nullptr;
+  HANDLE process = nullptr;
+  HANDLE thread = nullptr;
+};
+
+void CloseHandleIfPresent(HANDLE* handle) {
+  if (handle != nullptr && *handle != nullptr &&
+      *handle != INVALID_HANDLE_VALUE) {
+    CloseHandle(*handle);
+    *handle = nullptr;
+  }
+}
+
+bool StartHiddenWatchProcess(const std::filesystem::path& command_script_path,
+                             HiddenWatchProcess* watch_process) {
+  if (watch_process == nullptr) {
+    return false;
+  }
+
+  SECURITY_ATTRIBUTES security_attributes{};
+  security_attributes.nLength = sizeof(security_attributes);
+  security_attributes.bInheritHandle = TRUE;
+
+  HANDLE output_read = nullptr;
+  HANDLE output_write = nullptr;
+  if (!CreatePipe(&output_read, &output_write, &security_attributes, 0)) {
+    return false;
+  }
+  SetHandleInformation(output_read, HANDLE_FLAG_INHERIT, 0);
+
+  STARTUPINFOW startup_info{};
+  startup_info.cb = sizeof(startup_info);
+  startup_info.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+  startup_info.wShowWindow = SW_HIDE;
+  startup_info.hStdOutput = output_write;
+  startup_info.hStdError = output_write;
+  startup_info.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+
+  PROCESS_INFORMATION process_info{};
+  const std::wstring command_processor = ResolveCommandProcessorPath();
+  std::wstring command_line = L"\"" + command_processor + L"\" /d /s /c \"\"" +
+                              command_script_path.wstring() + L"\"\"";
+  const BOOL started = CreateProcessW(
+      nullptr, command_line.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
+      nullptr, nullptr, &startup_info, &process_info);
+
+  CloseHandleIfPresent(&output_write);
+  if (!started) {
+    CloseHandleIfPresent(&output_read);
+    return false;
+  }
+
+  watch_process->output_read = output_read;
+  watch_process->process = process_info.hProcess;
+  watch_process->thread = process_info.hThread;
+  return true;
+}
+
+bool ReadNextProcessLine(HANDLE output_read, std::string* pending,
+                         std::string* line) {
+  if (output_read == nullptr || pending == nullptr || line == nullptr) {
+    return false;
+  }
+
+  while (true) {
+    const std::size_t newline = pending->find('\n');
+    if (newline != std::string::npos) {
+      *line = pending->substr(0, newline + 1U);
+      pending->erase(0, newline + 1U);
+      return true;
+    }
+
+    char buffer[4096];
+    DWORD bytes_read = 0;
+    if (!ReadFile(output_read, buffer, sizeof(buffer), &bytes_read, nullptr) ||
+        bytes_read == 0) {
+      if (pending->empty()) {
+        return false;
+      }
+      *line = *pending;
+      pending->clear();
+      return true;
+    }
+    pending->append(buffer, buffer + bytes_read);
+  }
+}
+
+int FinishHiddenWatchProcess(HiddenWatchProcess* watch_process) {
+  if (watch_process == nullptr) {
+    return 1;
+  }
+
+  DWORD exit_code = 1;
+  if (watch_process->process != nullptr) {
+    WaitForSingleObject(watch_process->process, INFINITE);
+    GetExitCodeProcess(watch_process->process, &exit_code);
+  }
+
+  CloseHandleIfPresent(&watch_process->output_read);
+  CloseHandleIfPresent(&watch_process->thread);
+  CloseHandleIfPresent(&watch_process->process);
+  return static_cast<int>(exit_code);
+}
+
 bool HasLockedPresentMonitor(const core::SessionRefreshResult& session) {
   for (const auto& monitor : session.snapshot.monitors) {
     if (monitor.is_present && monitor.locked) {
@@ -352,13 +474,8 @@ int WatchWindowsLiveSwitches(const core::SessionStore& store,
   const auto log_path = BuildLiveWatchLogPath();
   const auto command_script_path =
       BuildLiveWatchCommandScript(asset_root, log_path, options);
-  // _popen only gives a narrow command-string surface, so the generated .cmd
-  // file keeps quoting centralized and lets the C++ side stream the helper log
-  // without duplicating the PowerShell watch implementation.
-  const std::string command =
-      QuoteCommandArgument(command_script_path.string()) + " 2>&1";
-  FILE* pipe = _popen(command.c_str(), "r");
-  if (pipe == nullptr) {
+  HiddenWatchProcess watch_process;
+  if (!StartHiddenWatchProcess(command_script_path, &watch_process)) {
     std::cerr
         << "Locking Glass could not launch the live Windows desktop watch helper.\n";
     return 1;
@@ -369,10 +486,11 @@ int WatchWindowsLiveSwitches(const core::SessionStore& store,
   std::string helper_library_detail;
   std::vector<std::string> helper_lines;
   std::size_t observed_events = 0;
-  char buffer[4096];
+  std::string pending_output;
+  std::string line;
 
-  while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-    std::string line(buffer);
+  while (ReadNextProcessLine(watch_process.output_read, &pending_output,
+                             &line)) {
     TrimTrailingLineBreaks(&line);
     if (line.empty()) {
       continue;
@@ -405,7 +523,7 @@ int WatchWindowsLiveSwitches(const core::SessionStore& store,
     }
   }
 
-  const int exit_code = _pclose(pipe);
+  const int exit_code = FinishHiddenWatchProcess(&watch_process);
   std::error_code remove_error;
   std::filesystem::remove(command_script_path, remove_error);
   if (exit_code == 0 && observed_events > 0U) {

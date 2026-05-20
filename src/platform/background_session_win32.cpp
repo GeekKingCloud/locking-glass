@@ -715,7 +715,7 @@ void PollMenuHover(HWND window, BackgroundSessionState* state) {
   const int item_count = GetMenuItemCount(state->active_menu_handle);
   for (int index = 0; index < item_count; ++index) {
     RECT item_rect{};
-    if (!GetMenuItemRect(window, state->active_menu_handle,
+    if (!GetMenuItemRect(nullptr, state->active_menu_handle,
                          static_cast<UINT>(index), &item_rect) ||
         !PtInRect(&item_rect, cursor)) {
       continue;

@@ -24,7 +24,7 @@ Files that must stay together
 - Locking Glass.exe
 - Install-LockingGlass.ps1
 - Uninstall-LockingGlass.ps1
-- Start-LockingGlass.cmd
+- Start-LockingGlass.cmd legacy launcher
 - run-live-desktop-probe.ps1
 - resolve-virtual-desktop-helper.ps1
 - VirtualDesktopAccessor.dll
@@ -39,7 +39,8 @@ Files that must stay together
 
 How to use it
 - Double-click Locking Glass.exe to start the background tray app.
-- Run Start-LockingGlass.cmd to start the tray app from this folder.
+- The Start Menu shortcut launches Locking Glass.exe directly with `--background`; it does not go through a command-window wrapper.
+- Start-LockingGlass.cmd is retained only as a legacy folder launcher.
 - Run Locking Glass.exe --version to confirm which build you have.
 - Run Locking Glass.exe --self-check to inspect startup diagnostics.
 - The installer executable and installer script enable current-user startup after sign-in by default. Use the installer `--no-autostart` flag or installer-script `-NoAutostart` switch for installs that must not write the Run key.

@@ -198,7 +198,8 @@ New-Item -ItemType Directory -Force -Path $startMenuDir | Out-Null
 
 $shell = New-Object -ComObject WScript.Shell
 $launchShortcut = $shell.CreateShortcut((Join-Path $startMenuDir 'Locking Glass Tray.lnk'))
-$launchShortcut.TargetPath = Join-Path $InstallDir 'Start-LockingGlass.cmd'
+$launchShortcut.TargetPath = $installedExe
+$launchShortcut.Arguments = '--background'
 $launchShortcut.WorkingDirectory = $InstallDir
 $launchShortcut.IconLocation = (Join-Path $InstallDir 'Locking Glass.exe') + ',0'
 $launchShortcut.Description = 'Start the Locking Glass tray app that keeps selected monitors pinned while other monitors follow Windows desktop switches. It fails closed if the live controller cannot start.'
