@@ -5,6 +5,16 @@
 #include <string>
 #include <string_view>
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #ifndef LOCKING_GLASS_VERSION_STR
 #define LOCKING_GLASS_VERSION_STR "0.0.0"
 #endif
@@ -68,6 +78,24 @@ void PrintUsage() {
 #endif
 }
 
+bool RunsTrayMode(const ParsedArguments& arguments) {
+  return arguments.background ||
+         (!arguments.version && !arguments.self_check &&
+          !arguments.prototype_windows_apis && !arguments.install_autostart &&
+          !arguments.watch_monitors && !arguments.watch_virtual_desktops &&
+          !arguments.help);
+}
+
+#if defined(_WIN32)
+void ReleaseConsoleForTrayMode(const ParsedArguments& arguments) {
+  if (RunsTrayMode(arguments)) {
+    FreeConsole();
+  }
+}
+#else
+void ReleaseConsoleForTrayMode(const ParsedArguments&) {}
+#endif
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -87,6 +115,8 @@ int main(int argc, char** argv) {
     std::cout << "Locking Glass " << LOCKING_GLASS_VERSION_STR << '\n';
     return 0;
   }
+
+  ReleaseConsoleForTrayMode(arguments);
 
   const auto runtime = locking_glass::core::BuildRuntime();
   const std::string executable_path = ResolveExecutablePath(argv);
