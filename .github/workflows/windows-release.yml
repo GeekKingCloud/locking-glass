@@ -21,7 +21,6 @@ jobs:
       contents: read
     outputs:
       artifact_name: ${{ steps.version.outputs.artifact_name }}
-      build_artifact_name: ${{ steps.version.outputs.build_artifact_name }}
       app_name: ${{ steps.version.outputs.app_name }}
       setup_name: ${{ steps.version.outputs.setup_name }}
       uninstaller_name: ${{ steps.version.outputs.uninstaller_name }}
@@ -51,7 +50,6 @@ jobs:
           "app_name=Locking Glass.exe" >> $env:GITHUB_OUTPUT
           "setup_name=Locking Glass Installer.exe" >> $env:GITHUB_OUTPUT
           "uninstaller_name=Locking Glass Uninstaller.exe" >> $env:GITHUB_OUTPUT
-          "build_artifact_name=locking-glass-windows-build-$version" >> $env:GITHUB_OUTPUT
           "artifact_name=locking-glass-windows-$version" >> $env:GITHUB_OUTPUT
 
       - name: Run release hygiene checks
@@ -89,13 +87,6 @@ jobs:
         run: |
           ./scripts/test-release.ps1 -Mode Build
 
-      - name: Upload built app for packaging
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ needs.hygiene.outputs.build_artifact_name }}
-          path: build-win/bin/locking_glass.exe
-          if-no-files-found: error
-
   windows-package:
     name: Windows Package
     needs:
@@ -116,11 +107,19 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Download built app
-        uses: actions/download-artifact@v7
+      - name: Set up MSYS2 toolchain
+        uses: msys2/setup-msys2@v2
         with:
-          name: ${{ needs.hygiene.outputs.build_artifact_name }}
-          path: build-win/bin
+          msystem: MINGW64
+          update: true
+          install: >-
+            make
+            mingw-w64-x86_64-gcc
+
+      - name: Build package input
+        shell: pwsh
+        run: |
+          ./scripts/test-release.ps1 -Mode Build
 
       # Live proof scripts stay manual. GitHub-hosted runners do not provide an
       # interactive Windows desktop shell, multiple monitors, multiple virtual
