@@ -48,7 +48,7 @@ std::string FormatMonitorLine(const platform::MonitorDescriptor& monitor,
       monitor_state != nullptr) {
     builder << (monitor_state->locked ? " locked" : " unlocked");
     if (monitor_state->requires_confirmation) {
-      builder << " review";
+      builder << " confirm";
     }
   }
   return builder.str();
