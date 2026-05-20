@@ -59,15 +59,6 @@ HMODULE LoadHelperFromAncestorSearch(const std::filesystem::path& start) {
 }
 
 HMODULE LoadVirtualDesktopHelper() {
-  // The environment override is for proof/dev runs. Installed runtime prefers
-  // the adjacent packaged DLL, then repository build locations for local tests.
-  wchar_t helper_path[MAX_PATH];
-  const DWORD length = GetEnvironmentVariableW(
-      L"LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER", helper_path, MAX_PATH);
-  if (length > 0 && length < MAX_PATH) {
-    return LoadLibraryW(helper_path);
-  }
-
   wchar_t module_path[MAX_PATH];
   const DWORD module_length = GetModuleFileNameW(nullptr, module_path, MAX_PATH);
   if (module_length > 0 && module_length < MAX_PATH) {

@@ -22,8 +22,24 @@ $stdoutPath = Join-Path $ProofDir 'background.stdout.txt'
 $stderrPath = Join-Path $ProofDir 'background.stderr.txt'
 Remove-Item $sessionPath, $stdoutPath, $stderrPath -ErrorAction SilentlyContinue
 
+$helperLocations = [System.Collections.Generic.List[string]]::new()
+$current = [System.IO.Path]::GetFullPath((Split-Path -Parent $watchExe))
+while (-not [string]::IsNullOrWhiteSpace($current)) {
+    $helperLocations.Add((Join-Path $current 'build\windows-live-desktop-probe\VirtualDesktopAccessor.dll'))
+    $helperLocations.Add((Join-Path $current 'VirtualDesktopAccessor.dll'))
+    $parent = Split-Path -Parent $current
+    if ([string]::IsNullOrWhiteSpace($parent) -or $parent -eq $current) {
+        break
+    }
+    $current = $parent
+}
+foreach ($helperLocation in $helperLocations) {
+    if (Test-Path $helperLocation) {
+        throw "This proof requires VirtualDesktopAccessor.dll to be absent from runtime helper search locations. Remove '$helperLocation' before running this proof."
+    }
+}
+
 $env:LOCKING_GLASS_SESSION_PATH = $sessionPath
-$env:LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER = 'C:\definitely-missing\VirtualDesktopAccessor.dll'
 
 $process = Start-Process -FilePath $watchExe -ArgumentList '--background' -WorkingDirectory $repoRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
 try {
@@ -49,5 +65,4 @@ finally {
     }
 
     Remove-Item Env:LOCKING_GLASS_SESSION_PATH -ErrorAction SilentlyContinue
-    Remove-Item Env:LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER -ErrorAction SilentlyContinue
 }

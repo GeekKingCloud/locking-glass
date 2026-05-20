@@ -21,13 +21,6 @@ bool GuidIsZero(const GUID& guid) {
 
 std::filesystem::path ResolvePreferredHelperDllPath(
     const std::filesystem::path& asset_root) {
-  wchar_t helper_path[MAX_PATH];
-  const DWORD length = GetEnvironmentVariableW(
-      L"LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER", helper_path, MAX_PATH);
-  if (length > 0 && length < MAX_PATH) {
-    return std::filesystem::path(helper_path);
-  }
-
   if (!asset_root.empty()) {
     const auto repository_helper =
         asset_root / "build" / "windows-live-desktop-probe" /
@@ -42,7 +35,7 @@ std::filesystem::path ResolvePreferredHelperDllPath(
     }
   }
 
-  return std::filesystem::path("VirtualDesktopAccessor.dll");
+  return {};
 }
 
 WindowsVirtualDesktopHelper::WindowsVirtualDesktopHelper(
@@ -201,18 +194,13 @@ std::unique_ptr<WindowsVirtualDesktopHelper> WindowsVirtualDesktopHelper::Load(
                          "VirtualDesktopAccessor.dll");
   }
 
-  candidates.push_back(std::filesystem::current_path() /
-                       "VirtualDesktopAccessor.dll");
-  candidates.push_back(std::filesystem::path("VirtualDesktopAccessor.dll"));
-
   std::string last_error =
-      "VirtualDesktopAccessor.dll could not be loaded for live window moves.";
+      "VirtualDesktopAccessor.dll was not found in the packaged or staged "
+      "helper locations.";
   for (const auto& candidate : candidates) {
-    if (candidate.has_parent_path()) {
-      std::error_code exists_error;
-      if (!std::filesystem::exists(candidate, exists_error) || exists_error) {
-        continue;
-      }
+    std::error_code exists_error;
+    if (!std::filesystem::exists(candidate, exists_error) || exists_error) {
+      continue;
     }
 
     HMODULE library = LoadLibraryW(candidate.c_str());

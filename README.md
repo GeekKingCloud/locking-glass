@@ -157,7 +157,7 @@ GitHub Actions intentionally stops at build, unit-test, packaging, extract-only 
 - Windows only
 - at least two monitors
 - at least two Windows virtual desktops
-- `VirtualDesktopAccessor.dll` available beside the installed build, in the staged helper location, or through `LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER`, with the hook, move, and desktop lifecycle exports used by the Windows boundary
+- `VirtualDesktopAccessor.dll` available beside the installed build or in the staged helper location, with the hook, move, and desktop lifecycle exports used by the Windows boundary
 
 Release packages bundle the live desktop probe as a self-contained Windows executable, so normal installed use does not require a separate .NET runtime. Building from source still requires the .NET SDK 8 or newer for the helper projects and installer bootstrapper, plus MSYS2 or Git for Windows shell tools and a MinGW toolchain for the native Windows build.
 

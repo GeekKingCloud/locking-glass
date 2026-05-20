@@ -20,11 +20,16 @@ $watchExe = if ([string]::IsNullOrWhiteSpace($WatchExePath)) {
 else {
     [System.IO.Path]::GetFullPath($WatchExePath)
 }
+$defaultHelperDllPath = Join-Path $repoRoot 'build\windows-live-desktop-probe\VirtualDesktopAccessor.dll'
 $helperDllPath = if ([string]::IsNullOrWhiteSpace($HelperDllPath)) {
-    Join-Path $repoRoot 'build\windows-live-desktop-probe\VirtualDesktopAccessor.dll'
+    $defaultHelperDllPath
 }
 else {
-    [System.IO.Path]::GetFullPath($HelperDllPath)
+    $requestedHelperPath = [System.IO.Path]::GetFullPath($HelperDllPath)
+    if ([System.IO.Path]::GetFullPath($defaultHelperDllPath) -ne $requestedHelperPath) {
+        throw 'Locking Glass no longer loads arbitrary helper DLL paths at runtime. Use the staged helper before running this proof.'
+    }
+    $requestedHelperPath
 }
 $watchStdout = Join-Path $proofDir 'locking-glass-watch.stdout.txt'
 $watchStderr = Join-Path $proofDir 'locking-glass-watch.stderr.txt'
@@ -458,7 +463,6 @@ try {
 
         $watchCommand =
             'set "LOCKING_GLASS_SESSION_PATH=' + $sessionPath + '" && ' +
-            'set "LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER=' + $helperDllPath + '" && ' +
             '"' + $watchExe + '" --watch-virtual-desktops'
         $watchProcess = Start-Process `
             -FilePath 'cmd.exe' `

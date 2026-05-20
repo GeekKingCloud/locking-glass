@@ -29,8 +29,21 @@ if ([string]::IsNullOrWhiteSpace($ProofDir)) {
 
 New-Item -ItemType Directory -Force -Path $ProofDir | Out-Null
 
+$defaultHelperDllPath = Join-Path $repoRoot 'build\windows-live-desktop-probe\VirtualDesktopAccessor.dll'
+$adjacentHelperDllPath = Join-Path (Split-Path -Parent $WatchExe) 'VirtualDesktopAccessor.dll'
 if ([string]::IsNullOrWhiteSpace($HelperDllPath)) {
-    $HelperDllPath = Join-Path $repoRoot 'build\windows-live-desktop-probe\VirtualDesktopAccessor.dll'
+    $HelperDllPath = $defaultHelperDllPath
+}
+else {
+    $requestedHelperPath = [System.IO.Path]::GetFullPath($HelperDllPath)
+    $repoBuildRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot 'build-win'))
+    $watchExeFullPath = [System.IO.Path]::GetFullPath($WatchExe)
+    $isRepoBuild = $watchExeFullPath.StartsWith($repoBuildRoot, [System.StringComparison]::OrdinalIgnoreCase)
+    $isStagedHelper = [System.IO.Path]::GetFullPath($defaultHelperDllPath) -eq $requestedHelperPath
+    $isInstalledAdjacentHelper = -not $isRepoBuild -and [System.IO.Path]::GetFullPath($adjacentHelperDllPath) -eq $requestedHelperPath
+    if (-not ($isStagedHelper -or $isInstalledAdjacentHelper)) {
+        throw 'Locking Glass no longer loads arbitrary helper DLL paths at runtime. Use the staged helper before running this proof.'
+    }
 }
 
 $HelperDllPath = Resolve-LockingGlassVirtualDesktopHelper -HelperDllPath $HelperDllPath
@@ -714,7 +727,6 @@ try {
         }
 
         $env:LOCKING_GLASS_SESSION_PATH = $sessionPath
-        $env:LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER = $HelperDllPath
         $env:LOCKING_GLASS_BACKGROUND_REPORT_PATH = $backgroundReportPath
         $watchProcess = Start-Process -FilePath $watchExe -ArgumentList '--background' -WorkingDirectory $WorkingDirectory -WindowStyle Hidden -PassThru -RedirectStandardOutput $watchStdout -RedirectStandardError $watchStderr
         Start-Sleep -Seconds 7
@@ -827,7 +839,6 @@ finally {
     }
 
     Remove-Item Env:LOCKING_GLASS_SESSION_PATH -ErrorAction SilentlyContinue
-    Remove-Item Env:LOCKING_GLASS_VIRTUAL_DESKTOP_HELPER -ErrorAction SilentlyContinue
     Remove-Item Env:LOCKING_GLASS_BACKGROUND_REPORT_PATH -ErrorAction SilentlyContinue
 
     foreach ($window in $createdWindows) {
