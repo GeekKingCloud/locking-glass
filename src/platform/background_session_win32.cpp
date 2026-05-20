@@ -1160,7 +1160,7 @@ int RunWindowsTraySession(const BackgroundSessionObserver& observer) {
   }
   state->live_controller_watcher_started = false;
   state->session =
-      state->session_store.Restore(state->monitor_gateway->Enumerate());
+      state->session_store.StartUnlocked(state->monitor_gateway->Enumerate());
 
   HWND window = CreateWindowExW(WS_EX_TOOLWINDOW, kBackgroundWindowClassName,
                                 L"LockingGlass Background", WS_OVERLAPPED, 0, 0,

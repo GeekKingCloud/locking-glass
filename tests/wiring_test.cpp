@@ -325,6 +325,29 @@ bool RunSessionStoreChecks() {
                         "reconnected monitor should recover its saved lock state");
   }
 
+  auto app_start = locking_glass::core::SessionStore(session_path)
+                       .StartUnlocked({left_monitor, right_monitor, new_monitor});
+  failures += !Expect(app_start.restored_locked_monitors == 0U,
+                      "app startup should report all monitors as unlocked");
+  const auto* app_start_left = FindMonitorState(app_start.snapshot, left_monitor);
+  const auto* app_start_right =
+      FindMonitorState(app_start.snapshot, right_monitor);
+  failures += !Expect(app_start_left != nullptr && app_start_right != nullptr,
+                      "app startup should keep known monitors in the session snapshot");
+  if (app_start_left != nullptr) {
+    failures += !Expect(!app_start_left->locked,
+                        "app startup should clear the left monitor lock");
+  }
+  if (app_start_right != nullptr) {
+    failures += !Expect(!app_start_right->locked,
+                        "app startup should clear the right monitor lock");
+  }
+  const auto after_start =
+      locking_glass::core::SessionStore(session_path)
+          .Restore({left_monitor, right_monitor, new_monitor});
+  failures += !Expect(after_start.restored_locked_monitors == 0U,
+                      "startup-unlocked state should be persisted immediately");
+
   const auto invalid_backup_path =
       std::filesystem::path(session_path.string() + ".invalid");
   const std::string malformed_contents =
@@ -1200,26 +1223,15 @@ bool RunUnlockReturnChecks() {
       "monitor\tstable-right\tDISPLAY#RIGHT\tSERIAL-RIGHT\tDell U2720Q\tDisplay 2\t2560\t0\t5120\t1440\t0\n"
       "action\tclick\n"
       "action\ttoggle\tDisplay 1\n"
+      "action\tdesktop-watch\n"
+      "action\tclick\n"
+      "action\ttoggle\tDisplay 1\n"
       "action\texit\n");
 
   SetEnvironmentVariable("LOCKING_GLASS_SESSION_PATH", session_path.string());
   SetEnvironmentVariable("LOCKING_GLASS_DESKTOP_SCRIPT",
                          desktop_script_path.string());
   SetEnvironmentVariable("LOCKING_GLASS_TRAY_SCRIPT", tray_script_path.string());
-  {
-    auto initial_snapshot =
-        locking_glass::core::SessionStore(session_path)
-            .Restore({left_monitor, right_monitor})
-            .snapshot;
-    failures += !Expect(
-        locking_glass::core::SessionStore(session_path).SetLocked(
-            &initial_snapshot, left_monitor, true),
-        "unlock return setup should be able to lock Display 1 before the tray script runs");
-    failures += !Expect(
-        locking_glass::core::SessionStore(session_path).Save(initial_snapshot),
-        "unlock return setup should persist the initial locked monitor");
-  }
-
   auto runtime = locking_glass::core::BuildRuntime();
   std::vector<locking_glass::platform::BackgroundSessionEvent> events;
   std::ostringstream captured_output;
@@ -1232,18 +1244,18 @@ bool RunUnlockReturnChecks() {
 
   failures += !Expect(background_run_result == 0,
                       "scripted background unlock flow should exit successfully");
-  failures += !Expect(events.size() == 4U,
-                      "scripted background unlock flow should emit startup, click, toggle, and exit events");
-  if (events.size() == 4U) {
-    failures += !Expect(events[2].trigger == "tray-toggle",
+  failures += !Expect(events.size() == 6U,
+                      "scripted background unlock flow should emit startup, lock, second click, unlock, and exit events");
+  if (events.size() == 6U) {
+    failures += !Expect(events[4].trigger == "tray-toggle",
                         "unlock flow should publish the unlock result on the tray-toggle event");
-    failures += !Expect(events[2].unlock_return.attempted,
+    failures += !Expect(events[4].unlock_return.attempted,
                         "unlocking a monitor with tracked windows should attempt an immediate return");
-    failures += !Expect(events[2].unlock_return.moved_windows == 1U,
+    failures += !Expect(events[4].unlock_return.moved_windows == 1U,
                         "unlocking should return the tracked window once");
-    failures += !Expect(events[2].unlock_return.skipped_windows == 0U,
+    failures += !Expect(events[4].unlock_return.skipped_windows == 0U,
                         "unlocking should not report skipped windows when the remembered desktop still exists");
-    failures += !Expect(events[2].unlock_return.failed_windows == 0U,
+    failures += !Expect(events[4].unlock_return.failed_windows == 0U,
                         "unlocking should not report failed windows in the happy path");
   }
 

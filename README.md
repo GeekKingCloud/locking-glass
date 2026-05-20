@@ -10,7 +10,8 @@ Locked monitors keep their visible windows on the same desktop while unlocked mo
 - Unlocking a monitor triggers a best-effort immediate return for windows that LockingGlass itself moved successfully while that monitor was locked.
 - The first successful follow-move becomes the remembered home workspace for that window during the current run.
 - If the remembered workspace no longer exists, or the window can no longer be resolved safely, LockingGlass leaves the window where it is and reports the skip instead of guessing.
-- Monitor lock state is persisted in the session file. Remembered home workspaces are not persisted and are forgotten when the app exits.
+- Monitor identity and review state are persisted in the session file. Monitor locks start cleared whenever the app process starts; the tray is the only way to lock a monitor for the current run.
+- Remembered home workspaces are not persisted and are forgotten when the app exits.
 - If the live controller cannot prove the Windows desktop hook path, LockingGlass fails closed.
 
 ## Repository Map
@@ -87,6 +88,8 @@ Release verification is centralized in:
 - `--install-autostart` registers current-user startup with `--background`
 
 LockingGlass stores monitor session state at `%LOCALAPPDATA%\LockingGlass\monitor-session-state.tsv` by default on Windows. Set `LOCKING_GLASS_SESSION_PATH` if you want to override that during testing.
+
+Every app start begins with all present monitors unlocked. Saved monitor identity still helps recognize known displays, but LockingGlass does not automatically re-lock a monitor from a previous run.
 
 Unlock return memory is separate from the session store. LockingGlass only remembers original workspaces for windows it moved successfully during the current run, and it forgets that information when the app exits.
 

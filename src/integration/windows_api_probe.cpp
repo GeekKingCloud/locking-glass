@@ -227,7 +227,7 @@ class WindowsApiProbeImpl final : public WindowsApiProbe {
             {
                 "Enumerate active real monitors exposed by Windows and emit their bounds and primary flag.",
                 "Fill the monitor identity envelope used by SessionStore: stable id, device path, EDID serial when available, display name, and bounds.",
-                "Re-run enumeration after display topology changes so the core can reconcile saved lock state.",
+                "Re-run enumeration after display topology changes so the core can reconcile saved monitor session state.",
             },
         .out_of_scope =
             {

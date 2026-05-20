@@ -59,6 +59,7 @@ enum class TrayScriptStepType {
   kHover,
   kHoverClear,
   kToggle,
+  kDesktopWatch,
   kRefresh,
   kExit,
 };
@@ -159,6 +160,15 @@ std::vector<TrayScriptStep> LoadTrayScript(const std::string& script_path) {
         });
         continue;
       }
+      if (fields[1] == "desktop-watch" && fields.size() == 2U) {
+        steps.push_back(TrayScriptStep{
+            .type = TrayScriptStepType::kDesktopWatch,
+            .trigger = {},
+            .monitors = {},
+            .target = {},
+        });
+        continue;
+      }
       if (fields[1] == "refresh" && fields.size() == 2U) {
         steps.push_back(TrayScriptStep{
             .type = TrayScriptStepType::kRefresh,
@@ -224,6 +234,7 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
   core::SessionRefreshResult session;
   std::vector<MonitorDescriptor> current_monitors;
   bool has_session = false;
+  bool started_unlocked = false;
   bool tray_menu_visible = false;
   auto unlock_return_controller =
       locking_glass::integration::CreateVirtualDesktopController();
@@ -234,30 +245,13 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
   const bool live_controller_watcher_started =
       IsLiveControllerAvailable(live_controller_capability);
 
-  if (unlock_return_controller != nullptr) {
-    const char* desktop_script = std::getenv("LOCKING_GLASS_DESKTOP_SCRIPT");
-    if (desktop_script != nullptr && desktop_script[0] != '\0') {
-      (void)unlock_return_controller->WatchSwitches(
-          session_store,
-          [session_store, window_return_tracker](
-              const locking_glass::integration::DesktopSwitchReport& report) {
-            if (window_return_tracker != nullptr) {
-              window_return_tracker->RecordSuccessfulMoves(
-                  report, [session_store](
-                              const locking_glass::core::DesktopWindow& window) {
-                    return IsWindowMonitorCurrentlyLocked(session_store, window);
-                  });
-            }
-            return true;
-          });
-    }
-  }
-
   for (const auto& step : steps) {
     switch (step.type) {
       case TrayScriptStepType::kEvent:
         current_monitors = step.monitors;
-        session = session_store.Restore(current_monitors);
+        session = started_unlocked ? session_store.Restore(current_monitors)
+                                   : session_store.StartUnlocked(current_monitors);
+        started_unlocked = true;
         has_session = true;
         tray_menu_visible = false;
         PublishEvent(observer,
@@ -358,6 +352,31 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
                      unlock_return);
         break;
       }
+      case TrayScriptStepType::kDesktopWatch:
+        if (unlock_return_controller == nullptr) {
+          return 1;
+        }
+        if (unlock_return_controller->WatchSwitches(
+                session_store,
+                [session_store, window_return_tracker](
+                    const locking_glass::integration::DesktopSwitchReport&
+                        report) {
+                  if (window_return_tracker != nullptr) {
+                    window_return_tracker->RecordSuccessfulMoves(
+                        report, [session_store](
+                                    const locking_glass::core::DesktopWindow&
+                                        window) {
+                          return IsWindowMonitorCurrentlyLocked(session_store,
+                                                                window);
+                        });
+                  }
+                  return true;
+                }) != 0) {
+          return 1;
+        }
+        session = session_store.Restore(current_monitors);
+        has_session = true;
+        break;
       case TrayScriptStepType::kRefresh:
         session = session_store.Restore(current_monitors);
         has_session = true;

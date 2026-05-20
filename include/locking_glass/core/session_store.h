@@ -70,6 +70,8 @@ class SessionStore {
   bool Save(const SessionSnapshot& snapshot) const;
   SessionRefreshResult Preview(
       const std::vector<platform::MonitorDescriptor>& live_monitors) const;
+  SessionRefreshResult StartUnlocked(
+      const std::vector<platform::MonitorDescriptor>& live_monitors) const;
   SessionRefreshResult Restore(
       const std::vector<platform::MonitorDescriptor>& live_monitors) const;
   bool SetLocked(SessionSnapshot* snapshot,

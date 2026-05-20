@@ -43,6 +43,11 @@ How to use it
 - Re-run Install-LockingGlass.ps1 to refresh or upgrade an existing install. The installer script stops the current installed runtime before replacing files in place.
 - The supported public upgrade path is to run a newer LockingGlass setup executable over the existing install.
 
+Startup note
+- Every app start begins with all present monitors unlocked.
+- The tray menu is the only way to lock a monitor for the current app run.
+- The session file still remembers monitor identity and review state, but it does not automatically re-lock monitors from a previous run.
+
 Unlock return note
 - Remembered original workspaces are tracked only in memory for the current app run.
 - Only windows that LockingGlass itself moved successfully are eligible for automatic return on unlock.

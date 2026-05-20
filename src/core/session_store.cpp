@@ -434,7 +434,8 @@ locking_glass::integration::CapabilityReport SessionStore::Probe() const {
   return locking_glass::integration::CapabilityReport{
       .component = "session-store",
       .status = locking_glass::integration::CapabilityStatus::kReady,
-      .detail = "Monitor lock state persists at " + storage_path_.string(),
+      .detail = "Monitor session state persists at " + storage_path_.string() +
+                "; app startup clears saved monitor locks.",
   };
 }
 
@@ -588,6 +589,21 @@ SessionRefreshResult SessionStore::Preview(
                                   storage_path_, load_result.loaded_from_disk);
   result.storage_issue = load_result.storage_issue;
   result.storage_detail = std::move(load_result.storage_detail);
+  return result;
+}
+
+SessionRefreshResult SessionStore::StartUnlocked(
+    const std::vector<platform::MonitorDescriptor>& live_monitors) const {
+  auto result = Restore(live_monitors);
+  for (auto& monitor_state : result.snapshot.monitors) {
+    monitor_state.locked = false;
+  }
+  result.restored_locked_monitors = 0;
+
+  if (!Save(result.snapshot)) {
+    AppendStorageDetail(&result.storage_detail,
+                        "Failed to write the startup-unlocked session file.");
+  }
   return result;
 }
 
