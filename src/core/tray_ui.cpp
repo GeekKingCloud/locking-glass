@@ -142,16 +142,6 @@ std::string BuildMonitorIdentifyLabel(const TrayMonitorState& monitor) {
   return builder.str();
 }
 
-TrayMenuHeader BuildTrayMenuHeader(const TrayMenuModel& model) {
-  (void)model;
-  TrayMenuHeader header{
-      .title = {},
-      .subtitle = {},
-      .instruction = {},
-  };
-  return header;
-}
-
 TrayIconState BuildTrayIconState(const TrayMenuModel& model) {
   TrayIconState icon{
       .variant = "idle",
@@ -222,7 +212,8 @@ TrayMenuModel BuildTrayMenuModel(const SessionRefreshResult& session,
                                  std::string trigger) {
   TrayMenuModel model{
       .trigger = std::move(trigger),
-      .header = {},
+      .menu_status = {},
+      .menu_instruction = {},
       .icon = {},
       .monitors = {},
       .locked_monitors = 0,
@@ -256,7 +247,6 @@ TrayMenuModel BuildTrayMenuModel(const SessionRefreshResult& session,
     }
   }
 
-  model.header = BuildTrayMenuHeader(model);
   model.icon = BuildTrayIconState(model);
   return model;
 }
@@ -327,10 +317,9 @@ std::string FormatTrayMenuModel(const TrayMenuModel& model) {
   builder << "Locking Glass tray menu\n";
   builder << "Trigger:\n";
   builder << "  - source: " << model.trigger << '\n';
-  builder << "Header:\n";
-  builder << "  - title: " << model.header.title << '\n';
-  builder << "  - subtitle: " << model.header.subtitle << '\n';
-  builder << "  - instruction: " << model.header.instruction << '\n';
+  builder << "Menu notice:\n";
+  builder << "  - status: " << model.menu_status << '\n';
+  builder << "  - instruction: " << model.menu_instruction << '\n';
   builder << "Icon:\n";
   builder << "  - variant: " << model.icon.variant << '\n';
   builder << "  - tooltip: " << model.icon.tooltip << '\n';

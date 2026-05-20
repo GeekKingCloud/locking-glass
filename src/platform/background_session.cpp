@@ -139,11 +139,11 @@ void ApplyLiveControllerStatus(
     return;
   }
 
-  if (!model->header.subtitle.empty()) {
-    model->header.subtitle += " | ";
+  if (!model->menu_status.empty()) {
+    model->menu_status += " | ";
   }
-  model->header.subtitle += "live controller unavailable";
-  model->header.instruction =
+  model->menu_status += "live controller unavailable";
+  model->menu_instruction =
       "Live desktop control unavailable. Tray lock toggles are still saved, "
       "but subsequent Windows desktop switches will not follow them.";
 
@@ -258,9 +258,8 @@ BackgroundSessionEvent BuildSessionEvent(
   BackgroundSessionEvent event{
       .trigger = model.trigger,
       .tray_menu_visible = tray_menu_visible,
-      .menu_title = model.header.title,
-      .menu_subtitle = model.header.subtitle,
-      .menu_instruction = model.header.instruction,
+      .menu_status = model.menu_status,
+      .menu_instruction = model.menu_instruction,
       .tray_icon_variant = model.icon.variant,
       .tray_icon_tooltip = model.icon.tooltip,
       .tray_icon_review_badge = model.icon.review_badge,

@@ -42,9 +42,9 @@ bool RunBackgroundControllerStatusChecks() {
             std::string::npos,
         "unavailable-controller tray state should surface the underlying controller detail");
     failures += !Expect(
-        events[0].menu_subtitle.find("live controller unavailable") !=
+        events[0].menu_status.find("live controller unavailable") !=
             std::string::npos,
-        "tray subtitle should stop implying that live desktop control is active");
+        "tray status should stop implying that live desktop control is active");
     failures += !Expect(
         events[0].menu_instruction.find("Live desktop control unavailable") !=
             std::string::npos,

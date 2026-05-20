@@ -877,18 +877,9 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state) {
     std::vector<HBITMAP> menu_bitmaps;
     labels.reserve(model.monitors.size() + 8U);
     menu_bitmaps.reserve(model.monitors.size());
-    bool appended_header = false;
-    if (!model.header.title.empty()) {
-      labels.push_back(Widen(model.header.title));
+    if (!model.menu_status.empty()) {
+      labels.push_back(Widen(model.menu_status));
       AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
-      appended_header = true;
-    }
-    if (!model.header.subtitle.empty()) {
-      labels.push_back(Widen(model.header.subtitle));
-      AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
-      appended_header = true;
-    }
-    if (appended_header) {
       AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     }
 
@@ -918,9 +909,9 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state) {
       }
     }
 
-    if (!model.header.instruction.empty()) {
+    if (!model.menu_instruction.empty()) {
       AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-      labels.push_back(Widen(model.header.instruction));
+      labels.push_back(Widen(model.menu_instruction));
       AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
     }
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);

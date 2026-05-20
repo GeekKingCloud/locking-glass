@@ -52,8 +52,6 @@ bool RunTraySessionChecks() {
                         "startup snapshot should not mark the tray menu as visible");
     failures += !Expect(events[0].prompt.visible,
                         "startup snapshot should prompt for first-run monitor confirmation");
-    failures += !Expect(events[0].menu_title.empty(),
-                        "normal tray model should not render a header title");
     failures += !Expect(events[0].tray_icon_variant == "review",
                         "new monitors should place the tray icon in review mode");
     failures += !Expect(events[0].tray_icon_review_badge,
@@ -162,7 +160,7 @@ bool RunTraySessionChecks() {
       failures += !Expect(!toggled_right->padlock_review_badge,
                           "confirmed tray monitors should clear the review badge");
     }
-    failures += !Expect(events[4].menu_subtitle.empty(),
+    failures += !Expect(events[4].menu_status.empty(),
                         "normal toggle refresh should not render tray summary counts");
     failures += !Expect(events[4].tray_icon_tooltip.find("1 of 2 locked") !=
                             std::string::npos,
@@ -279,9 +277,9 @@ bool RunTraySessionChecks() {
           locking_glass::core::BuildTrayMenuModel(preview, "verification"));
   failures += !Expect(formatted.find("Locking Glass tray menu") != std::string::npos,
                       "formatted tray menu output should include the tray heading");
-  failures += !Expect(formatted.find("title: \n") !=
+  failures += !Expect(formatted.find("status: \n") !=
                           std::string::npos,
-                      "formatted tray menu output should show an empty normal tray title");
+                      "formatted tray menu output should show an empty normal tray status");
   failures += !Expect(formatted.find("variant: review") != std::string::npos,
                       "formatted tray menu output should include the tray icon variant");
   failures += !Expect(

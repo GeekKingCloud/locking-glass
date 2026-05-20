@@ -48,8 +48,7 @@ struct BackgroundSessionUnlockReturn {
 struct BackgroundSessionEvent {
   std::string trigger;
   bool tray_menu_visible = false;
-  std::string menu_title;
-  std::string menu_subtitle;
+  std::string menu_status;
   std::string menu_instruction;
   std::string tray_icon_variant;
   std::string tray_icon_tooltip;

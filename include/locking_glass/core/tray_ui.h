@@ -7,12 +7,6 @@
 
 namespace locking_glass::core {
 
-struct TrayMenuHeader {
-  std::string title;
-  std::string subtitle;
-  std::string instruction;
-};
-
 struct TrayIconState {
   std::string variant;
   std::string tooltip;
@@ -39,7 +33,8 @@ struct TrayMonitorState {
 
 struct TrayMenuModel {
   std::string trigger;
-  TrayMenuHeader header;
+  std::string menu_status;
+  std::string menu_instruction;
   TrayIconState icon;
   std::vector<TrayMonitorState> monitors;
   std::size_t locked_monitors = 0;
