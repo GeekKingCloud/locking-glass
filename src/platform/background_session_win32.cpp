@@ -91,6 +91,23 @@ struct BackgroundSessionState {
   bool live_controller_watcher_started = true;
 };
 
+void PollMenuHover(HWND window, BackgroundSessionState* state);
+
+thread_local HWND g_menu_hook_window = nullptr;
+thread_local BackgroundSessionState* g_menu_hook_state = nullptr;
+
+LRESULT CALLBACK MenuMessageHookProc(int code, WPARAM w_param,
+                                     LPARAM l_param) {
+  if (code >= 0 && w_param == MSGF_MENU && l_param != 0 &&
+      g_menu_hook_window != nullptr && g_menu_hook_state != nullptr) {
+    const auto* message = reinterpret_cast<const MSG*>(l_param);
+    if (message->message == WM_MOUSEMOVE) {
+      PollMenuHover(g_menu_hook_window, g_menu_hook_state);
+    }
+  }
+  return CallNextHookEx(nullptr, code, w_param, l_param);
+}
+
 std::string ReadBackgroundDesktopReportPathFromEnv() {
   const char* raw_value = std::getenv(kBackgroundDesktopReportPathEnv);
   if (raw_value == nullptr) {
@@ -539,6 +556,8 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state) {
 
   std::string trigger = "tray-click";
   BackgroundSessionUnlockReturn unlock_return;
+  POINT menu_origin{};
+  GetCursorPos(&menu_origin);
   while (true) {
     const auto model = RefreshTrayModel(window, state, trigger, true, false,
                                         unlock_return);
@@ -604,17 +623,25 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state) {
     AppendMenuW(menu, MF_STRING, kMenuCommandRefresh, L"Refresh monitor list");
     AppendMenuW(menu, MF_STRING, kMenuCommandExit, L"Exit Locking Glass");
 
-    POINT cursor{};
-    GetCursorPos(&cursor);
     SetForegroundWindow(window);
     // TrackPopupMenu's foreground-window dance and trailing WM_NULL are the
     // standard Win32 tray-menu pattern; without them the popup can linger after
     // focus moves away from the hidden message window.
+    g_menu_hook_window = window;
+    g_menu_hook_state = state;
+    const HHOOK menu_hook =
+        SetWindowsHookExW(WH_MSGFILTER, MenuMessageHookProc, nullptr,
+                          GetCurrentThreadId());
     SetTimer(window, kMenuHoverTimer, kMenuHoverPollMilliseconds, nullptr);
     const UINT command =
-        TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, cursor.x,
-                       cursor.y, 0, window, nullptr);
+        TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, menu_origin.x,
+                       menu_origin.y, 0, window, nullptr);
     KillTimer(window, kMenuHoverTimer);
+    if (menu_hook != nullptr) {
+      UnhookWindowsHookEx(menu_hook);
+    }
+    g_menu_hook_window = nullptr;
+    g_menu_hook_state = nullptr;
     DestroyMenu(menu);
     for (const HBITMAP bitmap : menu_bitmaps) {
       DeleteObject(bitmap);
