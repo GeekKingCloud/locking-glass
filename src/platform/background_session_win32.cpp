@@ -113,6 +113,30 @@ LRESULT CALLBACK MenuMessageHookProc(int code, WPARAM w_param,
   return CallNextHookEx(nullptr, code, w_param, l_param);
 }
 
+LRESULT CALLBACK MenuMouseHookProc(int code, WPARAM w_param, LPARAM l_param) {
+  (void)l_param;
+  if (code >= 0 && (w_param == WM_MOUSEMOVE || w_param == WM_NCMOUSEMOVE) &&
+      g_menu_hook_window != nullptr && g_menu_hook_state != nullptr) {
+    PollMenuHover(g_menu_hook_window, g_menu_hook_state);
+  }
+  return CallNextHookEx(nullptr, code, w_param, l_param);
+}
+
+UINT BuildTrayPopupAlignmentFlags(const POINT menu_origin) {
+  MONITORINFO monitor_info{};
+  monitor_info.cbSize = sizeof(monitor_info);
+  const HMONITOR monitor =
+      MonitorFromPoint(menu_origin, MONITOR_DEFAULTTONEAREST);
+  if (monitor != nullptr && GetMonitorInfoW(monitor, &monitor_info)) {
+    const LONG middle_y =
+        monitor_info.rcWork.top +
+        ((monitor_info.rcWork.bottom - monitor_info.rcWork.top) / 2);
+    return menu_origin.y >= middle_y ? TPM_BOTTOMALIGN : TPM_TOPALIGN;
+  }
+
+  return TPM_BOTTOMALIGN;
+}
+
 std::string ReadBackgroundDesktopReportPathFromEnv() {
   const char* raw_value = std::getenv(kBackgroundDesktopReportPathEnv);
   if (raw_value == nullptr) {
@@ -577,7 +601,8 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state,
       return;
     }
 
-    state->active_menu_model = model;
+    state->active_menu_model =
+        menu_mode == TrayMenuMode::kMonitorOnly ? model : core::TrayMenuModel{};
     state->active_menu_handle = menu;
     state->tray_menu_open = true;
     HideIdentifyOverlay(state);
@@ -586,49 +611,51 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state,
     // so these backing containers must live until after TrackPopupMenu returns.
     std::vector<std::wstring> labels;
     std::vector<HBITMAP> menu_bitmaps;
-    labels.reserve(model.monitors.size() + 8U);
-    menu_bitmaps.reserve(model.monitors.size());
-    if (!model.menu_status.empty()) {
-      labels.push_back(Widen(model.menu_status));
-      AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
-      AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    }
-
-    if (model.monitors.empty()) {
-      AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, L"No monitors detected");
-    } else {
-      for (std::size_t index = 0; index < model.monitors.size(); ++index) {
-        const UINT command = kMenuCommandMonitorBase + static_cast<UINT>(index);
-        labels.push_back(Widen(model.monitors[index].menu_label));
-        AppendMenuW(menu, MF_STRING, command, labels.back().c_str());
-
-        HBITMAP bitmap =
-            CreateMenuPadlockBitmap(model.monitors[index].padlock_icon);
-        if (bitmap == nullptr) {
-          continue;
-        }
-
-        MENUITEMINFOW item_info{};
-        item_info.cbSize = sizeof(item_info);
-        item_info.fMask = MIIM_BITMAP;
-        item_info.hbmpItem = bitmap;
-        if (!SetMenuItemInfoW(menu, command, FALSE, &item_info)) {
-          DeleteObject(bitmap);
-          continue;
-        }
-        menu_bitmaps.push_back(bitmap);
-      }
-    }
-
-    if (!model.menu_instruction.empty()) {
-      AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-      labels.push_back(Widen(model.menu_instruction));
-      AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
-    }
     if (menu_mode == TrayMenuMode::kManagement) {
-      AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+      labels.reserve(2U);
       AppendMenuW(menu, MF_STRING, kMenuCommandRefresh, L"Refresh monitor list");
       AppendMenuW(menu, MF_STRING, kMenuCommandExit, L"Exit Locking Glass");
+    } else {
+      labels.reserve(model.monitors.size() + 8U);
+      menu_bitmaps.reserve(model.monitors.size());
+      if (!model.menu_status.empty()) {
+        labels.push_back(Widen(model.menu_status));
+        AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+      }
+
+      if (model.monitors.empty()) {
+        AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, L"No monitors detected");
+      } else {
+        for (std::size_t index = 0; index < model.monitors.size(); ++index) {
+          const UINT command =
+              kMenuCommandMonitorBase + static_cast<UINT>(index);
+          labels.push_back(Widen(model.monitors[index].menu_label));
+          AppendMenuW(menu, MF_STRING, command, labels.back().c_str());
+
+          HBITMAP bitmap =
+              CreateMenuPadlockBitmap(model.monitors[index].padlock_icon);
+          if (bitmap == nullptr) {
+            continue;
+          }
+
+          MENUITEMINFOW item_info{};
+          item_info.cbSize = sizeof(item_info);
+          item_info.fMask = MIIM_BITMAP;
+          item_info.hbmpItem = bitmap;
+          if (!SetMenuItemInfoW(menu, command, FALSE, &item_info)) {
+            DeleteObject(bitmap);
+            continue;
+          }
+          menu_bitmaps.push_back(bitmap);
+        }
+      }
+
+      if (!model.menu_instruction.empty()) {
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        labels.push_back(Widen(model.menu_instruction));
+        AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
+      }
     }
 
     SetForegroundWindow(window);
@@ -640,11 +667,18 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state,
     const HHOOK menu_hook =
         SetWindowsHookExW(WH_MSGFILTER, MenuMessageHookProc, nullptr,
                           GetCurrentThreadId());
+    const HHOOK mouse_hook = SetWindowsHookExW(
+        WH_MOUSE, MenuMouseHookProc, nullptr, GetCurrentThreadId());
     SetTimer(window, kMenuHoverTimer, kMenuHoverPollMilliseconds, nullptr);
     const UINT command =
-        TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, menu_origin.x,
-                       menu_origin.y, 0, window, nullptr);
+        TrackPopupMenu(menu,
+                       TPM_RETURNCMD | TPM_RIGHTBUTTON |
+                           BuildTrayPopupAlignmentFlags(menu_origin),
+                       menu_origin.x, menu_origin.y, 0, window, nullptr);
     KillTimer(window, kMenuHoverTimer);
+    if (mouse_hook != nullptr) {
+      UnhookWindowsHookEx(mouse_hook);
+    }
     if (menu_hook != nullptr) {
       UnhookWindowsHookEx(menu_hook);
     }
@@ -660,7 +694,8 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state,
     state->active_menu_model = {};
     HideIdentifyOverlay(state);
 
-    if (command >= kMenuCommandMonitorBase &&
+    if (menu_mode == TrayMenuMode::kMonitorOnly &&
+        command >= kMenuCommandMonitorBase &&
         command < kMenuCommandMonitorBase + model.monitors.size()) {
       const auto monitor =
           model.monitors[command - kMenuCommandMonitorBase].monitor;
@@ -750,6 +785,18 @@ void PollMenuHover(HWND window, BackgroundSessionState* state) {
   }
 
   const int item_count = GetMenuItemCount(state->active_menu_handle);
+  for (int index = 0; index < item_count; ++index) {
+    const UINT item_state = GetMenuState(
+        state->active_menu_handle, static_cast<UINT>(index), MF_BYPOSITION);
+    if (item_state != static_cast<UINT>(-1) &&
+        (item_state & MF_HILITE) != 0) {
+      const UINT command = GetMenuItemID(state->active_menu_handle, index);
+      UpdateHoverOverlay(state, command, item_state,
+                         reinterpret_cast<LPARAM>(state->active_menu_handle));
+      return;
+    }
+  }
+
   for (int index = 0; index < item_count; ++index) {
     RECT item_rect{};
     if (!GetMenuItemRect(nullptr, state->active_menu_handle,
@@ -871,11 +918,11 @@ LRESULT CALLBACK BackgroundWindowProc(HWND window, UINT message, WPARAM w_param,
       if (state != nullptr) {
         const UINT notification =
             LOWORD(static_cast<DWORD_PTR>(l_param));
-        if (notification == WM_CONTEXTMENU || notification == WM_RBUTTONUP ||
-            notification == NIN_KEYSELECT) {
+        if (notification == WM_CONTEXTMENU || notification == WM_RBUTTONUP) {
           ShowTrayMenu(window, state, TrayMenuMode::kManagement);
         } else if (notification == WM_LBUTTONUP ||
-                   notification == NIN_SELECT) {
+                   notification == NIN_SELECT ||
+                   notification == NIN_KEYSELECT) {
           ShowTrayMenu(window, state, TrayMenuMode::kMonitorOnly);
         }
       }
