@@ -373,6 +373,31 @@ bool ParseMonitor(const std::vector<std::string>& fields,
   return true;
 }
 
+void PreserveRejectedSessionFile(const std::filesystem::path& storage_path,
+                                 SessionRefreshResult* result) {
+  if (result == nullptr || result->storage_issue == SessionStorageIssue::kNone ||
+      !result->loaded_from_disk) {
+    return;
+  }
+
+  const auto backup_path = InvalidBackupPath(storage_path);
+  if (!CopyFileWithOverwrite(storage_path, backup_path)) {
+#if defined(_WIN32)
+    const DWORD error_code = GetLastError();
+    const std::error_code copy_error(static_cast<int>(error_code),
+                                     std::system_category());
+#else
+    const std::error_code copy_error(errno, std::generic_category());
+#endif
+    AppendStorageDetail(
+        &result->storage_detail,
+        "Failed to preserve the rejected session file at " +
+            backup_path.string() + ": " + copy_error.message() + '.');
+  } else {
+    result->invalid_storage_backup_path = backup_path;
+  }
+}
+
 }  // namespace
 
 const char* ToString(const SessionStorageIssue issue) {
@@ -598,7 +623,13 @@ SessionRefreshResult SessionStore::Preview(
 
 SessionRefreshResult SessionStore::StartUnlocked(
     const std::vector<platform::MonitorDescriptor>& live_monitors) const {
-  auto result = Restore(live_monitors);
+  auto load_result = Load();
+  auto result = ReconcileSnapshot(std::move(load_result.snapshot), live_monitors,
+                                  storage_path_, load_result.loaded_from_disk);
+  result.storage_issue = load_result.storage_issue;
+  result.storage_detail = std::move(load_result.storage_detail);
+  PreserveRejectedSessionFile(storage_path_, &result);
+
   // Startup deliberately persists the unlocked state. A previous run may have
   // saved locks, but every new process starts inert until the user locks a
   // monitor from the tray in this run.
@@ -610,6 +641,15 @@ SessionRefreshResult SessionStore::StartUnlocked(
   if (!Save(result.snapshot)) {
     AppendStorageDetail(&result.storage_detail,
                         "Failed to write the startup-unlocked session file.");
+  } else if (result.storage_issue != SessionStorageIssue::kNone) {
+    result.recovered_invalid_data = true;
+    AppendStorageDetail(&result.storage_detail,
+                        "Rebuilt the active session file from live monitor state.");
+    if (!result.invalid_storage_backup_path.empty()) {
+      AppendStorageDetail(&result.storage_detail,
+                          "Rejected data was copied to " +
+                              result.invalid_storage_backup_path.string() + '.');
+    }
   }
   return result;
 }
@@ -624,24 +664,7 @@ SessionRefreshResult SessionStore::Restore(
 
   // Rejected session files are preserved for inspection, then the active file
   // is rebuilt from live monitors. Bad persistence must not resurrect old locks.
-  if (result.storage_issue != SessionStorageIssue::kNone && result.loaded_from_disk) {
-    const auto backup_path = InvalidBackupPath(storage_path_);
-    if (!CopyFileWithOverwrite(storage_path_, backup_path)) {
-#if defined(_WIN32)
-      const DWORD error_code = GetLastError();
-      const std::error_code copy_error(static_cast<int>(error_code),
-                                       std::system_category());
-#else
-      const std::error_code copy_error(errno, std::generic_category());
-#endif
-      AppendStorageDetail(
-          &result.storage_detail,
-          "Failed to preserve the rejected session file at " +
-              backup_path.string() + ": " + copy_error.message() + '.');
-    } else {
-      result.invalid_storage_backup_path = backup_path;
-    }
-  }
+  PreserveRejectedSessionFile(storage_path_, &result);
 
   const bool save_ok = Save(result.snapshot);
   if (!save_ok) {

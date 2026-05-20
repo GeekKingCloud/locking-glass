@@ -212,6 +212,30 @@ bool RunSessionStoreChecks() {
   failures += !Expect(repaired_preview.review_monitors == 1U,
                       "rebuilt session storage should keep the live monitor pending review");
 
+  const std::string startup_invalid_contents = "version\t99\n";
+  WriteTextFile(session_path, startup_invalid_contents);
+
+  auto startup_invalid =
+      locking_glass::core::SessionStore(session_path).StartUnlocked({left_monitor});
+  failures += !Expect(
+      startup_invalid.storage_issue ==
+          locking_glass::core::SessionStorageIssue::kUnsupportedVersion,
+      "startup-unlocked recovery should classify unsupported session versions");
+  failures += !Expect(startup_invalid.recovered_invalid_data,
+                      "startup-unlocked recovery should rebuild invalid storage");
+  failures += !Expect(startup_invalid.restored_locked_monitors == 0U,
+                      "startup-unlocked recovery should not report restored locks");
+  failures += !Expect(
+      startup_invalid.invalid_storage_backup_path == invalid_backup_path,
+      "startup-unlocked recovery should preserve rejected data for inspection");
+  failures += !Expect(ReadTextFile(invalid_backup_path) == startup_invalid_contents,
+                      "startup-unlocked recovery should preserve rejected file contents");
+  const auto startup_repaired =
+      locking_glass::core::SessionStore(session_path).Preview({left_monitor});
+  failures += !Expect(
+      startup_repaired.storage_issue == locking_glass::core::SessionStorageIssue::kNone,
+      "startup-unlocked recovery should leave a readable active session file");
+
   std::filesystem::remove_all(temp_directory);
   return failures == 0;
 }
