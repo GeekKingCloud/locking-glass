@@ -161,6 +161,9 @@ std::vector<TrayScriptStep> LoadTrayScript(const std::string& script_path) {
         continue;
       }
       if (fields[1] == "desktop-watch" && fields.size() == 2U) {
+        // Scripted tray tests use this explicit step to model "user locks via
+        // tray, then Windows emits desktop switch events" without pre-seeding
+        // saved locks before startup.
         steps.push_back(TrayScriptStep{
             .type = TrayScriptStepType::kDesktopWatch,
             .trigger = {},

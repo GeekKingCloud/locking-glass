@@ -33,6 +33,7 @@ Thanks for helping improve LockingGlass.
 - Changes to live desktop watching, background tray behavior, or installed packaging should keep the repo's fail-closed behavior intact.
 - If you change the live Windows helper-backed path, update the relevant docs under `docs/` and rerun the proof scripts when possible.
 - Replay-only coverage is useful, but it is not a substitute for the real Windows proof path.
+- Package smoke tests must use the installer autostart opt-out so verification never writes the real user's current-user Run key.
 
 ## Pull Request Notes
 

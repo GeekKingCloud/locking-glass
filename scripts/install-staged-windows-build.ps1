@@ -1,7 +1,9 @@
 param(
     [string]$SourceDir,
     [string]$InstallDir,
+    # Retained for older setup wrappers; autostart is now enabled unless -NoAutostart is supplied.
     [switch]$EnableAutostart,
+    [switch]$NoAutostart,
     [switch]$LaunchAfterInstall
 )
 
@@ -213,7 +215,7 @@ $thirdPartyShortcut.WorkingDirectory = $InstallDir
 $thirdPartyShortcut.Description = 'Open bundled third-party license notices for LockingGlass.'
 $thirdPartyShortcut.Save()
 
-if ($EnableAutostart) {
+if (-not $NoAutostart) {
     & $installedExe --install-autostart
     if ($LASTEXITCODE -ne 0) {
         throw "LockingGlass autostart registration failed from '$installedExe'."
@@ -240,7 +242,7 @@ Write-Host ('README shortcut: ' + (Join-Path $startMenuDir 'LockingGlass README.
 Write-Host ('License shortcut: ' + (Join-Path $startMenuDir 'LockingGlass License.lnk'))
 Write-Host ('Third-party notices shortcut: ' + (Join-Path $startMenuDir 'LockingGlass Third-Party Notices.lnk'))
 Write-Host 'Updates: rerun a newer LockingGlass setup executable or Install-LockingGlass.ps1 over the existing install'
-if ($EnableAutostart) {
+if (-not $NoAutostart) {
     Write-Host 'Autostart: enabled for the current user'
 } else {
     Write-Host 'Autostart: not changed'

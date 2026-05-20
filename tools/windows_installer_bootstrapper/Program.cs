@@ -214,9 +214,9 @@ namespace LockingGlass.WindowsInstallerBootstrapper
                 startInfo.ArgumentList.Add(installDirectory);
             }
 
-            if (enableAutostart)
+            if (!enableAutostart)
             {
-                startInfo.ArgumentList.Add("-EnableAutostart");
+                startInfo.ArgumentList.Add("-NoAutostart");
             }
 
             if (launchAfterInstall)
@@ -280,7 +280,7 @@ namespace LockingGlass.WindowsInstallerBootstrapper
 
         public string? InstallDirectory { get; private set; }
 
-        public bool EnableAutostart { get; private set; }
+        public bool EnableAutostart { get; private set; } = true;
 
         public bool LaunchAfterInstall { get; private set; } = true;
 
@@ -301,6 +301,9 @@ namespace LockingGlass.WindowsInstallerBootstrapper
                         break;
                     case "--enable-autostart":
                         options.EnableAutostart = true;
+                        break;
+                    case "--no-autostart":
+                        options.EnableAutostart = false;
                         break;
                     case "--no-launch-after-install":
                         options.LaunchAfterInstall = false;

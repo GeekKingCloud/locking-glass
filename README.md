@@ -62,7 +62,7 @@ Current automated coverage includes:
 - startup diagnostics and autostart planning
 - session persistence, malformed-data recovery, and `.invalid` backup creation
 - scripted monitor refresh handling
-- scripted tray interaction flow and review prompts
+- scripted tray interaction flow, review prompts, and explicit `desktop-watch` replay after tray locks
 - scripted desktop-locking policy
 - unlock-return tracking, controller replay, and immediate tray-unlock return flow
 
@@ -123,7 +123,7 @@ Reference docs:
 - `scripts/stage-windows-install.ps1`
   Stages the installable Windows payload under `build/windows-install-stage/LockingGlass/`.
 - `scripts/install-staged-windows-build.ps1`
-  Installs or updates the staged payload in `%LOCALAPPDATA%\Programs\LockingGlass`, creates Start Menu shortcuts, and can optionally enable autostart or launch after install.
+  Installs or updates the staged payload in `%LOCALAPPDATA%\Programs\LockingGlass`, creates Start Menu shortcuts, enables current-user autostart by default, and can optionally launch after install. Use `-NoAutostart` for package smoke tests or manual installs that should not write the Run key.
 - `scripts/build-windows-installer.ps1`
   Wraps the staged payload into `LockingGlass-<version>-setup-x64.exe` through the bootstrapper tool.
 - `.github/workflows/windows-release.yml`
@@ -142,7 +142,7 @@ GitHub Actions intentionally stops at build, unit-test, packaging, extract-only 
 ## How Updates Work
 
 - The supported upgrade path is manual in-place reinstall through a newer `LockingGlass-<version>-setup-x64.exe` or `Install-LockingGlass.ps1`.
-- The installer stops the currently installed runtime, overwrites files in the stable install directory, preserves the external session-state file location, and can relaunch the tray app.
+- The installer stops the currently installed runtime, overwrites files in the stable install directory, preserves the external session-state file location, enables current-user autostart by default, and can relaunch the tray app.
 - LockingGlass does not include background update checks, release-feed polling, or self-applying updates.
 
 ## Windows Requirements

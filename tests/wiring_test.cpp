@@ -842,6 +842,59 @@ bool RunTraySessionChecks() {
           std::string::npos,
                       "formatted tray menu output should describe the identify-hover affordance");
 
+  {
+    const auto startup_temp_directory = MakeTempDirectory();
+    const auto startup_session_path =
+        startup_temp_directory / "tray-startup-session-state.tsv";
+    const auto startup_script_path =
+        startup_temp_directory / "tray-startup-script.tsv";
+    auto saved_snapshot =
+        locking_glass::core::SessionStore(startup_session_path)
+            .Restore({left_monitor, right_monitor})
+            .snapshot;
+    failures += !Expect(
+        locking_glass::core::SessionStore(startup_session_path)
+            .SetLocked(&saved_snapshot, left_monitor, true),
+        "startup-unlocked tray setup should be able to seed a saved lock");
+    failures += !Expect(
+        locking_glass::core::SessionStore(startup_session_path)
+            .Save(saved_snapshot),
+        "startup-unlocked tray setup should persist the seeded saved lock");
+    WriteTextFile(
+        startup_script_path,
+        "event\tstartup\n"
+        "monitor\tstable-left\tDISPLAY#LEFT\tSERIAL-LEFT\tDell U2720Q\tDisplay 1\t0\t0\t2560\t1440\t1\n"
+        "monitor\tstable-right\tDISPLAY#RIGHT\tSERIAL-RIGHT\tDell U2720Q\tDisplay 2\t2560\t0\t5120\t1440\t0\n"
+        "action\texit\n");
+
+    SetEnvironmentVariable("LOCKING_GLASS_SESSION_PATH",
+                           startup_session_path.string());
+    SetEnvironmentVariable("LOCKING_GLASS_TRAY_SCRIPT",
+                           startup_script_path.string());
+    auto startup_runtime = locking_glass::core::BuildRuntime();
+    std::vector<locking_glass::platform::BackgroundSessionEvent>
+        startup_events;
+    const int startup_run_result = startup_runtime.background_session->Run(
+        [&](const locking_glass::platform::BackgroundSessionEvent& event) {
+          startup_events.push_back(event);
+        });
+    failures += !Expect(startup_run_result == 0,
+                        "startup-unlocked tray script should exit successfully");
+    failures += !Expect(startup_events.size() == 2U,
+                        "startup-unlocked tray script should emit startup and exit events");
+    if (!startup_events.empty()) {
+      const auto* startup_left =
+          FindBackgroundMonitor(startup_events.front(), "Display 1");
+      failures += !Expect(startup_left != nullptr,
+                          "startup event should include the seeded monitor");
+      if (startup_left != nullptr) {
+        failures += !Expect(!startup_left->locked,
+                            "startup event should clear a saved monitor lock");
+      }
+    }
+    std::filesystem::remove_all(startup_temp_directory);
+  }
+
   SetEnvironmentVariable("LOCKING_GLASS_TRAY_SCRIPT", "");
   std::filesystem::remove_all(temp_directory);
   return failures == 0;

@@ -479,7 +479,7 @@ function Test-Package {
         $env:APPDATA = Join-Path $installSmokeRoot 'Roaming'
         $env:LOCALAPPDATA = Join-Path $installSmokeRoot 'Local'
         New-Item -ItemType Directory -Force -Path $env:APPDATA, $env:LOCALAPPDATA | Out-Null
-        Invoke-Checked $setupPath -Arguments @('--install-dir', $installDir, '--no-launch-after-install')
+        Invoke-Checked $setupPath -Arguments @('--install-dir', $installDir, '--no-autostart', '--no-launch-after-install')
     } finally {
         $env:APPDATA = $previousAppData
         $env:LOCALAPPDATA = $previousLocalAppData

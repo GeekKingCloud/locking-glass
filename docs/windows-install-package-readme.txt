@@ -39,7 +39,8 @@ How to use it
 - Run Start-LockingGlass.cmd to start the tray app from this folder.
 - Run LockingGlass.exe --version to confirm which build you have.
 - Run LockingGlass.exe --self-check to inspect startup diagnostics.
-- Run LockingGlass.exe --install-autostart if you want current-user startup after sign-in.
+- The setup executable and installer script enable current-user startup after sign-in by default. Use the setup `--no-autostart` flag or installer-script `-NoAutostart` switch for installs that must not write the Run key.
+- Run LockingGlass.exe --install-autostart to repair current-user startup manually.
 - Re-run Install-LockingGlass.ps1 to refresh or upgrade an existing install. The installer script stops the current installed runtime before replacing files in place.
 - The supported public upgrade path is to run a newer LockingGlass setup executable over the existing install.
 
@@ -57,6 +58,7 @@ Installer note
 - Public releases may also ship as LockingGlass-<version>-setup-x64.exe.
 - That setup executable is a wrapper around this same payload and still uses Install-LockingGlass.ps1 for the actual install logic.
 - The setup executable and installer script are upgrade-safe by design: they keep the stable install path and do not move the external session-state file.
+- Package smoke tests should pass `--no-autostart` so verification never writes the real user's startup registry entry.
 - Custom install directories must name an app-specific LockingGlass folder, not a shared parent directory.
 
 What this package does not claim
