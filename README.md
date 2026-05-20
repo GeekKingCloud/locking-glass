@@ -24,7 +24,7 @@ Locked monitors keep their visible windows on the same desktop while unlocked mo
 - `src/core`: session-store logic, diagnostics formatting, tray model projection, and monitor-locking policy.
 - `src/platform`: Win32 monitor gateway, monitor watcher, and tray/background runtime.
 - `src/integration`: Windows API probing, autostart registration, helper-backed live desktop control, and desktop watch bridge.
-- `tests/wiring_test.cpp`: the automated test harness for the app-level seams.
+- `tests/*_test.cpp`: automated coverage for the app-level seams, linked into one test executable.
 - `VERSION`: the single source of truth for the app, installer, and release version.
 - `tools/windows_live_desktop_probe`: the Windows live-hook probe used by proof scripts and installed watch mode.
 - `tools/windows_installer_bootstrapper`: the small self-contained bootstrapper used to produce `Locking Glass Installer.exe` and `Locking Glass Uninstaller.exe`.
@@ -52,11 +52,11 @@ For an optional non-release cross-build from a mingw-w64 environment:
 make BUILD_DIR=build-win OBJ_DIR=build-win/obj BIN_DIR=build-win/bin OS=Windows_NT CXX=x86_64-w64-mingw32-g++ all
 ```
 
-The automated test harness is a single executable named `wiring_test`.
+The automated C++ tests build into one executable named `locking_glass_tests`.
 
 - `make test` builds and runs `build/bin/locking_glass_tests`
 - the Windows test artifact is `build-win/bin/locking_glass_tests.exe`
-- on success the harness prints progress for each check group and ends with `wiring_test: ok`
+- on success the runner prints progress for each check group and ends with `locking_glass_tests: ok`
 - there is no active `tests/fakes/` subsystem; the harness uses environment-driven scripted seams instead of a reusable fake source tree
 
 Current automated coverage includes:

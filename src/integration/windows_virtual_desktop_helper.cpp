@@ -282,8 +282,7 @@ std::unique_ptr<WindowsVirtualDesktopHelper> WindowsVirtualDesktopHelper::Load(
         remove_desktop == nullptr) {
       last_error =
           "VirtualDesktopAccessor.dll at " + candidate.string() +
-          " was missing a required desktop hook, move, identity, or "
-          "lifecycle export.";
+          " was missing a required desktop move, identity, or lifecycle export.";
       FreeLibrary(library);
       continue;
     }
