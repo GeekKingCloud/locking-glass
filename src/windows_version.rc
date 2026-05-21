@@ -1,4 +1,5 @@
 #include <winver.h>
+#include "windows_resource.h"
 
 // Release builds inject VERSION-derived macros. The zero fallbacks only keep
 // ad hoc resource compilation possible outside the release pipeline.
@@ -29,6 +30,8 @@
   LOCKING_GLASS_VERSION_MAJOR,LOCKING_GLASS_VERSION_MINOR, \
   LOCKING_GLASS_VERSION_PATCH,0
 #endif
+
+LOCKING_GLASS_APP_ICON ICON "assets/locking-glass.ico"
 
 1 VERSIONINFO
 FILEVERSION LOCKING_GLASS_FILE_VERSION

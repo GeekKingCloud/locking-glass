@@ -42,9 +42,9 @@ constexpr wchar_t kIdentifyOverlayWindowClassName[] =
     L"LockingGlassIdentifyOverlayWindow";
 constexpr int kIdentifyOverlayInset = 18;
 constexpr int kIdentifyOverlayBorder = 6;
-constexpr int kIdentifyOverlayCardWidth = 360;
-constexpr int kIdentifyOverlayCardHeight = 108;
-constexpr BYTE kIdentifyOverlayOpacity = 168;
+constexpr int kIdentifyOverlayCardWidth = 520;
+constexpr int kIdentifyOverlayCardHeight = 168;
+constexpr BYTE kIdentifyOverlayOpacity = 224;
 constexpr int kTrayPopupIconGap = 10;
 constexpr UINT kMenuHoverPollMilliseconds = 45;
 
@@ -87,6 +87,8 @@ struct BackgroundSessionState {
   HWND identify_overlay_window = nullptr;
   std::wstring identify_overlay_title;
   std::wstring identify_overlay_message;
+  bool identify_overlay_locked = false;
+  bool identify_overlay_requires_confirmation = false;
   core::TrayMenuModel active_menu_model;
   HMENU active_menu_handle = nullptr;
   std::string highlighted_monitor_key;
@@ -101,6 +103,11 @@ void PollMenuHover(HWND window, BackgroundSessionState* state);
 
 thread_local HWND g_menu_hook_window = nullptr;
 thread_local BackgroundSessionState* g_menu_hook_state = nullptr;
+
+struct MonitorMenuDrawItem {
+  const core::TrayMonitorState* monitor = nullptr;
+  std::wstring label;
+};
 
 LRESULT CALLBACK MenuMessageHookProc(int code, WPARAM w_param,
                                      LPARAM l_param) {
@@ -147,6 +154,194 @@ POINT BuildTrayPopupOrigin(const POINT menu_origin,
     popup_origin.y += kTrayPopupIconGap;
   }
   return popup_origin;
+}
+
+HFONT CreateUiFont(HWND window, const int point_size, const int weight) {
+  HDC dc = GetDC(window);
+  const int dpi = dc != nullptr ? GetDeviceCaps(dc, LOGPIXELSY) : 96;
+  if (dc != nullptr) {
+    ReleaseDC(window, dc);
+  }
+
+  return CreateFontW(-MulDiv(point_size, dpi > 0 ? dpi : 96, 72), 0, 0, 0,
+                     weight, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                     OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                     DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+}
+
+COLORREF MenuPadlockAccent(const core::TrayPadlockIconState& icon) {
+  if (icon.accent == "amber") {
+    return RGB(197, 125, 22);
+  }
+  if (icon.accent == "emerald") {
+    return RGB(30, 135, 84);
+  }
+  return RGB(85, 103, 116);
+}
+
+void DrawPadlockGlyph(HDC dc, RECT rect,
+                      const core::TrayPadlockIconState& icon) {
+  const int width = rect.right - rect.left;
+  const int height = rect.bottom - rect.top;
+  const int unit = max(1, min(width, height) / 16);
+  const int left = rect.left + max(0, (width - (16 * unit)) / 2);
+  const int top = rect.top + max(0, (height - (16 * unit)) / 2);
+  const COLORREF accent = MenuPadlockAccent(icon);
+
+  HBRUSH accent_brush = CreateSolidBrush(accent);
+  HPEN accent_pen = CreatePen(PS_SOLID, max(2, unit), accent);
+  HGDIOBJ previous_pen = SelectObject(dc, accent_pen);
+  HGDIOBJ previous_brush = SelectObject(dc, accent_brush);
+
+  RECT body{left + (4 * unit), top + (7 * unit), left + (12 * unit),
+            top + (13 * unit)};
+  if (icon.filled) {
+    RoundRect(dc, body.left, body.top, body.right, body.bottom, 2 * unit,
+              2 * unit);
+  } else {
+    HGDIOBJ hollow_brush = SelectObject(dc, GetStockObject(NULL_BRUSH));
+    RoundRect(dc, body.left, body.top, body.right, body.bottom, 2 * unit,
+              2 * unit);
+    SelectObject(dc, hollow_brush);
+  }
+
+  MoveToEx(dc, left + (5 * unit), top + (7 * unit), nullptr);
+  LineTo(dc, left + (5 * unit), top + (5 * unit));
+  LineTo(dc, left + (7 * unit), top + (3 * unit));
+  LineTo(dc, left + (10 * unit), top + (3 * unit));
+  if (icon.variant == "locked") {
+    LineTo(dc, left + (12 * unit), top + (5 * unit));
+    LineTo(dc, left + (12 * unit), top + (7 * unit));
+  } else {
+    MoveToEx(dc, left + (10 * unit), top + (3 * unit), nullptr);
+    LineTo(dc, left + (12 * unit), top + (4 * unit));
+    LineTo(dc, left + (13 * unit), top + (6 * unit));
+  }
+
+  if (icon.filled) {
+    HBRUSH key_brush = CreateSolidBrush(RGB(255, 255, 255));
+    RECT key{left + (7 * unit), top + (9 * unit), left + (9 * unit),
+             top + (12 * unit)};
+    FillRect(dc, &key, key_brush);
+    DeleteObject(key_brush);
+  }
+
+  SelectObject(dc, previous_brush);
+  SelectObject(dc, previous_pen);
+  DeleteObject(accent_pen);
+  DeleteObject(accent_brush);
+}
+
+void DrawOverlayStateIcon(HDC dc, RECT rect, const bool locked,
+                          const bool requires_confirmation) {
+  core::TrayPadlockIconState icon{
+      .variant = locked ? "locked" : "unlocked",
+      .accent =
+          requires_confirmation ? "amber" : (locked ? "emerald" : "slate"),
+      .filled = locked,
+      .review_badge = false,
+  };
+  DrawPadlockGlyph(dc, rect, icon);
+}
+
+void MeasureMonitorMenuItem(MEASUREITEMSTRUCT* item) {
+  if (item == nullptr || item->CtlType != ODT_MENU) {
+    return;
+  }
+
+  const auto* draw_item =
+      reinterpret_cast<const MonitorMenuDrawItem*>(item->itemData);
+  if (draw_item == nullptr) {
+    return;
+  }
+
+  HDC dc = GetDC(nullptr);
+  if (dc == nullptr) {
+    item->itemWidth = draw_item->monitor != nullptr ? 190 : 150;
+    item->itemHeight = 34;
+    return;
+  }
+  HFONT font = CreateUiFont(nullptr, 10, FW_NORMAL);
+  HGDIOBJ previous_font =
+      font != nullptr ? SelectObject(dc, font) : nullptr;
+  SIZE text_size{};
+  GetTextExtentPoint32W(dc, draw_item->label.c_str(),
+                        static_cast<int>(draw_item->label.size()), &text_size);
+  if (previous_font != nullptr) {
+    SelectObject(dc, previous_font);
+  }
+  if (font != nullptr) {
+    DeleteObject(font);
+  }
+  ReleaseDC(nullptr, dc);
+
+  const int horizontal_padding = draw_item->monitor != nullptr ? 48 : 24;
+  item->itemWidth = static_cast<UINT>(text_size.cx + horizontal_padding);
+  item->itemHeight =
+      static_cast<UINT>(max(34, static_cast<int>(text_size.cy) + 16));
+}
+
+void DrawMonitorMenuItem(const DRAWITEMSTRUCT* item) {
+  if (item == nullptr || item->CtlType != ODT_MENU || item->hDC == nullptr) {
+    return;
+  }
+
+  const auto* draw_item =
+      reinterpret_cast<const MonitorMenuDrawItem*>(item->itemData);
+  if (draw_item == nullptr) {
+    return;
+  }
+
+  const bool selected = (item->itemState & ODS_SELECTED) != 0;
+  const COLORREF background =
+      selected ? RGB(42, 62, 82) : GetSysColor(COLOR_MENU);
+  const COLORREF text_color =
+      selected ? RGB(255, 255, 255) : GetSysColor(COLOR_MENUTEXT);
+
+  HBRUSH background_brush = CreateSolidBrush(background);
+  FillRect(item->hDC, &item->rcItem, background_brush);
+  DeleteObject(background_brush);
+
+  int text_left = item->rcItem.left + 10;
+  if (draw_item->monitor != nullptr) {
+    RECT icon_rect{item->rcItem.left + 7, item->rcItem.top + 6,
+                   item->rcItem.left + 29, item->rcItem.bottom - 6};
+    DrawPadlockGlyph(item->hDC, icon_rect, draw_item->monitor->padlock_icon);
+    text_left = item->rcItem.left + 36;
+  }
+
+  SetBkMode(item->hDC, TRANSPARENT);
+  SetTextColor(item->hDC, text_color);
+  HFONT font = CreateUiFont(nullptr, 10, FW_NORMAL);
+  HGDIOBJ previous_font =
+      font != nullptr ? SelectObject(item->hDC, font) : nullptr;
+  RECT text_rect{text_left, item->rcItem.top, item->rcItem.right - 10,
+                 item->rcItem.bottom};
+  DrawTextW(item->hDC, draw_item->label.c_str(), -1, &text_rect,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+  if (previous_font != nullptr) {
+    SelectObject(item->hDC, previous_font);
+  }
+  if (font != nullptr) {
+    DeleteObject(font);
+  }
+}
+
+void InsertOwnerDrawMenuItem(HMENU menu, const UINT command,
+                             MonitorMenuDrawItem* draw_item) {
+  if (menu == nullptr || draw_item == nullptr) {
+    return;
+  }
+
+  MENUITEMINFOW item_info{};
+  item_info.cbSize = sizeof(item_info);
+  item_info.fMask = MIIM_FTYPE | MIIM_ID | MIIM_DATA | MIIM_STATE;
+  item_info.fType = MFT_OWNERDRAW;
+  item_info.fState = MFS_ENABLED;
+  item_info.wID = command;
+  item_info.dwItemData = reinterpret_cast<ULONG_PTR>(draw_item);
+  InsertMenuItemW(menu, static_cast<UINT>(GetMenuItemCount(menu)), TRUE,
+                  &item_info);
 }
 
 std::string ReadBackgroundDesktopReportPathFromEnv() {
@@ -301,7 +496,7 @@ LRESULT CALLBACK IdentifyOverlayWindowProc(HWND window, UINT message,
       card_rect.right = card_rect.left + card_width;
       card_rect.bottom = card_rect.top + card_height;
 
-      HBRUSH card_fill = CreateSolidBrush(RGB(18, 25, 36));
+      HBRUSH card_fill = CreateSolidBrush(RGB(14, 22, 32));
       HPEN card_border = CreatePen(PS_SOLID, 2, RGB(130, 190, 255));
       previous_pen = SelectObject(dc, card_border);
       previous_brush = SelectObject(dc, card_fill);
@@ -313,22 +508,41 @@ LRESULT CALLBACK IdentifyOverlayWindowProc(HWND window, UINT message,
       DeleteObject(card_fill);
 
       SetBkMode(dc, TRANSPARENT);
-      SetTextColor(dc, RGB(244, 247, 250));
-      HFONT font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
-      HGDIOBJ previous_font = SelectObject(dc, font);
+      SetTextColor(dc, RGB(248, 250, 252));
+      HFONT title_font = CreateUiFont(window, 28, FW_BOLD);
+      HFONT message_font = CreateUiFont(window, 15, FW_SEMIBOLD);
+      HFONT fallback_font =
+          static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+      HGDIOBJ previous_font =
+          SelectObject(dc, title_font != nullptr ? title_font : fallback_font);
 
-      RECT title_rect{card_rect.left + 18, card_rect.top + 16,
-                      card_rect.right - 18, card_rect.top + 44};
-      RECT message_rect{card_rect.left + 18, card_rect.top + 46,
-                        card_rect.right - 18, card_rect.bottom - 18};
+      RECT icon_rect{card_rect.left + 24, card_rect.top + 34,
+                     card_rect.left + 88, card_rect.bottom - 34};
+      DrawOverlayStateIcon(dc, icon_rect,
+                           state != nullptr && state->identify_overlay_locked,
+                           state != nullptr &&
+                               state->identify_overlay_requires_confirmation);
+
+      RECT title_rect{card_rect.left + 106, card_rect.top + 28,
+                      card_rect.right - 24, card_rect.top + 76};
+      RECT message_rect{card_rect.left + 108, card_rect.top + 84,
+                        card_rect.right - 24, card_rect.bottom - 26};
       if (state != nullptr) {
         DrawTextW(dc, state->identify_overlay_title.c_str(), -1, &title_rect,
                   DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
+        SelectObject(dc,
+                     message_font != nullptr ? message_font : fallback_font);
         DrawTextW(dc, state->identify_overlay_message.c_str(), -1, &message_rect,
-                  DT_LEFT | DT_TOP | DT_WORDBREAK | DT_END_ELLIPSIS);
+                  DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
       }
 
       SelectObject(dc, previous_font);
+      if (message_font != nullptr) {
+        DeleteObject(message_font);
+      }
+      if (title_font != nullptr) {
+        DeleteObject(title_font);
+      }
       EndPaint(window, &paint);
       return 0;
     }
@@ -386,6 +600,8 @@ void ShowIdentifyOverlay(BackgroundSessionState* state,
 
   state->identify_overlay_title = Widen(overlay.title);
   state->identify_overlay_message = Widen(overlay.message);
+  state->identify_overlay_locked = overlay.locked;
+  state->identify_overlay_requires_confirmation = overlay.requires_confirmation;
   state->highlighted_monitor_key = BuildMonitorIdentityKey(overlay.monitor);
 
   const int monitor_width =
@@ -622,17 +838,24 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state,
     state->tray_menu_open = true;
     HideIdentifyOverlay(state);
 
-    // Win32 menu items borrow string and bitmap storage while the menu is open,
-    // so these backing containers must live until after TrackPopupMenu returns.
+    // Win32 menu items borrow string and owner-draw storage while the menu is
+    // open, so these backing containers must outlive TrackPopupMenu.
     std::vector<std::wstring> labels;
-    std::vector<HBITMAP> menu_bitmaps;
+    std::vector<MonitorMenuDrawItem> draw_items;
     if (menu_mode == TrayMenuMode::kManagement) {
-      labels.reserve(2U);
-      AppendMenuW(menu, MF_STRING, kMenuCommandRefresh, L"Refresh monitor list");
-      AppendMenuW(menu, MF_STRING, kMenuCommandExit, L"Exit Locking Glass");
+      draw_items.reserve(2U);
+      draw_items.push_back(MonitorMenuDrawItem{
+          .monitor = nullptr,
+          .label = L"Refresh monitor list",
+      });
+      InsertOwnerDrawMenuItem(menu, kMenuCommandRefresh, &draw_items.back());
+      draw_items.push_back(MonitorMenuDrawItem{
+          .monitor = nullptr,
+          .label = L"Exit Locking Glass",
+      });
+      InsertOwnerDrawMenuItem(menu, kMenuCommandExit, &draw_items.back());
     } else {
       labels.reserve(model.monitors.size() + 8U);
-      menu_bitmaps.reserve(model.monitors.size());
       if (!model.menu_status.empty()) {
         labels.push_back(Widen(model.menu_status));
         AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, labels.back().c_str());
@@ -642,27 +865,15 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state,
       if (model.monitors.empty()) {
         AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, L"No monitors detected");
       } else {
+        draw_items.reserve(model.monitors.size());
         for (std::size_t index = 0; index < model.monitors.size(); ++index) {
           const UINT command =
               kMenuCommandMonitorBase + static_cast<UINT>(index);
-          labels.push_back(Widen(model.monitors[index].menu_label));
-          AppendMenuW(menu, MF_STRING, command, labels.back().c_str());
-
-          HBITMAP bitmap =
-              CreateMenuPadlockBitmap(model.monitors[index].padlock_icon);
-          if (bitmap == nullptr) {
-            continue;
-          }
-
-          MENUITEMINFOW item_info{};
-          item_info.cbSize = sizeof(item_info);
-          item_info.fMask = MIIM_BITMAP;
-          item_info.hbmpItem = bitmap;
-          if (!SetMenuItemInfoW(menu, command, FALSE, &item_info)) {
-            DeleteObject(bitmap);
-            continue;
-          }
-          menu_bitmaps.push_back(bitmap);
+          draw_items.push_back(MonitorMenuDrawItem{
+              .monitor = &model.monitors[index],
+              .label = Widen(model.monitors[index].menu_label),
+          });
+          InsertOwnerDrawMenuItem(menu, command, &draw_items.back());
         }
       }
 
@@ -701,9 +912,6 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state,
     g_menu_hook_window = nullptr;
     g_menu_hook_state = nullptr;
     DestroyMenu(menu);
-    for (const HBITMAP bitmap : menu_bitmaps) {
-      DeleteObject(bitmap);
-    }
     PostMessageW(window, WM_NULL, 0, 0);
     state->tray_menu_open = false;
     state->active_menu_handle = nullptr;
@@ -905,6 +1113,12 @@ LRESULT CALLBACK BackgroundWindowProc(HWND window, UINT message, WPARAM w_param,
   }
 
   switch (message) {
+    case WM_MEASUREITEM:
+      MeasureMonitorMenuItem(reinterpret_cast<MEASUREITEMSTRUCT*>(l_param));
+      return TRUE;
+    case WM_DRAWITEM:
+      DrawMonitorMenuItem(reinterpret_cast<const DRAWITEMSTRUCT*>(l_param));
+      return TRUE;
     case WM_DISPLAYCHANGE:
       if (state != nullptr) {
         RefreshTrayModel(window, state, "WM_DISPLAYCHANGE", false, true);

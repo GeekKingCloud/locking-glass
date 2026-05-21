@@ -104,39 +104,12 @@ TrayPadlockIconState BuildMonitorPadlockIconState(
   return icon;
 }
 
-std::string FormatMonitorResolution(const platform::MonitorDescriptor& monitor) {
-  const int width = monitor.bounds.right - monitor.bounds.left;
-  const int height = monitor.bounds.bottom - monitor.bounds.top;
-  return std::to_string(width) + "x" + std::to_string(height);
-}
-
 std::string BuildMonitorMenuLabel(const TrayMonitorState& monitor) {
-  std::ostringstream builder;
-  builder << BuildMonitorDisplayLabel(monitor.monitor);
-  builder << " (" << FormatMonitorResolution(monitor.monitor) << " @ "
-          << monitor.monitor.bounds.left << "," << monitor.monitor.bounds.top;
-  if (monitor.monitor.is_primary) {
-    builder << ", primary";
-  }
-  builder << ")";
-  return builder.str();
+  return BuildMonitorDisplayLabel(monitor.monitor);
 }
 
 std::string BuildMonitorIdentifyLabel(const TrayMonitorState& monitor) {
-  std::ostringstream builder;
-  builder << monitor.monitor.label << " on screen";
-  if (!monitor.monitor.display_name.empty()) {
-    builder << " (" << monitor.monitor.display_name << ", ";
-  } else {
-    builder << " (";
-  }
-  builder << FormatMonitorResolution(monitor.monitor) << " @ "
-          << monitor.monitor.bounds.left << "," << monitor.monitor.bounds.top;
-  if (monitor.monitor.is_primary) {
-    builder << ", primary";
-  }
-  builder << ")";
-  return builder.str();
+  return BuildMonitorDisplayLabel(monitor.monitor);
 }
 
 TrayIconState BuildTrayIconState(const TrayMenuModel& model) {
@@ -252,19 +225,20 @@ TrayIdentifyOverlay BuildTrayIdentifyOverlay(const TrayMonitorState& monitor) {
   TrayIdentifyOverlay overlay{
       .visible = true,
       .monitor = monitor.monitor,
+      .locked = monitor.locked,
+      .requires_confirmation = monitor.requires_confirmation,
       .title = monitor.monitor.label,
       .message = {},
   };
 
   std::ostringstream message;
   if (!monitor.monitor.display_name.empty()) {
-    message << monitor.monitor.display_name << " | ";
-  }
-  message << FormatMonitorResolution(monitor.monitor) << " | "
-          << monitor.status_label << " | top-left "
-          << monitor.monitor.bounds.left << "," << monitor.monitor.bounds.top;
-  if (monitor.monitor.is_primary) {
-    message << " | primary";
+    message << monitor.monitor.display_name;
+    if (monitor.requires_confirmation) {
+      message << " | confirm monitor";
+    }
+  } else if (monitor.requires_confirmation) {
+    message << "Confirm monitor";
   }
   overlay.message = message.str();
   return overlay;

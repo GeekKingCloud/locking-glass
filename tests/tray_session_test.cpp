@@ -101,9 +101,8 @@ bool RunTraySessionChecks() {
                           "first tray click should show Display 1 as initially unlocked");
       failures += !Expect(opened_left->requires_confirmation,
                           "new monitors should still require confirmation in the tray UI");
-      failures += !Expect(opened_left->menu_label.find("2560x1440 @ 0,0, primary") !=
-                              std::string::npos,
-                          "primary tray monitors should expose layout metadata in the menu label");
+      failures += !Expect(opened_left->menu_label == "Display 1 - Dell U2720Q",
+                          "primary tray monitors should use concise menu labels");
       failures += !Expect(opened_left->padlock_variant == "unlocked",
                           "unlocked tray monitors should expose the unlocked padlock variant");
       failures += !Expect(opened_left->padlock_accent == "amber",
@@ -120,9 +119,8 @@ bool RunTraySessionChecks() {
       failures += !Expect(opened_right->menu_label.find("Display 2") !=
                               std::string::npos,
                           "tray click should expose monitor menu labels");
-      failures += !Expect(opened_right->menu_label.find("2560x1440 @ 2560,0") !=
-                              std::string::npos,
-                          "tray click should expose per-monitor layout metadata in menu labels");
+      failures += !Expect(opened_right->menu_label == "Display 2 - Dell U2720Q",
+                          "tray click should omit layout metadata from menu labels");
     }
     failures += !Expect(events[1].tray_icon_tooltip.find("0 of 2 locked") !=
                             std::string::npos,
@@ -137,9 +135,12 @@ bool RunTraySessionChecks() {
     failures += !Expect(events[2].highlight.message.find("Dell U2720Q") !=
                             std::string::npos,
                         "hover overlay should include the display name");
-    failures += !Expect(events[2].highlight.message.find("top-left 2560,0") !=
+    failures += !Expect(events[2].highlight.message.find("2560x1440") ==
                             std::string::npos,
-                        "hover overlay should include monitor placement metadata");
+                        "hover overlay should omit resolution metadata");
+    failures += !Expect(events[2].highlight.message.find("top-left") ==
+                            std::string::npos,
+                        "hover overlay should omit position metadata");
 
     const auto* toggled_right = FindBackgroundMonitor(events[4], "Display 2");
     failures += !Expect(toggled_right != nullptr,
@@ -167,9 +168,9 @@ bool RunTraySessionChecks() {
                         "toggle refresh should immediately update the tray icon tooltip");
     failures += !Expect(HighlightTargets(events[5], "Display 2"),
                         "post-toggle hover should still target the toggled monitor");
-    failures += !Expect(events[5].highlight.message.find(" | locked") !=
+    failures += !Expect(events[5].highlight.message.find("locked") ==
                             std::string::npos,
-                        "post-toggle hover should describe the updated locked state");
+                        "post-toggle hover should leave lock state to the overlay icon");
     failures += !Expect(events[5].highlight.message.find("confirm monitor") ==
                             std::string::npos,
                         "post-toggle hover should clear the confirmation-required text");
@@ -185,9 +186,12 @@ bool RunTraySessionChecks() {
                         "tray menu should still include Display 1 after a disconnect");
     failures += !Expect(HighlightTargets(events[8], "Display 1"),
                         "hovering Display 1 after a disconnect should still identify it");
-    failures += !Expect(events[8].highlight.message.find("unlocked, confirm monitor") !=
+    failures += !Expect(events[8].highlight.message.find("confirm monitor") !=
                             std::string::npos,
-                        "hover overlays should describe both lock and confirmation state");
+                        "hover overlays should keep confirmation text when needed");
+    failures += !Expect(events[8].highlight.message.find("unlocked") ==
+                            std::string::npos,
+                        "hover overlays should not spell out unlocked status");
 
     const auto* restored_right = FindBackgroundMonitor(events[9], "Display 2");
     failures += !Expect(restored_right != nullptr,
@@ -228,9 +232,8 @@ bool RunTraySessionChecks() {
       failures += !Expect(added_monitor->identify_label.find("Display 3") !=
                               std::string::npos,
                           "tray menu items should describe the identify-hover behavior");
-      failures += !Expect(added_monitor->menu_label.find("1920x1080 @ -1920,0") !=
-                              std::string::npos,
-                          "added tray monitors should expose layout metadata in the menu label");
+      failures += !Expect(added_monitor->menu_label == "Display 3 - LG UltraFine",
+                          "added tray monitors should use concise menu labels");
     }
 
     const auto* reopened_right = FindBackgroundMonitor(events[10], "Display 2");
@@ -283,11 +286,11 @@ bool RunTraySessionChecks() {
   failures += !Expect(formatted.find("variant: review") != std::string::npos,
                       "formatted tray menu output should include the tray icon variant");
   failures += !Expect(
-      formatted.find("Display 1 - Dell U2720Q (2560x1440 @ 0,0, primary)") !=
+      formatted.find("Display 1 - Dell U2720Q") !=
                           std::string::npos,
                       "formatted tray menu output should include monitor labels");
   failures += !Expect(
-      formatted.find("Display 3 - LG UltraFine (1920x1080 @ -1920,0)") !=
+      formatted.find("Display 3 - LG UltraFine") !=
                           std::string::npos,
                       "formatted tray menu output should include added monitor labels without a status prefix");
   failures += !Expect(
@@ -295,7 +298,7 @@ bool RunTraySessionChecks() {
           std::string::npos,
       "formatted tray menu output should describe confirmation-state padlock icons");
   failures += !Expect(
-      formatted.find("Display 3 on screen (LG UltraFine, 1920x1080 @ -1920,0)") !=
+      formatted.find("Display 3 - LG UltraFine") !=
           std::string::npos,
                       "formatted tray menu output should describe the identify-hover affordance");
 

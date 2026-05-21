@@ -14,7 +14,6 @@
 
 namespace locking_glass::platform::internal {
 
-HBITMAP CreateMenuPadlockBitmap(const core::TrayPadlockIconState& icon);
 HICON CreateTrayStatusIcon(const core::TrayIconState& icon);
 
 }  // namespace locking_glass::platform::internal

@@ -44,6 +44,8 @@ struct TrayMenuModel {
 struct TrayIdentifyOverlay {
   bool visible = false;
   platform::MonitorDescriptor monitor;
+  bool locked = false;
+  bool requires_confirmation = false;
   std::string title;
   std::string message;
 };

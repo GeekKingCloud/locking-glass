@@ -55,7 +55,7 @@ $(OBJ_DIR)/%.o: %.cpp VERSION
 	mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
-$(OBJ_DIR)/src/windows_version.res.o: src/windows_version.rc VERSION
+$(OBJ_DIR)/src/windows_version.res.o: src/windows_version.rc src/windows_resource.h assets/locking-glass.ico VERSION
 	mkdir -p $(dir $@)
 	$(WINDRES) -O coff \
 		--define LOCKING_GLASS_VERSION_MAJOR=$(VERSION_MAJOR) \
