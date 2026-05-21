@@ -310,6 +310,33 @@ bool WindowsVirtualDesktopHelper::RemoveKnownStagingDesktopIfUnused(
   return true;
 }
 
+bool WindowsVirtualDesktopHelper::RemoveEmptyStagingDesktopByName(
+    std::string* detail) {
+  std::vector<DesktopIdentity> matches;
+  for (const auto& desktop : ListDesktops()) {
+    if (desktop.name == kStagingDesktopName && IsStrongDesktopIdentity(desktop)) {
+      matches.push_back(desktop);
+    }
+  }
+
+  if (matches.empty()) {
+    if (detail != nullptr) {
+      *detail = "no staging desktop was present";
+    }
+    return true;
+  }
+  if (matches.size() != 1U) {
+    if (detail != nullptr) {
+      *detail = "multiple staging desktops matched the Locking Glass name";
+    }
+    return false;
+  }
+
+  // This sweep handles empty leftovers from a previous process. It still uses
+  // the exact live identity and refuses removal when any window remains there.
+  return RemoveKnownStagingDesktopIfUnused(matches.front(), detail);
+}
+
 std::unique_ptr<WindowsVirtualDesktopHelper> WindowsVirtualDesktopHelper::Load(
     const std::filesystem::path& repository_root, std::string* detail) {
   std::vector<std::filesystem::path> candidates;

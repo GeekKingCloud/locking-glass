@@ -336,6 +336,14 @@ class VirtualDesktopControllerImpl final : public VirtualDesktopController {
 #endif
   }
 
+  bool CleanupStagingDesktop() const override {
+#if defined(_WIN32)
+    return internal::CleanupWindowsStagingDesktop();
+#else
+    return true;
+#endif
+  }
+
   UnlockReturnReport ReturnTrackedWindows(
       const UnlockReturnRequest& request) const override {
     const char* replay_path = std::getenv(kDesktopReturnScriptEnv);

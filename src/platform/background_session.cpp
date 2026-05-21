@@ -181,11 +181,10 @@ bool SessionStateMatchesWindowMonitor(
          window.monitor_label == monitor_state.monitor.label;
 }
 
-bool IsWindowMonitorCurrentlyLocked(
-    const core::SessionStore& session_store,
+bool IsWindowMonitorLockedInSession(
+    const locking_glass::core::SessionRefreshResult& session,
     const locking_glass::core::DesktopWindow& window) {
-  const auto loaded = session_store.Load();
-  for (const auto& monitor_state : loaded.snapshot.monitors) {
+  for (const auto& monitor_state : session.snapshot.monitors) {
     if (!monitor_state.locked) {
       continue;
     }
@@ -204,12 +203,20 @@ BackgroundSessionUnlockReturn RunUnlockReturn(
     const std::shared_ptr<WindowReturnTracker>& window_return_tracker,
     const MonitorDescriptor& monitor) {
   if (window_return_tracker == nullptr) {
+    if (IsLiveControllerAvailable(live_controller_capability) &&
+        unlock_return_controller != nullptr) {
+      (void)unlock_return_controller->CleanupStagingDesktop();
+    }
     return {};
   }
 
   const std::string monitor_key = BuildTrackedMonitorKey(monitor);
   const auto tracked_windows = window_return_tracker->ConsumeMonitor(monitor_key);
   if (tracked_windows.empty()) {
+    if (IsLiveControllerAvailable(live_controller_capability) &&
+        unlock_return_controller != nullptr) {
+      (void)unlock_return_controller->CleanupStagingDesktop();
+    }
     return {};
   }
 
@@ -248,6 +255,9 @@ BackgroundSessionUnlockReturn RunUnlockReturn(
   if (summary.failed_windows > 0U || summary.skipped_windows > 0U) {
     window_return_tracker->RestoreMonitor(monitor_key,
                                           retryable_tracked_windows);
+  } else if (IsLiveControllerAvailable(live_controller_capability) &&
+             unlock_return_controller != nullptr) {
+    (void)unlock_return_controller->CleanupStagingDesktop();
   }
   auto unlock_return = summary;
   unlock_return.retryable_windows = retryable_tracked_windows.size();

@@ -503,6 +503,11 @@ void UnlockAndReturnAllOnExit(BackgroundSessionState* state) {
     (void)unlock_return;
   }
 
+  if (IsLiveControllerAvailable(state->live_controller_capability) &&
+      state->unlock_return_controller != nullptr) {
+    (void)state->unlock_return_controller->CleanupStagingDesktop();
+  }
+
   // Lock selections are current-run state. Even if Windows refuses to move a
   // window back during shutdown, the next process must start with no monitors
   // locked.
@@ -853,11 +858,11 @@ bool StartLiveControllerWatcher(
                       report) {
                 if (window_return_tracker != nullptr) {
                   window_return_tracker->RecordSuccessfulMoves(
-                      report, [session_store](
+                      report, [&report](
                                   const locking_glass::core::DesktopWindow&
                                       window) {
-                        return IsWindowMonitorCurrentlyLocked(session_store,
-                                                              window);
+                        return IsWindowMonitorLockedInSession(
+                            report.plan.session, window);
                       });
                 }
                 EmitBackgroundDesktopSwitchReport(report_path, report);
@@ -1036,6 +1041,8 @@ int RunWindowsTraySession(const BackgroundSessionObserver& observer) {
     DestroyWindow(window);
     return 1;
   }
+
+  (void)state->unlock_return_controller->CleanupStagingDesktop();
 
   if (!AddTrayIcon(window, state.get())) {
     DestroyWindow(window);

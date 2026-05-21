@@ -456,7 +456,20 @@ CapabilityReport ProbeWindowsController() {
       .status = CapabilityStatus::kUnavailable,
       .detail =
           "Desktop locking fails closed until both IVirtualDesktopManager and VirtualDesktopAccessor.dll (RegisterPostMessageHook, UnregisterPostMessageHook, GetCurrentDesktopNumber, GoToDesktopNumber, GetDesktopCount, GetDesktopName, GetDesktopIdByNumber, MoveWindowToDesktopNumber, GetWindowDesktopNumber, CreateDesktop, SetDesktopName, RemoveDesktop) are available on the live Windows runtime.",
-  };
+      };
+}
+
+bool CleanupWindowsStagingDesktop() {
+  const auto asset_root = FindLiveWatchAssetRoot();
+  std::string helper_library_detail;
+  auto helper = WindowsVirtualDesktopHelper::Load(asset_root,
+                                                  &helper_library_detail);
+  if (helper == nullptr) {
+    return false;
+  }
+
+  std::string cleanup_detail;
+  return helper->RemoveEmptyStagingDesktopByName(&cleanup_detail);
 }
 
 int WatchWindowsLiveSwitches(const core::SessionStore& store,

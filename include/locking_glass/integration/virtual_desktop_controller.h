@@ -73,6 +73,7 @@ class VirtualDesktopController {
  public:
   virtual ~VirtualDesktopController() = default;
   virtual CapabilityReport Probe() const = 0;
+  virtual bool CleanupStagingDesktop() const = 0;
   virtual UnlockReturnReport ReturnTrackedWindows(
       const UnlockReturnRequest& request) const = 0;
   virtual int WatchSwitches(const core::SessionStore& store,

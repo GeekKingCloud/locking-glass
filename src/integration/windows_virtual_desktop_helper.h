@@ -52,6 +52,7 @@ class WindowsVirtualDesktopHelper {
   bool RemoveStagingDesktopIfUnused(std::string* detail);
   bool RemoveKnownStagingDesktopIfUnused(const DesktopIdentity& staging_identity,
                                          std::string* detail);
+  bool RemoveEmptyStagingDesktopByName(std::string* detail);
 
   static std::unique_ptr<WindowsVirtualDesktopHelper> Load(
       const std::filesystem::path& repository_root, std::string* detail);

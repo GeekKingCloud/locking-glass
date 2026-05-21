@@ -18,6 +18,8 @@ class SkippingReturnController
     return locking_glass::platform::internal::MakeReadyControllerCapability();
   }
 
+  bool CleanupStagingDesktop() const override { return true; }
+
   locking_glass::integration::UnlockReturnReport ReturnTrackedWindows(
       const locking_glass::integration::UnlockReturnRequest& request)
       const override {
@@ -54,6 +56,8 @@ class PartialReturnController
   locking_glass::integration::CapabilityReport Probe() const override {
     return locking_glass::platform::internal::MakeReadyControllerCapability();
   }
+
+  bool CleanupStagingDesktop() const override { return true; }
 
   locking_glass::integration::UnlockReturnReport ReturnTrackedWindows(
       const locking_glass::integration::UnlockReturnRequest& request)
@@ -102,6 +106,39 @@ class PartialReturnController
   }
 };
 
+class CleanupCountingController
+    : public locking_glass::integration::VirtualDesktopController {
+ public:
+  locking_glass::integration::CapabilityReport Probe() const override {
+    return locking_glass::platform::internal::MakeReadyControllerCapability();
+  }
+
+  bool CleanupStagingDesktop() const override {
+    ++cleanup_calls;
+    return true;
+  }
+
+  locking_glass::integration::UnlockReturnReport ReturnTrackedWindows(
+      const locking_glass::integration::UnlockReturnRequest& request)
+      const override {
+    return locking_glass::integration::UnlockReturnReport{
+        .monitor = request.monitor,
+        .move_results = {},
+        .skipped_windows = {},
+        .resulting_windows = {},
+    };
+  }
+
+  int WatchSwitches(
+      const locking_glass::core::SessionStore&,
+      const locking_glass::integration::DesktopSwitchCallback&,
+      locking_glass::integration::DesktopWatchOptions) const override {
+    return 0;
+  }
+
+  mutable int cleanup_calls = 0;
+};
+
 }  // namespace
 
 bool RunUnlockReturnChecks() {
@@ -124,6 +161,67 @@ bool RunUnlockReturnChecks() {
   const auto desktop_alpha = MakeDesktopIdentity(0, "guid-alpha", "Alpha");
   const auto desktop_beta = MakeDesktopIdentity(1, "guid-beta", "Beta");
   const auto desktop_gamma = MakeDesktopIdentity(2, "guid-gamma", "Gamma");
+
+  {
+    locking_glass::core::SessionStore store(session_path);
+    auto session = store.StartUnlocked({left_monitor, right_monitor}).snapshot;
+    bool locked_after = false;
+    failures += !Expect(
+        locking_glass::core::ToggleMonitorLock(store, &session, left_monitor,
+                                               &locked_after) &&
+            locked_after,
+        "test setup should lock the left monitor before recording a desktop switch");
+    const auto locked_refresh = store.Restore({left_monitor, right_monitor});
+
+    const auto left_window =
+        locking_glass::core::DesktopWindow{
+            .window_id = "left-race",
+            .title = "Fast Unlock",
+            .monitor_id = left_monitor.stable_id,
+            .monitor_label = left_monitor.label,
+            .desktop_id = desktop_alpha.display_id,
+            .is_top_level = true,
+            .can_move = true,
+        };
+    const locking_glass::integration::DesktopSwitchReport report{
+        .plan =
+            locking_glass::core::MonitorLockingPlan{
+                .trigger = "windows-live-post-message-hook",
+                .session = locked_refresh,
+                .source_desktop_id = desktop_alpha.display_id,
+                .target_desktop_id = desktop_beta.display_id,
+                .staging_desktop_id = {},
+                .locked_monitors = {left_monitor.label},
+                .moves = {},
+                .skipped_windows = {},
+            },
+        .move_results =
+            {
+                locking_glass::integration::WindowMoveResult{
+                    .window = left_window,
+                    .from_desktop = desktop_alpha,
+                    .to_desktop = desktop_beta,
+                    .from_desktop_id = desktop_alpha.display_id,
+                    .to_desktop_id = desktop_beta.display_id,
+                    .success = true,
+                    .detail = "moved before unlock click",
+                },
+            },
+        .resulting_windows = {},
+    };
+
+    store.StartUnlocked({left_monitor, right_monitor});
+    locking_glass::platform::WindowReturnTracker tracker;
+    tracker.RecordSuccessfulMoves(
+        report,
+        [&report](const locking_glass::core::DesktopWindow& window) {
+          return locking_glass::platform::internal::IsWindowMonitorLockedInSession(
+              report.plan.session, window);
+        });
+    failures += !Expect(
+        tracker.ConsumeMonitor(left_monitor).size() == 1U,
+        "desktop-switch tracking should use the switch snapshot, not a later unlocked session file");
+  }
 
   {
     locking_glass::platform::WindowReturnTracker tracker;
@@ -282,6 +380,18 @@ bool RunUnlockReturnChecks() {
             merged_restore.front().home_desktop.display_id ==
                 desktop_gamma.display_id,
         "restoring old unlock-return work should not overwrite newer tracked state");
+  }
+
+  {
+    auto tracker =
+        std::make_shared<locking_glass::platform::WindowReturnTracker>();
+    CleanupCountingController cleanup_controller;
+    const auto summary = locking_glass::platform::internal::RunUnlockReturn(
+        locking_glass::platform::internal::MakeReadyControllerCapability(),
+        &cleanup_controller, tracker, left_monitor);
+    failures += !Expect(
+        !summary.attempted && cleanup_controller.cleanup_calls == 1,
+        "unlocking with no tracked windows should still sweep an empty holding desktop");
   }
 
   {

@@ -86,6 +86,7 @@ UnlockReturnReport BuildScriptedUnlockReturnReport(
 
 #if defined(_WIN32)
 CapabilityReport ProbeWindowsController();
+bool CleanupWindowsStagingDesktop();
 UnlockReturnReport BuildWindowsUnlockReturnReport(
     const UnlockReturnRequest& request);
 int WatchWindowsLiveSwitches(const core::SessionStore& store,

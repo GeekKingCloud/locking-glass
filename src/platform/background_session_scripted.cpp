@@ -347,16 +347,16 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
         }
         if (unlock_return_controller->WatchSwitches(
                 session_store,
-                [session_store, window_return_tracker](
+                [window_return_tracker](
                     const locking_glass::integration::DesktopSwitchReport&
                         report) {
                   if (window_return_tracker != nullptr) {
                     window_return_tracker->RecordSuccessfulMoves(
-                        report, [session_store](
+                        report, [&report](
                                     const locking_glass::core::DesktopWindow&
                                         window) {
-                          return IsWindowMonitorCurrentlyLocked(session_store,
-                                                                window);
+                          return IsWindowMonitorLockedInSession(
+                              report.plan.session, window);
                         });
                   }
                   return true;

@@ -23,8 +23,8 @@ bool IsLiveControllerAvailable(
 bool SessionStateMatchesWindowMonitor(
     const locking_glass::core::SessionMonitorState& monitor_state,
     const locking_glass::core::DesktopWindow& window);
-bool IsWindowMonitorCurrentlyLocked(
-    const core::SessionStore& session_store,
+bool IsWindowMonitorLockedInSession(
+    const locking_glass::core::SessionRefreshResult& session,
     const locking_glass::core::DesktopWindow& window);
 
 BackgroundSessionUnlockReturn RunUnlockReturn(
