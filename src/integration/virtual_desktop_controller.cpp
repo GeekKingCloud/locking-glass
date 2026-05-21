@@ -1,6 +1,7 @@
 #include "virtual_desktop_controller_internal.h"
 
 #include <cstdlib>
+#include <cctype>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -51,6 +52,20 @@ bool ParseIntField(const std::string& field, int* value) {
   }
 }
 
+bool GuidEquals(const std::string& left, const std::string& right) {
+  if (left.size() != right.size()) {
+    return false;
+  }
+  for (std::size_t index = 0; index < left.size(); ++index) {
+    const auto left_char = static_cast<unsigned char>(left[index]);
+    const auto right_char = static_cast<unsigned char>(right[index]);
+    if (std::tolower(left_char) != std::tolower(right_char)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 std::string BuildDesktopDisplayId(int desktop_number,
                                   const std::string& desktop_guid,
                                   const std::string& desktop_name) {
@@ -98,7 +113,7 @@ bool DesktopIdentityEquals(const DesktopIdentity& left,
   // Prefer the strongest available identity first so remembered desktops stay
   // stable even if display labels change across runs or helper surfaces.
   if (!left.guid.empty() && !right.guid.empty()) {
-    return left.guid == right.guid;
+    return GuidEquals(left.guid, right.guid);
   }
 
   if (left.number >= 0 && right.number >= 0) {

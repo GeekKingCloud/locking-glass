@@ -555,7 +555,7 @@ bool RunUnlockReturnChecks() {
 
     WriteTextFile(
         return_script_path,
-        "desktop\t0\tguid-alpha\tAlpha\n"
+        "desktop\t0\tGUID-ALPHA\tAlpha\n"
         "desktop\t1\tguid-beta\tBeta\n"
         "window\tleft-doc\tDocs\tstable-left\tDisplay 1\t1\tguid-beta\tBeta\t1\t1\n");
     const auto success_report =
@@ -567,8 +567,8 @@ bool RunUnlockReturnChecks() {
     if (success_move != nullptr) {
       failures += !Expect(success_move->success,
                           "unlock return should succeed in the replay when the target desktop exists");
-      failures += !Expect(success_move->to_desktop_id == desktop_alpha.display_id,
-                          "unlock return should target the remembered desktop");
+      failures += !Expect(success_move->to_desktop.guid == "GUID-ALPHA",
+                          "unlock return should target the remembered desktop even when helper GUID casing differs");
       failures += !Expect(success_move->from_desktop.guid == "guid-beta",
                           "unlock return should preserve structured source desktop identity");
     }
@@ -577,8 +577,9 @@ bool RunUnlockReturnChecks() {
     failures += !Expect(success_window != nullptr,
                         "unlock return should report the resulting window snapshot");
     if (success_window != nullptr) {
-      failures += !Expect(success_window->desktop_id == desktop_alpha.display_id,
-                          "successful unlock returns should update the resulting window desktop");
+      failures += !Expect(success_window->desktop_id.find("GUID-ALPHA") !=
+                              std::string::npos,
+                          "successful unlock returns should update the resulting window desktop using the resolved helper identity");
     }
 
     WriteTextFile(
