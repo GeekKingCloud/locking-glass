@@ -261,16 +261,16 @@ bool RunTraySessionChecks() {
   auto preview =
       locking_glass::core::SessionStore(session_path)
           .Preview({left_monitor, right_monitor, new_monitor});
-  failures += !Expect(preview.restored_locked_monitors == 1U,
-                      "tray toggles should restore the reconnected monitor lock from the session store");
+  failures += !Expect(preview.restored_locked_monitors == 0U,
+                      "tray exit should clear run-scoped monitor locks from the session store");
   const auto* persisted_right = FindMonitorState(preview.snapshot, right_monitor);
   failures += !Expect(persisted_right != nullptr,
                       "persisted session should still contain the reconnected monitor");
   if (persisted_right != nullptr) {
     failures += !Expect(persisted_right->is_present,
                         "persisted session should mark the reconnected monitor active");
-    failures += !Expect(persisted_right->locked,
-                        "persisted session should keep the reconnected monitor locked");
+    failures += !Expect(!persisted_right->locked,
+                        "persisted session should clear the reconnected monitor lock on exit");
   }
   const auto formatted =
       locking_glass::core::FormatTrayMenuModel(
@@ -290,9 +290,6 @@ bool RunTraySessionChecks() {
       formatted.find("Display 3 - LG UltraFine (1920x1080 @ -1920,0)") !=
                           std::string::npos,
                       "formatted tray menu output should include added monitor labels without a new status");
-  failures += !Expect(formatted.find("padlock: locked, emerald, filled") !=
-                          std::string::npos,
-                      "formatted tray menu output should describe locked padlock icons");
   failures += !Expect(
       formatted.find("padlock: unlocked, amber, outline, review badge") !=
           std::string::npos,

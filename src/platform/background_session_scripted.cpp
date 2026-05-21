@@ -378,6 +378,7 @@ int RunScriptedTraySession(const BackgroundSessionObserver& observer) {
         break;
       case TrayScriptStepType::kExit:
         tray_menu_visible = false;
+        session = session_store.StartUnlocked(current_monitors);
         PublishEvent(observer,
                      BuildScriptTrayMenuModel(session, "exit"),
                      live_controller_capability,

@@ -491,7 +491,6 @@ void UnlockAndReturnAllOnExit(BackgroundSessionState* state) {
   }
 
   const auto loaded_session = state->session_store.Load();
-  bool all_returns_succeeded = true;
   for (const auto& monitor_state : loaded_session.snapshot.monitors) {
     if (!monitor_state.locked) {
       continue;
@@ -501,15 +500,14 @@ void UnlockAndReturnAllOnExit(BackgroundSessionState* state) {
         RunUnlockReturn(state->live_controller_capability,
                         state->unlock_return_controller.get(),
                         state->window_return_tracker, monitor_state.monitor);
-    if (unlock_return.retryable_windows > 0U) {
-      all_returns_succeeded = false;
-    }
+    (void)unlock_return;
   }
 
-  if (all_returns_succeeded) {
-    state->session =
-        state->session_store.StartUnlocked(state->monitor_gateway->Enumerate());
-  }
+  // Lock selections are current-run state. Even if Windows refuses to move a
+  // window back during shutdown, the next process must start with no monitors
+  // locked.
+  state->session =
+      state->session_store.StartUnlocked(state->monitor_gateway->Enumerate());
 }
 
 void RepublishCurrentModel(

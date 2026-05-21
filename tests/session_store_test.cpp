@@ -37,24 +37,24 @@ bool RunSessionStoreChecks() {
   failures += !Expect(std::filesystem::exists(session_path),
                       "saving the session should create the session file");
 
-  auto restarted =
+  auto refreshed =
       locking_glass::core::SessionStore(session_path).Restore({left_monitor, right_monitor});
-  failures += !Expect(restarted.loaded_from_disk,
-                      "restart simulation should reload the persisted session file");
-  failures += !Expect(restarted.restored_locked_monitors == 2U,
-                      "restart simulation should restore both confirmed locked monitors");
-  failures += !Expect(restarted.review_monitors == 0U,
-                      "confirmed monitor locks should not require review on restart");
+  failures += !Expect(refreshed.loaded_from_disk,
+                      "in-run restore should reload the persisted session file");
+  failures += !Expect(refreshed.restored_locked_monitors == 2U,
+                      "in-run restore should restore both confirmed locked monitors");
+  failures += !Expect(refreshed.review_monitors == 0U,
+                      "confirmed monitor locks should not require review during restore");
 
-  const auto* restarted_left = FindMonitorState(restarted.snapshot, left_monitor);
-  failures += !Expect(restarted_left != nullptr,
-                      "restarted snapshot should contain the left monitor");
-  if (restarted_left != nullptr) {
-    failures += !Expect(restarted_left->is_present,
-                        "left monitor should be active after restart");
-    failures += !Expect(restarted_left->locked,
-                        "left monitor lock should survive restart");
-    failures += !Expect(!restarted_left->requires_confirmation,
+  const auto* refreshed_left = FindMonitorState(refreshed.snapshot, left_monitor);
+  failures += !Expect(refreshed_left != nullptr,
+                      "restored snapshot should contain the left monitor");
+  if (refreshed_left != nullptr) {
+    failures += !Expect(refreshed_left->is_present,
+                        "left monitor should be active after restore");
+    failures += !Expect(refreshed_left->locked,
+                        "left monitor lock should survive in-run restore");
+    failures += !Expect(!refreshed_left->requires_confirmation,
                         "confirmed left monitor should not require review");
   }
 
