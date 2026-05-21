@@ -45,6 +45,7 @@ constexpr int kIdentifyOverlayBorder = 6;
 constexpr int kIdentifyOverlayCardWidth = 360;
 constexpr int kIdentifyOverlayCardHeight = 108;
 constexpr BYTE kIdentifyOverlayOpacity = 168;
+constexpr int kTrayPopupIconGap = 10;
 constexpr UINT kMenuHoverPollMilliseconds = 45;
 
 enum class TrayMenuMode {
@@ -135,6 +136,17 @@ UINT BuildTrayPopupAlignmentFlags(const POINT menu_origin) {
   }
 
   return TPM_BOTTOMALIGN;
+}
+
+POINT BuildTrayPopupOrigin(const POINT menu_origin,
+                           const UINT alignment_flags) {
+  POINT popup_origin = menu_origin;
+  if ((alignment_flags & TPM_BOTTOMALIGN) != 0) {
+    popup_origin.y -= kTrayPopupIconGap;
+  } else if ((alignment_flags & TPM_TOPALIGN) != 0) {
+    popup_origin.y += kTrayPopupIconGap;
+  }
+  return popup_origin;
 }
 
 std::string ReadBackgroundDesktopReportPathFromEnv() {
@@ -670,11 +682,12 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state,
     const HHOOK mouse_hook = SetWindowsHookExW(
         WH_MOUSE, MenuMouseHookProc, nullptr, GetCurrentThreadId());
     SetTimer(window, kMenuHoverTimer, kMenuHoverPollMilliseconds, nullptr);
+    const UINT alignment_flags = BuildTrayPopupAlignmentFlags(menu_origin);
+    const POINT popup_origin =
+        BuildTrayPopupOrigin(menu_origin, alignment_flags);
     const UINT command =
-        TrackPopupMenu(menu,
-                       TPM_RETURNCMD | TPM_RIGHTBUTTON |
-                           BuildTrayPopupAlignmentFlags(menu_origin),
-                       menu_origin.x, menu_origin.y, 0, window, nullptr);
+        TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | alignment_flags,
+                       popup_origin.x, popup_origin.y, 0, window, nullptr);
     KillTimer(window, kMenuHoverTimer);
     if (mouse_hook != nullptr) {
       UnhookWindowsHookEx(mouse_hook);
