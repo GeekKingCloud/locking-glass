@@ -918,6 +918,9 @@ LRESULT CALLBACK BackgroundWindowProc(HWND window, UINT message, WPARAM w_param,
       if (state != nullptr) {
         const UINT notification =
             LOWORD(static_cast<DWORD_PTR>(l_param));
+        if (state->tray_menu_open) {
+          return 0;
+        }
         if (notification == WM_CONTEXTMENU || notification == WM_RBUTTONUP) {
           ShowTrayMenu(window, state, TrayMenuMode::kManagement);
         } else if (notification == WM_LBUTTONUP ||
