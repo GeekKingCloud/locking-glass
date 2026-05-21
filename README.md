@@ -12,7 +12,7 @@ Locked monitors keep their visible windows on the same desktop while unlocked mo
 - Unlocking a monitor triggers a best-effort immediate return for windows that Locking Glass itself moved successfully while that monitor was locked.
 - The first successful follow-move becomes the remembered home workspace for that window during the current run.
 - If the remembered workspace no longer exists, or the window can no longer be resolved safely, Locking Glass leaves the window where it is and reports the skip instead of guessing.
-- Monitor identity and review state are persisted in the session file. Monitor locks start cleared whenever the app process starts; the tray is the only way to lock a monitor for the current run.
+- Monitor identity and review state are persisted in the session file. Monitor locks start cleared whenever the app process starts; left-clicking the tray icon is the only way to lock a monitor for the current run.
 - Remembered home workspaces are not persisted and are forgotten when the app exits.
 - If the live controller cannot prove the Windows desktop hook path, Locking Glass fails closed.
 
@@ -86,6 +86,8 @@ Release verification is centralized in:
 - release app: `build/release/Locking Glass.exe`
 - installed build: `%LOCALAPPDATA%\Programs\Locking Glass\Locking Glass.exe`
 - launching with no arguments starts the background tray app on Windows
+- left-clicking the tray icon opens the monitor lock menu
+- right-clicking the tray icon opens the management menu with refresh and exit commands
 - `--version` prints the current app version from the repo `VERSION` file
 - `--self-check` prints startup diagnostics
 - `--install-autostart` registers current-user startup with `--background`
@@ -101,7 +103,7 @@ Unlock return memory is separate from the session store. Locking Glass only reme
 - `scripts/run-live-desktop-probe.ps1`
   Downloads the pinned `VirtualDesktopAccessor.dll` release when needed, verifies its SHA-256, builds or launches the .NET 8 probe, and proves the live Windows hook path on a real desktop shell.
 - `scripts/run-live-background-proof.ps1`
-  Launches the real tray app, toggles a monitor lock through the live menu, switches desktops, and records the resulting desktop-switch reports.
+  Launches the real tray app, toggles a monitor lock through the left-click monitor menu, switches desktops, and records the resulting desktop-switch reports.
 - `scripts/run-live-pin-proof.ps1`
   Runs a lower-level live pinned-monitor proof with real Notepad windows. This is optional diagnostic coverage; `run-live-background-proof.ps1` is the release-facing tray workflow proof.
 - `scripts/run-installed-background-proof.ps1`
@@ -126,7 +128,7 @@ Reference docs:
 - `scripts/stage-windows-install.ps1`
   Stages the installable Windows payload under `build/windows-install-stage/Locking Glass/`.
 - `scripts/install-staged-windows-build.ps1`
-  Installs or updates the staged payload in `%LOCALAPPDATA%\Programs\Locking Glass`, creates Start Menu shortcuts, enables current-user autostart by default, and can optionally launch after install. Use `-NoAutostart` for package smoke tests or manual installs that should not write the Run key.
+  Installs or updates the staged payload in `%LOCALAPPDATA%\Programs\Locking Glass`, creates Start Menu shortcuts, enables current-user autostart by default, and can optionally launch after install. Use `-NoAutostart` for package smoke tests or manual installs that should not write the Run key, and `-NoLaunchAfterInstall` when verification should not leave the tray app running.
 - `scripts/build-windows-installer.ps1`
   Wraps the staged payload into `Locking Glass Installer.exe` and `Locking Glass Uninstaller.exe` through the bootstrapper tool.
 - `.github/workflows/windows-release.yml`

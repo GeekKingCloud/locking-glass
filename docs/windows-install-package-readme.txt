@@ -41,9 +41,12 @@ How to use it
 - Double-click Locking Glass.exe to start the background tray app.
 - The Start Menu shortcut launches Locking Glass.exe directly with `--background`; it does not go through a command-window wrapper.
 - Start-LockingGlass.cmd is retained only as a legacy folder launcher.
+- Left-click the tray icon to open the monitor lock menu.
+- Right-click the tray icon to open the management menu with refresh and exit commands.
 - Run Locking Glass.exe --version to confirm which build you have.
 - Run Locking Glass.exe --self-check to inspect startup diagnostics.
 - The installer executable and installer script enable current-user startup after sign-in by default. Use the installer `--no-autostart` flag or installer-script `-NoAutostart` switch for installs that must not write the Run key.
+- The installer launches Locking Glass after install by default. Use the installer `--no-launch-after-install` flag or installer-script `-NoLaunchAfterInstall` switch for verification runs that should not leave the tray app running.
 - Run Locking Glass.exe --install-autostart to repair current-user startup manually.
 - Re-run Install-LockingGlass.ps1 to refresh or upgrade an existing install. The installer script stops the current installed runtime before replacing files in place.
 - Run Uninstall-LockingGlass.ps1, the Start Menu uninstall shortcut, or the release `Locking Glass Uninstaller.exe` to remove the installed app. User data is preserved unless `-RemoveUserData` or `--remove-user-data` is supplied.
@@ -51,11 +54,12 @@ How to use it
 
 Startup note
 - Every app start begins with all present monitors unlocked.
-- The tray menu is the only way to lock a monitor for the current app run.
+- The left-click tray monitor menu is the only way to lock a monitor for the current app run.
 - The session file still remembers monitor identity and review state, but it does not automatically re-lock monitors from a previous run.
 
 Unlock return note
 - Locking Glass may create a virtual desktop named Locking Glass while monitors are locked; it only reuses a staging desktop identity it created during the same app run.
+- Locking Glass removes that staging desktop when it is empty and still matches the identity it created.
 - Remembered original workspaces are tracked only in memory for the current app run.
 - Only windows that Locking Glass itself moved successfully are eligible for automatic return on unlock.
 - If the remembered workspace no longer exists, the window stays where it is.

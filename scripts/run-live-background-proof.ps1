@@ -637,7 +637,7 @@ function Stop-ProcessTree([int]$parentProcessId) {
     }
 }
 
-function Open-TrayMenu([IntPtr]$backgroundWindow) {
+function Open-MonitorLockMenu([IntPtr]$backgroundWindow) {
     if ($backgroundWindow -eq [IntPtr]::Zero) {
         throw 'Could not find Locking Glass background window.'
     }
@@ -647,7 +647,7 @@ function Open-TrayMenu([IntPtr]$backgroundWindow) {
 
 function Toggle-MonitorLockFromTray([string]$monitorLabel, [bool]$expectedLockState, [string]$sessionPath) {
     $backgroundWindow = [LockingGlassBackgroundProofWin32]::FindBackgroundWindow()
-    Open-TrayMenu -backgroundWindow $backgroundWindow
+    Open-MonitorLockMenu -backgroundWindow $backgroundWindow
     Start-Sleep -Milliseconds 500
 
     $menuWindow = [IntPtr]::Zero

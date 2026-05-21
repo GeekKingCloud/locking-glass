@@ -289,7 +289,7 @@ bool RunTraySessionChecks() {
   failures += !Expect(
       formatted.find("Display 3 - LG UltraFine (1920x1080 @ -1920,0)") !=
                           std::string::npos,
-                      "formatted tray menu output should include added monitor labels without a new status");
+                      "formatted tray menu output should include added monitor labels without a status prefix");
   failures += !Expect(
       formatted.find("padlock: unlocked, amber, outline, review badge") !=
           std::string::npos,
