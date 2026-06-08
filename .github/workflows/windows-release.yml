@@ -77,6 +77,7 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
+          release: false
           update: true
           install: >-
             make
@@ -89,6 +90,7 @@ jobs:
 
   windows-package:
     name: Windows Package
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     needs:
       - hygiene
       - windows-build-test
@@ -111,6 +113,7 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
+          release: false
           update: true
           install: >-
             make
@@ -144,8 +147,7 @@ jobs:
             build/release/SHA256SUMS.txt
           if-no-files-found: error
 
-  # Publication is tag-only; branch and PR runs still build and upload the same
-  # release artifacts for inspection.
+  # Publication is tag-only; main and tag runs build package artifacts first.
   publish-release:
     name: Publish Release
     if: startsWith(github.ref, 'refs/tags/v')
