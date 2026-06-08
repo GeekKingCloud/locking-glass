@@ -46,17 +46,10 @@ struct WindowDesktopContextFormatter {
 };
 
 std::wstring ResolveCommandProcessorPath() {
-  wchar_t comspec[MAX_PATH];
-  const DWORD comspec_length =
-      GetEnvironmentVariableW(L"COMSPEC", comspec, MAX_PATH);
-  if (comspec_length > 0 && comspec_length < MAX_PATH) {
-    return comspec;
-  }
-
-  wchar_t windir[MAX_PATH];
-  const DWORD windir_length = GetEnvironmentVariableW(L"WINDIR", windir, MAX_PATH);
-  if (windir_length > 0 && windir_length < MAX_PATH) {
-    return (std::filesystem::path(windir) / "System32" / "cmd.exe").wstring();
+  wchar_t system_directory[MAX_PATH];
+  const UINT length = GetSystemDirectoryW(system_directory, MAX_PATH);
+  if (length > 0 && length < MAX_PATH) {
+    return (std::filesystem::path(system_directory) / "cmd.exe").wstring();
   }
 
   return L"C:\\Windows\\System32\\cmd.exe";
@@ -479,7 +472,7 @@ int WatchWindowsLiveSwitches(const core::SessionStore& store,
   if (asset_root.empty()) {
     std::cerr
         << "Locking Glass could not locate bundled live desktop watch assets "
-           "beside the executable or in the executable's repository ancestors, "
+           "beside the executable or in the current repository checkout, "
            "so the live Windows desktop watch path cannot start.\n";
     return 1;
   }
@@ -487,6 +480,14 @@ int WatchWindowsLiveSwitches(const core::SessionStore& store,
   const auto log_path = BuildLiveWatchLogPath();
   const auto command_script_path =
       BuildLiveWatchCommandScript(asset_root, log_path, options);
+  if (command_script_path.empty()) {
+    std::cerr
+        << "Locking Glass could not prepare the live Windows desktop watch "
+           "helper command because the pinned helper DLL or probe script was "
+           "unavailable.\n";
+    return 1;
+  }
+
   HiddenWatchProcess watch_process;
   if (!StartHiddenWatchProcess(command_script_path, &watch_process)) {
     std::cerr

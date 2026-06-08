@@ -54,6 +54,57 @@ function Resolve-StageOutputDirectory([string]$TargetOutputDir) {
     return $resolvedOutputDir
 }
 
+function Require-Command([string]$Name) {
+    $command = Get-Command $Name -ErrorAction SilentlyContinue
+    if ($null -eq $command) {
+        throw "Required command '$Name' was not found on PATH."
+    }
+
+    return $command.Source
+}
+
+function Require-DotNetCompatibleSdk {
+    $dotnet = Require-Command 'dotnet'
+    $sdks = @(& $dotnet --list-sdks)
+    $compatibleSdk = $sdks | Where-Object {
+        $_ -match '^(\d+)\.' -and [int]$Matches[1] -ge 8
+    } | Select-Object -First 1
+    if ($null -eq $compatibleSdk) {
+        throw ".NET SDK 8 or newer is required. Installed SDKs:`n$($sdks -join [Environment]::NewLine)"
+    }
+
+    return $dotnet
+}
+
+function Invoke-DotNet {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DotNetPath,
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    $previousDotNetRoot = $env:DOTNET_ROOT
+    $previousMSBuildSDKsPath = $env:MSBuildSDKsPath
+    try {
+        $env:DOTNET_ROOT = Split-Path -Parent $DotNetPath
+        Remove-Item Env:MSBuildSDKsPath -ErrorAction SilentlyContinue
+        & $DotNetPath @Arguments
+        $script:LockingGlassLastDotNetExitCode = $LASTEXITCODE
+    } finally {
+        if ($null -eq $previousDotNetRoot) {
+            Remove-Item Env:DOTNET_ROOT -ErrorAction SilentlyContinue
+        } else {
+            $env:DOTNET_ROOT = $previousDotNetRoot
+        }
+        if ($null -eq $previousMSBuildSDKsPath) {
+            Remove-Item Env:MSBuildSDKsPath -ErrorAction SilentlyContinue
+        } else {
+            $env:MSBuildSDKsPath = $previousMSBuildSDKsPath
+        }
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
     $OutputDir = Join-Path $repoRoot 'build\windows-install-stage\Locking Glass'
 }
@@ -89,12 +140,9 @@ if ([string]::IsNullOrWhiteSpace($HelperDllPath)) {
 
 $HelperDllPath = Resolve-LockingGlassVirtualDesktopHelper -HelperDllPath $HelperDllPath
 
-$dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
-if ($null -eq $dotnet) {
-    throw 'dotnet.exe is required to publish the bundled Windows live desktop probe.'
-}
+$dotnet = Require-DotNetCompatibleSdk
 
-$dotnetRoot = Split-Path -Parent $dotnet.Source
+$dotnetRoot = Split-Path -Parent $dotnet
 $dotnetLicenseSource = Join-Path $dotnetRoot 'LICENSE.txt'
 $dotnetThirdPartySource = Join-Path $dotnetRoot 'ThirdPartyNotices.txt'
 if (-not (Test-Path $dotnetLicenseSource)) {
@@ -106,16 +154,24 @@ if (-not (Test-Path $dotnetThirdPartySource)) {
 
 Remove-Item -Recurse -Force $probePublishDir -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $probePublishDir | Out-Null
-& $dotnet.Source publish $probeProject `
-    -c Release `
-    -f net8.0 `
-    -r win-x64 `
-    --self-contained true `
-    -o $probePublishDir `
-    /p:PublishSingleFile=true `
-    /p:EnableCompressionInSingleFile=true `
-    /p:IncludeNativeLibrariesForSelfExtract=true
-if ($LASTEXITCODE -ne 0) {
+Invoke-DotNet -DotNetPath $dotnet -Arguments @(
+    'publish',
+    $probeProject,
+    '-c',
+    'Release',
+    '-f',
+    'net8.0',
+    '-r',
+    'win-x64',
+    '--self-contained',
+    'true',
+    '-o',
+    $probePublishDir,
+    '/p:PublishSingleFile=true',
+    '/p:EnableCompressionInSingleFile=true',
+    '/p:IncludeNativeLibrariesForSelfExtract=true'
+)
+if ($script:LockingGlassLastDotNetExitCode -ne 0) {
     throw 'dotnet publish failed for the Windows live desktop probe.'
 }
 

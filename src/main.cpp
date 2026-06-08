@@ -65,6 +65,15 @@ ParsedArguments ParseArguments(int argc, char** argv, bool* valid) {
 }
 
 std::string ResolveExecutablePath(char** argv) {
+#if defined(_WIN32)
+  wchar_t module_path[MAX_PATH];
+  const DWORD module_length =
+      GetModuleFileNameW(nullptr, module_path, MAX_PATH);
+  if (module_length > 0 && module_length < MAX_PATH) {
+    return std::filesystem::path(module_path).lexically_normal().string();
+  }
+#endif
+
   return std::filesystem::absolute(argv[0]).lexically_normal().string();
 }
 

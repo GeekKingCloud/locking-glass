@@ -1,8 +1,8 @@
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 
@@ -211,6 +211,9 @@ namespace LockingGlass.WindowsLiveDesktopProbe
 
     internal sealed class VirtualDesktopAccessor : IDisposable
     {
+        private const string ExpectedHelperSha256 =
+            "8740C572A1C000E3B87FFEB1E4C397EAE9AF3BD4A2ABDC3BCFFACAB4493F8FF5";
+
         [UnmanagedFunctionPointer(CallingConvention.Winapi)]
         private delegate int GetDesktopCountDelegate();
 
@@ -272,6 +275,8 @@ namespace LockingGlass.WindowsLiveDesktopProbe
                     "Locking Glass fails closed because the live helper DLL is missing: " +
                     helperDllPath);
             }
+
+            VerifyHelperHash(helperDllPath);
 
             _libraryHandle = NativeLibrary.Load(helperDllPath);
             _getDesktopCount = LoadRequiredDelegate<GetDesktopCountDelegate>("GetDesktopCount");
@@ -407,6 +412,31 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             return delegateObject;
         }
 
+        private static void VerifyHelperHash(string helperDllPath)
+        {
+            var actualHash = ComputeSha256(helperDllPath);
+            if (!string.Equals(
+                    actualHash,
+                    ExpectedHelperSha256,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    "Locking Glass fails closed because the live helper DLL SHA-256 '" +
+                    actualHash + "' did not match expected '" + ExpectedHelperSha256 +
+                    "': " + helperDllPath);
+            }
+        }
+
+        private static string ComputeSha256(string path)
+        {
+            using (var stream = File.OpenRead(path))
+            using (var sha256 = SHA256.Create())
+            {
+                return BitConverter.ToString(sha256.ComputeHash(stream))
+                    .Replace("-", string.Empty);
+            }
+        }
+
         private T? LoadOptionalDelegate<T>(string exportName) where T : class
         {
             IntPtr exportHandle;
@@ -521,8 +551,7 @@ namespace LockingGlass.WindowsLiveDesktopProbe
         private int _initialDesktopNumber;
         private int _alternateDesktopNumber;
         private int _scheduledDesktopNumber;
-        private Process? _moveTargetProcess;
-        private string? _moveTargetFilePath;
+        private IntPtr _moveTargetWindowHandle;
 
         public ProbeRuntime(
             ProbeOptions options,
@@ -642,7 +671,7 @@ namespace LockingGlass.WindowsLiveDesktopProbe
                 return IntPtr.Zero;
             }
 
-            if (message == WM_DESTROY)
+            if (message == WM_DESTROY && hwnd == _windowHandle)
             {
                 CleanupHook();
                 PostQuitMessage(ExitCode);
@@ -1061,51 +1090,55 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             moveTargetHandle = IntPtr.Zero;
             moveTargetLabel = string.Empty;
 
-            var moveTargetFileName =
-                "locking-glass-move-target-" + Guid.NewGuid().ToString("N") + ".txt";
-            _moveTargetFilePath = Path.Combine(Path.GetTempPath(), moveTargetFileName);
-            File.WriteAllText(
-                _moveTargetFilePath,
-                "Locking Glass move-path proof target" + Environment.NewLine);
-
-            try
+            var instance = GetModuleHandle(null);
+            if (instance == IntPtr.Zero)
             {
-                _moveTargetProcess = Process.Start(
-                    new ProcessStartInfo("notepad.exe", "\"" + _moveTargetFilePath + "\"")
-                    {
-                        UseShellExecute = true,
-                        WindowStyle = ProcessWindowStyle.Normal,
-                    });
+                FailClosed("GetModuleHandle failed before creating the move-path target window.");
+                return false;
             }
-            catch (Exception ex)
+
+            var moveTargetTitle =
+                "Locking Glass move-path proof target " + Guid.NewGuid().ToString("N");
+            _moveTargetWindowHandle = CreateWindowEx(
+                0,
+                _className,
+                moveTargetTitle,
+                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE,
+                96,
+                96,
+                420,
+                120,
+                IntPtr.Zero,
+                IntPtr.Zero,
+                instance,
+                IntPtr.Zero);
+            if (_moveTargetWindowHandle == IntPtr.Zero)
             {
                 FailClosed(
-                    "Could not launch notepad.exe for the move-path exercise: " +
-                    ex.Message);
+                    "CreateWindowEx failed for the move-path target window with Win32 error " +
+                    Marshal.GetLastWin32Error() + ".");
                 return false;
             }
 
-            if (_moveTargetProcess == null)
+            ShowWindow(_moveTargetWindowHandle, SW_SHOW);
+            UpdateWindow(_moveTargetWindowHandle);
+            for (var attempt = 0; attempt < 40; attempt += 1)
             {
-                FailClosed("Could not launch notepad.exe for the move-path exercise.");
-                return false;
-            }
-
-            for (var attempt = 0; attempt < 80; attempt += 1)
-            {
-                moveTargetHandle = FindWindowByTitleFragment(moveTargetFileName);
-                if (moveTargetHandle != IntPtr.Zero)
+                try
                 {
-                    moveTargetLabel = "spawned notepad document window";
+                    _desktopManager?.GetWindowDesktopId(_moveTargetWindowHandle);
+                    moveTargetHandle = _moveTargetWindowHandle;
+                    moveTargetLabel = "owned Win32 proof target window";
                     return true;
                 }
-
-                Thread.Sleep(100);
+                catch
+                {
+                    Thread.Sleep(100);
+                }
             }
 
             FailClosed(
-                "Launched notepad.exe but could not find the disposable document window by " +
-                "title for the move-path exercise.");
+                "Created the move-path target window, but IVirtualDesktopManager did not recognize it.");
             return false;
         }
 
@@ -1232,35 +1265,17 @@ namespace LockingGlass.WindowsLiveDesktopProbe
                 _hookRegistered = false;
             }
 
-            if (_moveTargetProcess != null)
+            if (_moveTargetWindowHandle != IntPtr.Zero)
             {
                 try
                 {
-                    if (!_moveTargetProcess.HasExited)
-                    {
-                        _moveTargetProcess.Kill();
-                        _moveTargetProcess.WaitForExit(2000);
-                    }
+                    DestroyWindow(_moveTargetWindowHandle);
                 }
                 catch
                 {
                     // Best-effort cleanup for the disposable move-path target.
                 }
-            }
-
-            if (!string.IsNullOrEmpty(_moveTargetFilePath))
-            {
-                try
-                {
-                    if (File.Exists(_moveTargetFilePath))
-                    {
-                        File.Delete(_moveTargetFilePath);
-                    }
-                }
-                catch
-                {
-                    // Best-effort cleanup for the disposable move-path target.
-                }
+                _moveTargetWindowHandle = IntPtr.Zero;
             }
         }
 

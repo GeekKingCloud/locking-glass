@@ -5,21 +5,25 @@
 #include "windows_virtual_desktop_helper.h"
 
 #include <fstream>
+#include <system_error>
 
 namespace locking_glass::integration::internal {
 
 namespace {
 
-bool HasHelperWatchAssets(const std::filesystem::path& root) {
-  return (std::filesystem::exists(root / "scripts" /
-                                  "run-live-desktop-probe.ps1") &&
-          std::filesystem::exists(root / "tools" / "windows_live_desktop_probe" /
-                                  "LockingGlass.WindowsLiveDesktopProbe.csproj")) ||
-         (std::filesystem::exists(root / "run-live-desktop-probe.ps1") &&
-          (std::filesystem::exists(
-               root / "LockingGlass.WindowsLiveDesktopProbe.exe") ||
-           std::filesystem::exists(
-               root / "LockingGlass.WindowsLiveDesktopProbe.dll")));
+bool HasRepositoryLiveWatchAssets(const std::filesystem::path& root) {
+  return std::filesystem::exists(root / "scripts" /
+                                 "run-live-desktop-probe.ps1") &&
+         std::filesystem::exists(root / "tools" / "windows_live_desktop_probe" /
+                                 "LockingGlass.WindowsLiveDesktopProbe.csproj");
+}
+
+bool HasBundledLiveWatchAssets(const std::filesystem::path& root) {
+  return std::filesystem::exists(root / "run-live-desktop-probe.ps1") &&
+         (std::filesystem::exists(root /
+                                  "LockingGlass.WindowsLiveDesktopProbe.exe") ||
+          std::filesystem::exists(root /
+                                  "LockingGlass.WindowsLiveDesktopProbe.dll"));
 }
 
 std::filesystem::path ResolveLiveWatchScriptPath(
@@ -38,33 +42,11 @@ std::filesystem::path ResolveLiveWatchScriptPath(
   return {};
 }
 
-std::filesystem::path FindLiveWatchAssetRoot(
-    const std::filesystem::path& start) {
-  if (start.empty()) {
-    return {};
-  }
-
-  std::filesystem::path current = std::filesystem::absolute(start);
-  while (!current.empty()) {
-    if (HasHelperWatchAssets(current)) {
-      return current;
-    }
-
-    const auto parent = current.parent_path();
-    if (parent == current) {
-      break;
-    }
-    current = parent;
-  }
-
-  return {};
-}
-
 std::filesystem::path ResolveWindowsPowerShellPath() {
-  wchar_t windir[MAX_PATH];
-  const DWORD length = GetEnvironmentVariableW(L"WINDIR", windir, MAX_PATH);
+  wchar_t system_directory[MAX_PATH];
+  const UINT length = GetSystemDirectoryW(system_directory, MAX_PATH);
   if (length > 0 && length < MAX_PATH) {
-    return std::filesystem::path(windir) / "System32" / "WindowsPowerShell" /
+    return std::filesystem::path(system_directory) / "WindowsPowerShell" /
            "v1.0" / "powershell.exe";
   }
 
@@ -88,11 +70,33 @@ std::filesystem::path FindLiveWatchAssetRoot() {
     return {};
   }
 
-  return FindLiveWatchAssetRoot(std::filesystem::path(module_path).parent_path());
+  const auto module_directory = std::filesystem::path(module_path).parent_path();
+  if (HasBundledLiveWatchAssets(module_directory)) {
+    return module_directory;
+  }
+
+  std::error_code error;
+  const auto current_directory = std::filesystem::current_path(error);
+  if (!error && HasRepositoryLiveWatchAssets(current_directory)) {
+    return current_directory;
+  }
+
+  return {};
 }
 
 std::string QuoteCommandArgument(const std::string& value) {
-  return "\"" + value + "\"";
+  std::string quoted;
+  quoted.reserve(value.size() + 2U);
+  quoted.push_back('"');
+  for (const char ch : value) {
+    if (ch == '%') {
+      quoted.append("%%");
+    } else {
+      quoted.push_back(ch);
+    }
+  }
+  quoted.push_back('"');
+  return quoted;
 }
 
 std::filesystem::path BuildLiveWatchCommandScript(
@@ -102,12 +106,20 @@ std::filesystem::path BuildLiveWatchCommandScript(
   const auto script_path = ResolveLiveWatchScriptPath(asset_root);
   const auto powershell_path = ResolveWindowsPowerShellPath();
   const auto helper_dll_path = ResolvePreferredHelperDllPath(asset_root);
+  if (script_path.empty() || helper_dll_path.empty()) {
+    return {};
+  }
+
   const auto command_script_path =
       std::filesystem::temp_directory_path() /
       ("locking-glass-live-desktop-watch-" +
        std::to_string(GetCurrentProcessId()) + ".cmd");
 
   std::ofstream output(command_script_path, std::ios::trunc);
+  if (!output) {
+    return {};
+  }
+
   output << "@echo off\r\n";
   output << QuoteCommandArgument(powershell_path.string())
          << " -NoProfile -ExecutionPolicy Bypass -File "

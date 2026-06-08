@@ -20,6 +20,57 @@ $probeFramework = 'net8.0'
 
 . $helperResolverPath
 
+function Require-Command([string]$Name) {
+    $command = Get-Command $Name -ErrorAction SilentlyContinue
+    if ($null -eq $command) {
+        throw "Required command '$Name' was not found on PATH."
+    }
+
+    return $command.Source
+}
+
+function Require-DotNetCompatibleSdk {
+    $dotnet = Require-Command 'dotnet'
+    $sdks = @(& $dotnet --list-sdks)
+    $compatibleSdk = $sdks | Where-Object {
+        $_ -match '^(\d+)\.' -and [int]$Matches[1] -ge 8
+    } | Select-Object -First 1
+    if ($null -eq $compatibleSdk) {
+        throw ".NET SDK 8 or newer is required. Installed SDKs:`n$($sdks -join [Environment]::NewLine)"
+    }
+
+    return $dotnet
+}
+
+function Invoke-DotNet {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DotNetPath,
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    $previousDotNetRoot = $env:DOTNET_ROOT
+    $previousMSBuildSDKsPath = $env:MSBuildSDKsPath
+    try {
+        $env:DOTNET_ROOT = Split-Path -Parent $DotNetPath
+        Remove-Item Env:MSBuildSDKsPath -ErrorAction SilentlyContinue
+        & $DotNetPath @Arguments
+        $script:LockingGlassLastDotNetExitCode = $LASTEXITCODE
+    } finally {
+        if ($null -eq $previousDotNetRoot) {
+            Remove-Item Env:DOTNET_ROOT -ErrorAction SilentlyContinue
+        } else {
+            $env:DOTNET_ROOT = $previousDotNetRoot
+        }
+        if ($null -eq $previousMSBuildSDKsPath) {
+            Remove-Item Env:MSBuildSDKsPath -ErrorAction SilentlyContinue
+        } else {
+            $env:MSBuildSDKsPath = $previousMSBuildSDKsPath
+        }
+    }
+}
+
 $usesRepoProject = Test-Path $probeProject
 $artifactRoot = if ($usesRepoProject) { $probeBuildDir } else { $scriptRoot }
 New-Item -ItemType Directory -Force -Path $artifactRoot | Out-Null
@@ -88,8 +139,9 @@ if (-not [string]::IsNullOrWhiteSpace($ProbeExecutablePath)) {
             throw "dotnet.exe is required to launch the bundled probe DLL at '$ProbeExecutablePath'."
         }
 
-        & $dotnet.Source $ProbeExecutablePath @probeArguments
-        $exitCode = $LASTEXITCODE
+        Invoke-DotNet -DotNetPath $dotnet.Source -Arguments (
+            @($ProbeExecutablePath) + $probeArguments)
+        $exitCode = $script:LockingGlassLastDotNetExitCode
         Write-Host "Locking Glass live desktop probe log: $LogPath"
         exit $exitCode
     }
@@ -99,10 +151,7 @@ if (-not $usesRepoProject) {
     throw 'Locking Glass could not find a bundled Windows live desktop probe executable beside the script, and this path is not running from a repo checkout with the source project available.'
 }
 
-$dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
-if ($null -eq $dotnet) {
-    throw 'dotnet.exe is required to build and run the Windows live desktop probe from source.'
-}
+$dotnet = Require-DotNetCompatibleSdk
 
 $arguments = @(
     'run',
@@ -112,7 +161,7 @@ $arguments = @(
     '--'
 ) + $probeArguments
 
-& $dotnet.Source @arguments
-$exitCode = $LASTEXITCODE
+Invoke-DotNet -DotNetPath $dotnet -Arguments $arguments
+$exitCode = $script:LockingGlassLastDotNetExitCode
 Write-Host "Locking Glass live desktop probe log: $LogPath"
 exit $exitCode

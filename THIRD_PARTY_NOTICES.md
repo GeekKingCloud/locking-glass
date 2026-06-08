@@ -26,7 +26,7 @@ Locking Glass copies this notice into staged and installed Windows packages as `
   - `DOTNET_RUNTIME_LICENSE.txt`
   - `DOTNET_RUNTIME_THIRD_PARTY_NOTICES.txt`
 
-The release staging script copies these files from the `dotnet.exe` installation used to publish the self-contained helper executables. They are required package payload files so the bundled .NET runtime notices ship with the installer and zip.
+The release staging script copies these files from the `dotnet.exe` installation used to publish the self-contained helper executables. They are required package payload files so the bundled .NET runtime notices ship with the installer payload.
 
 MIT License
 

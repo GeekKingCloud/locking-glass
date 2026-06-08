@@ -141,7 +141,7 @@ Public Windows release artifacts should include:
 - `Locking Glass Uninstaller.exe`
 - `SHA256SUMS.txt`
 
-`Locking Glass.exe` is the run-once portable app binary. It does not install itself. `Locking Glass Installer.exe` installs the current-user app, creates shortcuts, enables autostart by default, and launches after install by default. `Locking Glass Uninstaller.exe` removes the installed current-user app, autostart entry, and shortcuts while preserving session data unless `--remove-user-data` is supplied.
+`Locking Glass.exe` is the run-once portable app binary. It does not install itself, and live tray locking still requires the bundled helper DLL and probe script beside the app or a repo checkout launched from the repo root. `Locking Glass Installer.exe` installs the current-user app, creates shortcuts, enables autostart by default, and launches after install by default. `Locking Glass Uninstaller.exe` removes the installed current-user app, autostart entry, and shortcuts while preserving session data unless `--remove-user-data` is supplied.
 
 `SHA256SUMS.txt` contains SHA-256 hashes for the published executables so users can verify that the files they downloaded match the files that were released.
 
@@ -159,11 +159,11 @@ GitHub Actions intentionally stops at build, unit-test, packaging, extract-only 
 - Windows only
 - at least two monitors
 - at least two Windows virtual desktops
-- `VirtualDesktopAccessor.dll` available beside the installed build or in the staged helper location, with the hook, move, and desktop lifecycle exports used by the Windows boundary
+- the pinned `VirtualDesktopAccessor.dll` available beside the installed build or in the staged helper location, with the expected SHA-256 plus the hook, move, and desktop lifecycle exports used by the Windows boundary
 
 Release packages bundle the live desktop probe as a self-contained Windows executable, so normal installed use does not require a separate .NET runtime. Building from source still requires the .NET SDK 8 or newer for the helper projects and installer bootstrapper, plus MSYS2 or Git for Windows shell tools and a MinGW toolchain for the native Windows build.
 
-If the helper DLL, required exports, or `Locking Glass` staging desktop lifecycle are unavailable, Locking Glass marks live desktop locking as unavailable and fails closed instead of replaying, guessing, or pushing windows onto another user workspace.
+If the helper DLL, pinned SHA-256, required exports, or `Locking Glass` staging desktop lifecycle are unavailable, Locking Glass marks live desktop locking as unavailable and fails closed instead of replaying, guessing, or pushing windows onto another user workspace.
 
 ## License
 

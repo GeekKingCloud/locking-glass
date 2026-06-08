@@ -23,16 +23,9 @@ $stderrPath = Join-Path $ProofDir 'background.stderr.txt'
 Remove-Item $sessionPath, $stdoutPath, $stderrPath -ErrorAction SilentlyContinue
 
 $helperLocations = [System.Collections.Generic.List[string]]::new()
-$current = [System.IO.Path]::GetFullPath((Split-Path -Parent $watchExe))
-while (-not [string]::IsNullOrWhiteSpace($current)) {
-    $helperLocations.Add((Join-Path $current 'build\windows-live-desktop-probe\VirtualDesktopAccessor.dll'))
-    $helperLocations.Add((Join-Path $current 'VirtualDesktopAccessor.dll'))
-    $parent = Split-Path -Parent $current
-    if ([string]::IsNullOrWhiteSpace($parent) -or $parent -eq $current) {
-        break
-    }
-    $current = $parent
-}
+$helperLocations.Add((Join-Path (Split-Path -Parent $watchExe) 'VirtualDesktopAccessor.dll'))
+$helperLocations.Add((Join-Path $repoRoot 'build\windows-live-desktop-probe\VirtualDesktopAccessor.dll'))
+$helperLocations.Add((Join-Path $repoRoot 'VirtualDesktopAccessor.dll'))
 foreach ($helperLocation in $helperLocations) {
     if (Test-Path $helperLocation) {
         throw "This proof requires VirtualDesktopAccessor.dll to be absent from runtime helper search locations. Remove '$helperLocation' before running this proof."

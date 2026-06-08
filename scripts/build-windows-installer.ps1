@@ -27,6 +27,57 @@ if (-not (Test-Path $bootstrapperProject)) {
     throw "Missing Windows installer bootstrapper project at '$bootstrapperProject'."
 }
 
+function Require-Command([string]$Name) {
+    $command = Get-Command $Name -ErrorAction SilentlyContinue
+    if ($null -eq $command) {
+        throw "Required command '$Name' was not found on PATH."
+    }
+
+    return $command.Source
+}
+
+function Require-DotNetCompatibleSdk {
+    $dotnet = Require-Command 'dotnet'
+    $sdks = @(& $dotnet --list-sdks)
+    $compatibleSdk = $sdks | Where-Object {
+        $_ -match '^(\d+)\.' -and [int]$Matches[1] -ge 8
+    } | Select-Object -First 1
+    if ($null -eq $compatibleSdk) {
+        throw ".NET SDK 8 or newer is required. Installed SDKs:`n$($sdks -join [Environment]::NewLine)"
+    }
+
+    return $dotnet
+}
+
+function Invoke-DotNet {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DotNetPath,
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    $previousDotNetRoot = $env:DOTNET_ROOT
+    $previousMSBuildSDKsPath = $env:MSBuildSDKsPath
+    try {
+        $env:DOTNET_ROOT = Split-Path -Parent $DotNetPath
+        Remove-Item Env:MSBuildSDKsPath -ErrorAction SilentlyContinue
+        & $DotNetPath @Arguments
+        $script:LockingGlassLastDotNetExitCode = $LASTEXITCODE
+    } finally {
+        if ($null -eq $previousDotNetRoot) {
+            Remove-Item Env:DOTNET_ROOT -ErrorAction SilentlyContinue
+        } else {
+            $env:DOTNET_ROOT = $previousDotNetRoot
+        }
+        if ($null -eq $previousMSBuildSDKsPath) {
+            Remove-Item Env:MSBuildSDKsPath -ErrorAction SilentlyContinue
+        } else {
+            $env:MSBuildSDKsPath = $previousMSBuildSDKsPath
+        }
+    }
+}
+
 if (-not $SkipStage) {
     & $stageScript -OutputDir $StageDir
     if ($LASTEXITCODE -ne 0) {
@@ -43,10 +94,7 @@ if ($stagedFiles.Count -eq 0) {
     throw "No staged files were found under '$StageDir'."
 }
 
-$dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
-if ($null -eq $dotnet) {
-    throw 'dotnet.exe is required to publish the Windows installer bootstrapper.'
-}
+$dotnet = Require-DotNetCompatibleSdk
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 $payloadZip = Join-Path $OutputDir 'LockingGlass-stage-payload.zip'
@@ -64,19 +112,27 @@ Remove-Item -Force $targetExe, $targetUninstallerExe -ErrorAction SilentlyContin
 Compress-Archive -Path $stagedFiles.FullName -DestinationPath $payloadZip -Force
 
 function Publish-Bootstrapper([string]$Mode, [string]$PublishDir, [string]$TargetPath) {
-    & $dotnet.Source publish $bootstrapperProject `
-        -c Release `
-        -f net8.0 `
-        -r win-x64 `
-        --self-contained true `
-        -o $PublishDir `
-        /p:PublishSingleFile=true `
-        /p:EnableCompressionInSingleFile=true `
-        /p:IncludeNativeLibrariesForSelfExtract=true `
-        /p:PayloadZip=$payloadZip `
-        /p:BootstrapperMode=$Mode
+    Invoke-DotNet -DotNetPath $dotnet -Arguments @(
+        'publish',
+        $bootstrapperProject,
+        '-c',
+        'Release',
+        '-f',
+        'net8.0',
+        '-r',
+        'win-x64',
+        '--self-contained',
+        'true',
+        '-o',
+        $PublishDir,
+        '/p:PublishSingleFile=true',
+        '/p:EnableCompressionInSingleFile=true',
+        '/p:IncludeNativeLibrariesForSelfExtract=true',
+        "/p:PayloadZip=$payloadZip",
+        "/p:BootstrapperMode=$Mode"
+    )
 
-    if ($LASTEXITCODE -ne 0) {
+    if ($script:LockingGlassLastDotNetExitCode -ne 0) {
         throw "dotnet publish failed for the Windows $Mode bootstrapper."
     }
 

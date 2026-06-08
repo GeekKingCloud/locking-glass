@@ -33,6 +33,29 @@ function Test-SafeInstallDirectory([string]$TargetInstallDir) {
         throw "InstallDir must end in 'Locking Glass' so uninstall cannot remove a broad shared directory: '$normalizedInstallDir'."
     }
 
+    # Match the installer guard so uninstall cannot recursively delete a
+    # profile, temp folder, or shared program directory from a bad argument.
+    $blockedParentPaths = @(
+        [Environment]::GetFolderPath('UserProfile'),
+        $env:LOCALAPPDATA,
+        $env:APPDATA,
+        $env:ProgramFiles,
+        ${env:ProgramFiles(x86)},
+        $env:WINDIR,
+        $env:TEMP,
+        $env:TMP
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        ForEach-Object { Resolve-InstallDirectory -TargetInstallDir $_ }
+
+    foreach ($blockedParentPath in $blockedParentPaths) {
+        if ([string]::Equals(
+                $normalizedInstallDir,
+                $blockedParentPath,
+                [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "InstallDir must be an app-specific Locking Glass directory, not a shared parent directory: '$normalizedInstallDir'."
+        }
+    }
+
     return $normalizedInstallDir
 }
 
@@ -79,6 +102,12 @@ function Remove-StartMenuShortcuts {
 
 function Remove-InstallDirectory([string]$TargetInstallDir) {
     if (Test-Path $TargetInstallDir) {
+        $manifestPath = Join-Path $TargetInstallDir 'LOCKING_GLASS_PAYLOAD_MANIFEST.txt'
+        $executablePath = Join-Path $TargetInstallDir 'Locking Glass.exe'
+        if (-not (Test-Path $manifestPath) -or -not (Test-Path $executablePath)) {
+            throw "Refusing to remove '$TargetInstallDir' because it does not look like a Locking Glass install payload."
+        }
+
         Remove-Item -Recurse -Force -Path $TargetInstallDir
     }
 }

@@ -130,6 +130,8 @@ int main() {
                 RunBackgroundControllerStatusChecks, &failures);
   RunCheckGroup("unlock return", RunUnlockReturnChecks, &failures);
   RunCheckGroup("desktop locking", RunDesktopLockingChecks, &failures);
+  RunCheckGroup("Windows live desktop watch", RunWindowsLiveDesktopWatchChecks,
+                &failures);
 
   std::filesystem::remove_all(temp_directory);
 

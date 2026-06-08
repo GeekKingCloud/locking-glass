@@ -362,7 +362,7 @@ namespace LockingGlass.WindowsInstallerBootstrapper
                 }
             }
 
-            return "powershell.exe";
+            return @"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe";
         }
 
         private static void TryDeleteExtractionDirectory(string extractionDirectory)

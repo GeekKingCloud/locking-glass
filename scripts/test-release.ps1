@@ -40,13 +40,30 @@ function Invoke-Checked {
     )
 
     Write-Host ('> ' + $FilePath + ' ' + ($Arguments -join ' '))
+    $previousDotNetRoot = $env:DOTNET_ROOT
+    $previousMSBuildSDKsPath = $env:MSBuildSDKsPath
     Push-Location $WorkingDirectory
     try {
+        if ([System.IO.Path]::GetFileName($FilePath) -ieq 'dotnet.exe') {
+            $env:DOTNET_ROOT = Split-Path -Parent $FilePath
+            Remove-Item Env:MSBuildSDKsPath -ErrorAction SilentlyContinue
+        }
+
         & $FilePath @Arguments
         if ($LASTEXITCODE -ne 0) {
             throw "Command failed with exit code $LASTEXITCODE`: $FilePath $($Arguments -join ' ')"
         }
     } finally {
+        if ($null -eq $previousDotNetRoot) {
+            Remove-Item Env:DOTNET_ROOT -ErrorAction SilentlyContinue
+        } else {
+            $env:DOTNET_ROOT = $previousDotNetRoot
+        }
+        if ($null -eq $previousMSBuildSDKsPath) {
+            Remove-Item Env:MSBuildSDKsPath -ErrorAction SilentlyContinue
+        } else {
+            $env:MSBuildSDKsPath = $previousMSBuildSDKsPath
+        }
         Pop-Location
     }
 }
@@ -294,6 +311,30 @@ function Test-ThirdPartyNoticeCoverage {
     }
 }
 
+function Test-HelperHashPinConsistency {
+    $helperHeaderPath = Join-Path $repoRoot 'src\integration\windows_virtual_desktop_helper.h'
+    $helperHeaderText = Get-Content -Path $helperHeaderPath -Raw
+    if ($helperHeaderText -notmatch 'kVirtualDesktopAccessorSha256\[\]\s*=\s*"([0-9A-F]{64})"') {
+        throw "Could not find the C++ VirtualDesktopAccessor.dll SHA-256 pin in '$helperHeaderPath'."
+    }
+
+    $cppHash = $Matches[1]
+    if ($cppHash -ne $script:LockingGlassVirtualDesktopAccessorSha256) {
+        throw "The C++ VirtualDesktopAccessor.dll SHA-256 pin '$cppHash' does not match the release resolver pin '$script:LockingGlassVirtualDesktopAccessorSha256'."
+    }
+
+    $probeSourcePath = Join-Path $repoRoot 'tools\windows_live_desktop_probe\Program.cs'
+    $probeSourceText = Get-Content -Path $probeSourcePath -Raw
+    if ($probeSourceText -notmatch 'ExpectedHelperSha256\s*=\s*"([0-9A-F]{64})"') {
+        throw "Could not find the C# probe VirtualDesktopAccessor.dll SHA-256 pin in '$probeSourcePath'."
+    }
+
+    $probeHash = $Matches[1]
+    if ($probeHash -ne $script:LockingGlassVirtualDesktopAccessorSha256) {
+        throw "The C# probe VirtualDesktopAccessor.dll SHA-256 pin '$probeHash' does not match the release resolver pin '$script:LockingGlassVirtualDesktopAccessorSha256'."
+    }
+}
+
 function Test-PowerShellSyntax {
     $scriptFiles = Get-ChildItem -Path (Join-Path $repoRoot 'scripts') -Filter '*.ps1' -File
     foreach ($scriptFile in $scriptFiles) {
@@ -322,6 +363,7 @@ function Test-Hygiene {
     Test-NoTrackedGeneratedOutput
     Test-NoStaleRuntimeReferences
     Test-ThirdPartyNoticeCoverage
+    Test-HelperHashPinConsistency
     Test-PowerShellSyntax
 }
 
@@ -342,6 +384,7 @@ function Test-Build {
         'OS=Windows_NT',
         'CXX=g++'
     )
+    Invoke-Checked $make -Arguments ($makeArgs + @('clean'))
     Invoke-Checked $make -Arguments ($makeArgs + @('all'))
     Invoke-Checked $make -Arguments ($makeArgs + @('test'))
 

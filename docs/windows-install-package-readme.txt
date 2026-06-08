@@ -17,7 +17,7 @@ Requirements
 - Windows only.
 - At least two monitors.
 - At least two Windows virtual desktops.
-- VirtualDesktopAccessor.dll with the live hook, move, and desktop lifecycle exports bundled beside the app.
+- The pinned VirtualDesktopAccessor.dll with the expected SHA-256 plus the live hook, move, and desktop lifecycle exports bundled beside the app.
 - No separate .NET runtime is required for normal installed use; the bundled live desktop probe is published as a self-contained Windows executable.
 
 Files that must stay together
@@ -66,11 +66,12 @@ Unlock return note
 
 Installer note
 - Public releases ship `Locking Glass.exe`, `Locking Glass Installer.exe`, and `Locking Glass Uninstaller.exe`.
-- Locking Glass.exe is the run-once portable app binary and does not install itself.
+- Locking Glass.exe is the run-once portable app binary and does not install itself; live tray locking still requires the bundled helper DLL and probe script beside the app.
 - The installer and uninstaller executables are wrappers around this same payload and use the bundled PowerShell scripts for the actual install and uninstall logic.
 - The installer executable and installer script are upgrade-safe by design: they keep the stable install path and do not move the external session-state file.
 - Package smoke tests should pass `--no-autostart` so verification never writes the real user's startup registry entry.
 - Custom install directories must name an app-specific Locking Glass folder, not a shared parent directory.
+- The uninstaller refuses to remove an install directory that is missing the Locking Glass payload manifest or app executable.
 
 What this package does not claim
 - It is not a replay-only build.

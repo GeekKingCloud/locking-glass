@@ -13,9 +13,13 @@
 namespace locking_glass::integration::internal {
 
 inline constexpr char kStagingDesktopName[] = "Locking Glass";
+inline constexpr char kVirtualDesktopAccessorSha256[] =
+    "8740C572A1C000E3B87FFEB1E4C397EAE9AF3BD4A2ABDC3BCFFACAB4493F8FF5";
 
 std::filesystem::path ResolvePreferredHelperDllPath(
     const std::filesystem::path& asset_root);
+bool VerifyVirtualDesktopAccessorSha256(const std::filesystem::path& path,
+                                        std::string* detail);
 
 class WindowsVirtualDesktopHelper {
  public:

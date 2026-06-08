@@ -58,5 +58,6 @@ bool RunTraySessionChecks();
 bool RunBackgroundControllerStatusChecks();
 bool RunUnlockReturnChecks();
 bool RunDesktopLockingChecks();
+bool RunWindowsLiveDesktopWatchChecks();
 
 }  // namespace locking_glass::tests

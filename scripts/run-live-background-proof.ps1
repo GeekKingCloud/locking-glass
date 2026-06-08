@@ -16,7 +16,14 @@ if ([string]::IsNullOrWhiteSpace($WatchExe)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($WorkingDirectory)) {
-    $WorkingDirectory = Split-Path -Parent $WatchExe
+    $repoBuildRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot 'build-win'))
+    $watchExeFullPath = [System.IO.Path]::GetFullPath($WatchExe)
+    if ($watchExeFullPath.StartsWith($repoBuildRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $WorkingDirectory = $repoRoot
+    }
+    else {
+        $WorkingDirectory = Split-Path -Parent $WatchExe
+    }
 }
 
 if (-not (Test-Path $watchExe)) {
@@ -108,6 +115,9 @@ public static class LockingGlassBackgroundProofWin32
     private static extern uint GetMenuState(IntPtr hMenu, uint uId, uint uFlags);
 
     [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint GetMenuItemID(IntPtr hMenu, int nPos);
+
+    [DllImport("user32.dll", SetLastError = true)]
     private static extern bool GetMenuItemRect(IntPtr hWnd, IntPtr hMenu, uint uItem, out RECT lprcItem);
 
     [DllImport("user32.dll", SetLastError = true)]
@@ -185,6 +195,11 @@ public static class LockingGlassBackgroundProofWin32
     public static uint GetPopupMenuItemState(IntPtr menuHandle, int index)
     {
         return menuHandle == IntPtr.Zero ? 0U : GetMenuState(menuHandle, (uint)index, MF_BYPOSITION);
+    }
+
+    public static uint GetPopupMenuItemId(IntPtr menuHandle, int index)
+    {
+        return menuHandle == IntPtr.Zero ? 0xFFFFFFFFU : GetMenuItemID(menuHandle, index);
     }
 
     public static bool TryGetPopupMenuItemCenter(IntPtr menuHandle, int index, out int centerX, out int centerY)
@@ -370,7 +385,35 @@ public sealed class LockingGlassBackgroundProofHelper : IDisposable
 "@
 
 function Parse-Monitors {
-    $selfCheck = & $watchExe --self-check
+    $selfCheckStdout = Join-Path $ProofDir 'self-check.stdout.txt'
+    $selfCheckStderr = Join-Path $ProofDir 'self-check.stderr.txt'
+    Remove-Item $selfCheckStdout, $selfCheckStderr -ErrorAction SilentlyContinue
+
+    $selfCheckProcess = Start-Process `
+        -FilePath $watchExe `
+        -ArgumentList '--self-check' `
+        -WorkingDirectory $WorkingDirectory `
+        -RedirectStandardOutput $selfCheckStdout `
+        -RedirectStandardError $selfCheckStderr `
+        -Wait `
+        -PassThru
+    $selfCheck = if (Test-Path $selfCheckStdout) {
+        [System.IO.File]::ReadAllLines($selfCheckStdout)
+    }
+    else {
+        @()
+    }
+
+    if ($selfCheckProcess.ExitCode -ne 0) {
+        $stderr = if (Test-Path $selfCheckStderr) {
+            [System.IO.File]::ReadAllText($selfCheckStderr)
+        }
+        else {
+            ''
+        }
+        throw "Monitor self-check failed with exit code $($selfCheckProcess.ExitCode).`n$stderr"
+    }
+
     $monitors = @()
     foreach ($line in $selfCheck) {
         if ($line -notmatch '^\s*-\s+(Display \d+)(?:\s+"([^"]*)")?\s+\[id=(.+?)\]\s+\(([-\d]+),([-\d]+)\)-\(([-\d]+),([-\d]+)\)(.*)$') {
@@ -466,6 +509,28 @@ function Wait-ForLockState([string]$path, [string]$monitorLabel, [bool]$expected
     }
 
     throw "Timed out waiting for monitor '$monitorLabel' lock state $expected in $path."
+}
+
+function Get-MonitorMenuCommandId([string]$path, [string]$monitorLabel) {
+    $monitorIndex = 0
+    foreach ($line in [System.IO.File]::ReadAllLines($path)) {
+        if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith('version')) {
+            continue
+        }
+
+        $fields = $line.Split("`t")
+        if ($fields.Length -lt 13 -or $fields[0] -ne 'monitor') {
+            continue
+        }
+
+        if ($fields[5] -eq $monitorLabel) {
+            return 1000 + $monitorIndex
+        }
+
+        $monitorIndex += 1
+    }
+
+    throw "Could not find monitor '$monitorLabel' in $path."
 }
 
 function Start-NotepadWindow([string]$titleFragment) {
@@ -647,6 +712,7 @@ function Open-MonitorLockMenu([IntPtr]$backgroundWindow) {
 
 function Toggle-MonitorLockFromTray([string]$monitorLabel, [bool]$expectedLockState, [string]$sessionPath) {
     $backgroundWindow = [LockingGlassBackgroundProofWin32]::FindBackgroundWindow()
+    $targetCommandId = Get-MonitorMenuCommandId -path $sessionPath -monitorLabel $monitorLabel
     Open-MonitorLockMenu -backgroundWindow $backgroundWindow
     Start-Sleep -Milliseconds 500
 
@@ -666,13 +732,16 @@ function Toggle-MonitorLockFromTray([string]$monitorLabel, [bool]$expectedLockSt
     }
 
     $itemCount = [LockingGlassBackgroundProofWin32]::GetPopupMenuItemCount($menuHandle)
+    $menuDiagnostics = @()
     for ($index = 0; $index -lt $itemCount; $index += 1) {
         $text = [LockingGlassBackgroundProofWin32]::GetPopupMenuItemText($menuHandle, $index)
-        if (-not $text.StartsWith($monitorLabel, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $itemId = [LockingGlassBackgroundProofWin32]::GetPopupMenuItemId($menuHandle, $index)
+        $state = [LockingGlassBackgroundProofWin32]::GetPopupMenuItemState($menuHandle, $index)
+        $menuDiagnostics += ('index=' + $index + ' id=' + $itemId + ' state=0x' + $state.ToString('X') + ' text="' + $text + '"')
+        if ($itemId -ne $targetCommandId -and -not $text.StartsWith($monitorLabel, [System.StringComparison]::OrdinalIgnoreCase)) {
             continue
         }
 
-        $state = [LockingGlassBackgroundProofWin32]::GetPopupMenuItemState($menuHandle, $index)
         if (($state -band 0x0001) -ne 0 -or ($state -band 0x0002) -ne 0) {
             continue
         }
@@ -688,7 +757,7 @@ function Toggle-MonitorLockFromTray([string]$monitorLabel, [bool]$expectedLockSt
         return
     }
 
-    throw "Could not find an enabled tray menu item starting with '$monitorLabel'."
+    throw "Could not find an enabled tray menu item for '$monitorLabel' with command $targetCommandId.`n$($menuDiagnostics -join [Environment]::NewLine)"
 }
 
 $monitors = Parse-Monitors

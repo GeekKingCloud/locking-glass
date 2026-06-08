@@ -1,6 +1,11 @@
 #include "windows_virtual_desktop_surface.h"
 
+#include "windows_live_desktop_watch.h"
+#include "windows_virtual_desktop_helper.h"
+
 #include <filesystem>
+#include <system_error>
+#include <vector>
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -27,50 +32,48 @@ namespace locking_glass::integration::internal {
 #if defined(_WIN32)
 namespace {
 
-HMODULE LoadHelperFromAncestorSearch(const std::filesystem::path& start) {
-  if (start.empty()) {
-    return nullptr;
-  }
-
-  std::filesystem::path current = std::filesystem::absolute(start);
-  while (!current.empty()) {
-    const auto repository_helper =
-        current / "build" / "windows-live-desktop-probe" /
-        "VirtualDesktopAccessor.dll";
-    if (HMODULE library = LoadLibraryW(repository_helper.c_str());
-        library != nullptr) {
-      return library;
+std::vector<std::filesystem::path> BuildHelperDllCandidates() {
+  std::vector<std::filesystem::path> candidates;
+  const auto add_candidate = [&](const std::filesystem::path& path) {
+    if (path.empty()) {
+      return;
     }
-
-    const auto bundled_helper = current / "VirtualDesktopAccessor.dll";
-    if (HMODULE library = LoadLibraryW(bundled_helper.c_str());
-        library != nullptr) {
-      return library;
+    for (const auto& candidate : candidates) {
+      if (candidate == path) {
+        return;
+      }
     }
+    candidates.push_back(path);
+  };
 
-    const auto parent = current.parent_path();
-    if (parent == current) {
-      break;
-    }
-    current = parent;
-  }
-
-  return nullptr;
-}
-
-HMODULE LoadVirtualDesktopHelper() {
   wchar_t module_path[MAX_PATH];
   const DWORD module_length = GetModuleFileNameW(nullptr, module_path, MAX_PATH);
   if (module_length > 0 && module_length < MAX_PATH) {
-    const auto adjacent_path =
-        std::filesystem::path(module_path).parent_path() /
-        "VirtualDesktopAccessor.dll";
-    if (HMODULE library = LoadLibraryW(adjacent_path.c_str()); library != nullptr) {
-      return library;
+    add_candidate(std::filesystem::path(module_path).parent_path() /
+                  "VirtualDesktopAccessor.dll");
+  }
+
+  const auto asset_root = FindLiveWatchAssetRoot();
+  add_candidate(ResolvePreferredHelperDllPath(asset_root));
+  return candidates;
+}
+
+HMODULE LoadVirtualDesktopHelper() {
+  for (const auto& candidate : BuildHelperDllCandidates()) {
+    std::error_code exists_error;
+    if (!std::filesystem::exists(candidate, exists_error) || exists_error) {
+      continue;
     }
 
-    if (HMODULE library = LoadHelperFromAncestorSearch(
-            std::filesystem::path(module_path).parent_path());
+    std::string hash_detail;
+    if (!VerifyVirtualDesktopAccessorSha256(candidate, &hash_detail)) {
+      continue;
+    }
+
+    if (HMODULE library =
+            LoadLibraryExW(candidate.c_str(), nullptr,
+                           LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
+                               LOAD_LIBRARY_SEARCH_SYSTEM32);
         library != nullptr) {
       return library;
     }
