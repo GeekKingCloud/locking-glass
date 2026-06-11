@@ -5,7 +5,6 @@
 #include <array>
 #include <bit>
 #include <cstdio>
-#include <fstream>
 #include <system_error>
 
 #include <wincrypt.h>
@@ -62,6 +61,28 @@ const DesktopIdentity* FindStrongMatchingDesktop(
   return nullptr;
 }
 
+class ScopedHandle {
+ public:
+  explicit ScopedHandle(HANDLE handle) : handle_(handle) {}
+  ~ScopedHandle() {
+    if (handle_ != nullptr && handle_ != INVALID_HANDLE_VALUE) {
+      CloseHandle(handle_);
+    }
+  }
+
+  ScopedHandle(const ScopedHandle&) = delete;
+  ScopedHandle& operator=(const ScopedHandle&) = delete;
+
+  explicit operator bool() const {
+    return handle_ != nullptr && handle_ != INVALID_HANDLE_VALUE;
+  }
+
+  HANDLE get() const { return handle_; }
+
+ private:
+  HANDLE handle_ = INVALID_HANDLE_VALUE;
+};
+
 std::string EncodeHex(const BYTE* bytes, const DWORD byte_count) {
   constexpr char kHex[] = "0123456789ABCDEF";
   std::string encoded;
@@ -73,8 +94,34 @@ std::string EncodeHex(const BYTE* bytes, const DWORD byte_count) {
   return encoded;
 }
 
-bool ComputeSha256Hex(const std::filesystem::path& path, std::string* digest,
+ScopedHandle OpenHelperDllForReadLock(const std::filesystem::path& path,
+                                      std::string* detail) {
+  HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                            nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
+                            nullptr);
+  if (file == INVALID_HANDLE_VALUE) {
+    if (detail != nullptr) {
+      *detail = "Failed to open VirtualDesktopAccessor.dll at " +
+                path.string() + " with a read lock (Win32 error " +
+                std::to_string(GetLastError()) + ").";
+    }
+  }
+  return ScopedHandle(file);
+}
+
+bool ComputeSha256Hex(HANDLE file, const std::filesystem::path& path,
+                      std::string* digest,
                       std::string* detail) {
+  LARGE_INTEGER file_start{};
+  if (!SetFilePointerEx(file, file_start, nullptr, FILE_BEGIN)) {
+    if (detail != nullptr) {
+      *detail = "Failed to rewind VirtualDesktopAccessor.dll at " +
+                path.string() + " for SHA-256 verification (Win32 error " +
+                std::to_string(GetLastError()) + ").";
+    }
+    return false;
+  }
+
   HCRYPTPROV provider = 0;
   if (!CryptAcquireContextW(&provider, nullptr, nullptr, PROV_RSA_AES,
                             CRYPT_VERIFYCONTEXT)) {
@@ -95,27 +142,26 @@ bool ComputeSha256Hex(const std::filesystem::path& path, std::string* digest,
     return false;
   }
 
-  std::ifstream input(path, std::ios::binary);
-  if (!input) {
-    if (detail != nullptr) {
-      *detail = "Failed to open VirtualDesktopAccessor.dll at " +
-                path.string() + " for SHA-256 verification.";
-    }
-    CryptDestroyHash(hash);
-    CryptReleaseContext(provider, 0);
-    return false;
-  }
-
-  std::array<char, 8192> buffer = {};
-  while (input.good()) {
-    input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-    const auto bytes_read = input.gcount();
-    if (bytes_read <= 0) {
-      continue;
+  std::array<BYTE, 8192> buffer = {};
+  while (true) {
+    DWORD bytes_read = 0;
+    if (!ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()),
+                  &bytes_read, nullptr)) {
+      if (detail != nullptr) {
+        *detail = "Failed while reading VirtualDesktopAccessor.dll at " +
+                  path.string() + " for SHA-256 verification (Win32 error " +
+                  std::to_string(GetLastError()) + ").";
+      }
+      CryptDestroyHash(hash);
+      CryptReleaseContext(provider, 0);
+      return false;
     }
 
-    if (!CryptHashData(hash, reinterpret_cast<const BYTE*>(buffer.data()),
-                       static_cast<DWORD>(bytes_read), 0)) {
+    if (bytes_read == 0) {
+      break;
+    }
+
+    if (!CryptHashData(hash, buffer.data(), bytes_read, 0)) {
       if (detail != nullptr) {
         *detail = "Failed to hash VirtualDesktopAccessor.dll at " +
                   path.string() + " (Win32 error " +
@@ -125,16 +171,6 @@ bool ComputeSha256Hex(const std::filesystem::path& path, std::string* digest,
       CryptReleaseContext(provider, 0);
       return false;
     }
-  }
-
-  if (input.bad()) {
-    if (detail != nullptr) {
-      *detail = "Failed while reading VirtualDesktopAccessor.dll at " +
-                path.string() + " for SHA-256 verification.";
-    }
-    CryptDestroyHash(hash);
-    CryptReleaseContext(provider, 0);
-    return false;
   }
 
   std::array<BYTE, 32> hash_bytes = {};
@@ -154,6 +190,25 @@ bool ComputeSha256Hex(const std::filesystem::path& path, std::string* digest,
   }
   CryptDestroyHash(hash);
   CryptReleaseContext(provider, 0);
+  return true;
+}
+
+bool VerifyOpenHelperDllSha256(HANDLE file, const std::filesystem::path& path,
+                               std::string* detail) {
+  std::string actual_hash;
+  if (!ComputeSha256Hex(file, path, &actual_hash, detail)) {
+    return false;
+  }
+
+  if (actual_hash != kVirtualDesktopAccessorSha256) {
+    if (detail != nullptr) {
+      *detail = "VirtualDesktopAccessor.dll at " + path.string() +
+                " had SHA-256 '" + actual_hash + "', expected '" +
+                kVirtualDesktopAccessorSha256 + "'.";
+    }
+    return false;
+  }
+
   return true;
 }
 
@@ -180,21 +235,40 @@ std::filesystem::path ResolvePreferredHelperDllPath(
 
 bool VerifyVirtualDesktopAccessorSha256(const std::filesystem::path& path,
                                         std::string* detail) {
-  std::string actual_hash;
-  if (!ComputeSha256Hex(path, &actual_hash, detail)) {
+  const auto file = OpenHelperDllForReadLock(path, detail);
+  if (!file) {
     return false;
   }
 
-  if (actual_hash != kVirtualDesktopAccessorSha256) {
+  return VerifyOpenHelperDllSha256(file.get(), path, detail);
+}
+
+HMODULE LoadVerifiedVirtualDesktopAccessor(const std::filesystem::path& path,
+                                           std::string* detail) {
+  const auto file = OpenHelperDllForReadLock(path, detail);
+  if (!file) {
+    return nullptr;
+  }
+
+  if (!VerifyOpenHelperDllSha256(file.get(), path, detail)) {
+    return nullptr;
+  }
+
+  HMODULE library =
+      LoadLibraryExW(path.c_str(), nullptr,
+                     LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
+                         LOAD_LIBRARY_SEARCH_SYSTEM32);
+  if (library == nullptr) {
     if (detail != nullptr) {
-      *detail = "VirtualDesktopAccessor.dll at " + path.string() +
-                " had SHA-256 '" + actual_hash + "', expected '" +
-                kVirtualDesktopAccessorSha256 + "'.";
+      const DWORD load_error = GetLastError();
+      *detail =
+          "LoadLibraryExW failed for " + path.string() + " (Win32 error " +
+          std::to_string(load_error) + ").";
     }
-    return false;
+    return nullptr;
   }
 
-  return true;
+  return library;
 }
 
 WindowsVirtualDesktopHelper::WindowsVirtualDesktopHelper(
@@ -480,20 +554,8 @@ std::unique_ptr<WindowsVirtualDesktopHelper> WindowsVirtualDesktopHelper::Load(
       continue;
     }
 
-    std::string hash_detail;
-    if (!VerifyVirtualDesktopAccessorSha256(candidate, &hash_detail)) {
-      last_error = hash_detail;
-      continue;
-    }
-
-    HMODULE library =
-        LoadLibraryExW(candidate.c_str(), nullptr,
-                       LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
-                           LOAD_LIBRARY_SEARCH_SYSTEM32);
+    HMODULE library = LoadVerifiedVirtualDesktopAccessor(candidate, &last_error);
     if (library == nullptr) {
-      last_error =
-          "LoadLibraryExW failed for " + candidate.string() + " (Win32 error " +
-          std::to_string(GetLastError()) + ").";
       continue;
     }
 

@@ -21,7 +21,7 @@ EXE_EXT := .exe
 CPPFLAGS += -DUNICODE -D_UNICODE -DWINVER=0x0601 -D_WIN32_WINNT=0x0601 -D_WIN32_IE=0x0600
 LDFLAGS += -static -static-libgcc -static-libstdc++
 APP_LDFLAGS += -mwindows
-LDLIBS += -ladvapi32 -lgdi32 -lole32 -lshell32 -luuid -luser32
+LDLIBS += -ladvapi32 -lgdi32 -lgdiplus -lole32 -lshell32 -luuid -luser32
 LOCKING_GLASS_FILE_VERSION := $(VERSION_MAJOR),$(VERSION_MINOR),$(VERSION_PATCH),0
 APP_RESOURCE_OBJECTS := $(OBJ_DIR)/src/windows_version.res.o
 else
@@ -55,7 +55,7 @@ $(OBJ_DIR)/%.o: %.cpp VERSION
 	mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
-$(OBJ_DIR)/src/windows_version.res.o: src/windows_version.rc src/windows_resource.h assets/locking-glass.ico VERSION
+$(OBJ_DIR)/src/windows_version.res.o: src/windows_version.rc src/windows_resource.h assets/locking-glass.ico assets/icons/tray/locked/16.png assets/icons/tray/locked/32.png assets/icons/tray/unlocked/16.png assets/icons/tray/unlocked/32.png assets/icons/overlay/locked/128.png assets/icons/overlay/unlocked/128.png VERSION
 	mkdir -p $(dir $@)
 	$(WINDRES) -O coff \
 		--define LOCKING_GLASS_VERSION_MAJOR=$(VERSION_MAJOR) \

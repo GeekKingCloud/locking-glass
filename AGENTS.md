@@ -26,9 +26,18 @@ a real Windows desktop.
   `scripts/test-release.ps1` instead of duplicating build, test, package, or
   smoke-test logic in YAML. Minimal workflow metadata such as artifact names,
   tag matching, and GitHub release publication can stay in the workflow.
+- `README.md` is a short user guide. Put contributor setup, test commands,
+  packaging details, and release proof boundaries in `CONTRIBUTING.md`.
 - `README.md`, `CONTRIBUTING.md`, and `docs/windows-install-package-readme.txt`
-  must stay aligned with the release gate and packaging contract.
+  must stay aligned with the release gate and packaging contract. The install
+  package README describes the bundled installed payload, not the GitHub release
+  landing page.
 - `THIRD_PARTY_NOTICES.md` must describe every bundled runtime dependency.
+- Public Windows release downloads are `Locking Glass Installer.exe` and
+  `Locking Glass.exe`. Do not reintroduce a portable zip, and do not publish the
+  local `SHA256SUMS.txt` package-gate evidence file as a release asset.
+- Keep app and tray icon source under `assets/`; keep README/social branding
+  assets under `.branding/`.
 
 ## Generated Output
 

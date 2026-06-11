@@ -32,6 +32,12 @@
 #endif
 
 LOCKING_GLASS_APP_ICON ICON "assets/locking-glass.ico"
+LOCKING_GLASS_TRAY_LOCKED_16_PNG RCDATA "assets/icons/tray/locked/16.png"
+LOCKING_GLASS_TRAY_LOCKED_32_PNG RCDATA "assets/icons/tray/locked/32.png"
+LOCKING_GLASS_TRAY_UNLOCKED_16_PNG RCDATA "assets/icons/tray/unlocked/16.png"
+LOCKING_GLASS_TRAY_UNLOCKED_32_PNG RCDATA "assets/icons/tray/unlocked/32.png"
+LOCKING_GLASS_OVERLAY_LOCKED_128_PNG RCDATA "assets/icons/overlay/locked/128.png"
+LOCKING_GLASS_OVERLAY_UNLOCKED_128_PNG RCDATA "assets/icons/overlay/unlocked/128.png"
 
 1 VERSIONINFO
 FILEVERSION LOCKING_GLASS_FILE_VERSION
@@ -51,7 +57,7 @@ BEGIN
     BLOCK "040904B0"
     BEGIN
       VALUE "CompanyName", "Locking Glass Contributors\0"
-      VALUE "FileDescription", "Locking Glass monitor pinning tray app\0"
+      VALUE "FileDescription", "Locking Glass\0"
       VALUE "FileVersion", LOCKING_GLASS_VERSION_STR
       VALUE "InternalName", "locking_glass\0"
       VALUE "OriginalFilename", "Locking Glass.exe\0"

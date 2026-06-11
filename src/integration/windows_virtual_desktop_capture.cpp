@@ -260,7 +260,7 @@ BOOL CALLBACK CaptureLiveWindow(HWND window, LPARAM raw_context) {
   if (!monitor_match.extra_skip_reason.empty() &&
       monitor_match.touches_locked_monitor) {
     extra_skip = core::MonitorLockingSkip{
-        .window = captured_window,
+        .window = captured.window,
         .reason = monitor_match.extra_skip_reason,
     };
   } else if (desktop_number < 0 &&

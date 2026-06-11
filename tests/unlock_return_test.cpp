@@ -650,6 +650,21 @@ bool RunUnlockReturnChecks() {
       failures += !Expect(failed_move->detail == "forced replay failure",
                           "failed replay moves should preserve their failure detail");
     }
+
+    const locking_glass::integration::UnlockReturnRequest no_replay_request{
+        .monitor = request.monitor,
+        .tracked_windows = request.tracked_windows,
+        .allow_script_replay = false,
+    };
+    const auto no_replay_report =
+        runtime.virtual_desktop_controller->ReturnTrackedWindows(
+            no_replay_request);
+    const auto* no_replay_move =
+        FindUnlockMoveResult(no_replay_report, "left-doc");
+    failures += !Expect(
+        no_replay_move == nullptr ||
+            no_replay_move->detail != "forced replay failure",
+        "unlock return should ignore replay scripts when replay is disabled");
   }
 
   WriteTextFile(

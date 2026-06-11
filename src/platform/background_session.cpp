@@ -145,7 +145,7 @@ ResolveBackgroundControllerCapabilityOverride() {
 
   const std::string value(raw_value);
   if (value == "ready") {
-    return MakeReadyControllerCapability();
+    return std::nullopt;
   }
 
   constexpr char kUnavailablePrefix[] = "unavailable:";
@@ -201,7 +201,8 @@ BackgroundSessionUnlockReturn RunUnlockReturn(
     locking_glass::integration::VirtualDesktopController*
         unlock_return_controller,
     const std::shared_ptr<WindowReturnTracker>& window_return_tracker,
-    const MonitorDescriptor& monitor) {
+    const MonitorDescriptor& monitor,
+    const bool allow_script_replay) {
   if (window_return_tracker == nullptr) {
     if (IsLiveControllerAvailable(live_controller_capability) &&
         unlock_return_controller != nullptr) {
@@ -246,6 +247,7 @@ BackgroundSessionUnlockReturn RunUnlockReturn(
         locking_glass::integration::UnlockReturnRequest{
             .monitor = monitor,
             .tracked_windows = tracked_windows,
+            .allow_script_replay = allow_script_replay,
         });
   }
 

@@ -461,17 +461,28 @@ try {
 
         Remove-Item $watchStdout, $watchStderr, $stateJson -ErrorAction SilentlyContinue
 
-        $watchCommand =
-            'set "LOCKING_GLASS_SESSION_PATH=' + $sessionPath + '" && ' +
-            '"' + $watchExe + '" --watch-virtual-desktops'
-        $watchProcess = Start-Process `
-            -FilePath 'cmd.exe' `
-            -ArgumentList '/d', '/s', '/c', $watchCommand `
-            -WorkingDirectory $repoRoot `
-            -WindowStyle Hidden `
-            -PassThru `
-            -RedirectStandardOutput $watchStdout `
-            -RedirectStandardError $watchStderr
+        $previousSessionPath = [Environment]::GetEnvironmentVariable(
+            'LOCKING_GLASS_SESSION_PATH',
+            'Process')
+        [Environment]::SetEnvironmentVariable(
+            'LOCKING_GLASS_SESSION_PATH',
+            $sessionPath,
+            'Process')
+        try {
+            $watchProcess = Start-Process `
+                -FilePath $watchExe `
+                -ArgumentList '--watch-virtual-desktops' `
+                -WorkingDirectory $repoRoot `
+                -WindowStyle Hidden `
+                -PassThru `
+                -RedirectStandardOutput $watchStdout `
+                -RedirectStandardError $watchStderr
+        } finally {
+            [Environment]::SetEnvironmentVariable(
+                'LOCKING_GLASS_SESSION_PATH',
+                $previousSessionPath,
+                'Process')
+        }
         Start-Sleep -Seconds 5
 
         $switchStates = @()

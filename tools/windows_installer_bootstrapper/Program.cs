@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 
 namespace LockingGlass.WindowsInstallerBootstrapper
@@ -13,40 +14,84 @@ namespace LockingGlass.WindowsInstallerBootstrapper
         [STAThread]
         private static int Main(string[] args)
         {
+            var quiet = InstallerOptions.ContainsQuietFlag(args);
+            var mode = BootstrapperMode.Install;
             try
             {
-                var options = InstallerOptions.Parse(args);
-                var mode = GetBootstrapperMode();
+                mode = GetBootstrapperMode();
+                var options = InstallerOptions.Parse(args, mode);
+                quiet = options.Quiet;
                 var extractDirectory = options.ExtractDirectory ?? CreateExtractionDirectory();
 
                 ExtractPayload(extractDirectory);
-
-                if (options.ExtractOnly)
+                int exitCode;
+                var deleteExtractionDirectory = true;
+                using (var payloadLocks = HoldExtractedPayloadReadLocks(extractDirectory))
                 {
-                    Console.WriteLine("Extracted Locking Glass setup payload to: " + extractDirectory);
-                    return 0;
+                    ValidateExtractedPayload(extractDirectory);
+
+                    if (options.ExtractOnly)
+                    {
+                        Console.WriteLine(
+                            "Extracted Locking Glass setup payload to: " + extractDirectory);
+                        return 0;
+                    }
+
+                    switch (mode)
+                    {
+                        case BootstrapperMode.Uninstall:
+                            exitCode = RunUninstaller(
+                                extractDirectory,
+                                options.InstallDirectory,
+                                options.RemoveUserData,
+                                options.Quiet);
+                            break;
+                        case BootstrapperMode.Run:
+                            exitCode = RunApp(
+                                extractDirectory,
+                                options.AppArguments,
+                                out deleteExtractionDirectory);
+                            break;
+                        default:
+                            exitCode = RunInstaller(
+                                extractDirectory,
+                                options.InstallDirectory,
+                                options.EnableAutostart,
+                                options.LaunchAfterInstall,
+                                options.Quiet);
+                            break;
+                    }
                 }
 
-                if (mode == BootstrapperMode.Uninstall)
+                if (deleteExtractionDirectory)
                 {
-                    return RunUninstaller(
-                        extractDirectory,
-                        options.InstallDirectory,
-                        options.RemoveUserData);
+                    TryDeleteExtractionDirectory(extractDirectory);
                 }
-
-                return RunInstaller(
-                    extractDirectory,
-                    options.InstallDirectory,
-                    options.EnableAutostart,
-                    options.LaunchAfterInstall);
+                return exitCode;
             }
             catch (Exception ex)
             {
                 Console.Error.WriteLine("Locking Glass bootstrapper failed: " + ex.Message);
+                if (!quiet)
+                {
+                    ShowErrorMessage(GetFailureTitle(mode), ex.Message);
+                }
+
                 return 1;
             }
         }
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int MessageBoxW(
+            IntPtr owner,
+            string text,
+            string caption,
+            uint type);
+
+        private const uint MessageBoxOk = 0x00000000;
+        private const uint MessageBoxIconError = 0x00000010;
+        private const uint MessageBoxIconInformation = 0x00000040;
+        private const uint MessageBoxTaskModal = 0x00002000;
 
         private static BootstrapperMode GetBootstrapperMode()
         {
@@ -69,6 +114,11 @@ namespace LockingGlass.WindowsInstallerBootstrapper
                 if (string.Equals(metadata.Value, "install", StringComparison.OrdinalIgnoreCase))
                 {
                     return BootstrapperMode.Install;
+                }
+
+                if (string.Equals(metadata.Value, "run", StringComparison.OrdinalIgnoreCase))
+                {
+                    return BootstrapperMode.Run;
                 }
 
                 throw new InvalidOperationException(
@@ -108,12 +158,12 @@ namespace LockingGlass.WindowsInstallerBootstrapper
             ValidatePayloadZip(payloadPath);
             ZipFile.ExtractToDirectory(payloadPath, extractionDirectory);
             File.Delete(payloadPath);
-            ValidateExtractedPayload(extractionDirectory);
         }
 
         private static void ValidatePayloadZip(string payloadPath)
         {
             using var archive = ZipFile.OpenRead(payloadPath);
+            var seenEntries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var entry in archive.Entries)
             {
                 // The payload is expected to be a flat file set. Reject nested
@@ -139,16 +189,54 @@ namespace LockingGlass.WindowsInstallerBootstrapper
                         "The installer payload contains a nested entry: " + entry.FullName);
                 }
 
-                var segments = entry.FullName.Split(new[] { '/', '\\' });
-                foreach (var segment in segments)
+                if (!IsValidPayloadFileName(entry.FullName))
                 {
-                    if (segment == "..")
-                    {
-                        throw new InvalidOperationException(
-                            "The installer payload contains a parent-directory entry: " +
-                            entry.FullName);
-                    }
+                    throw new InvalidOperationException(
+                        "The installer payload contains an invalid entry name: " +
+                        entry.FullName);
                 }
+
+                if (!seenEntries.Add(entry.FullName))
+                {
+                    throw new InvalidOperationException(
+                        "The installer payload contains a duplicate entry: " + entry.FullName);
+                }
+            }
+        }
+
+        private static bool IsValidPayloadFileName(string fileName)
+        {
+            return !string.IsNullOrWhiteSpace(fileName) &&
+                !Path.IsPathRooted(fileName) &&
+                fileName.IndexOfAny(new[] { '/', '\\', ':' }) < 0 &&
+                fileName != "..";
+        }
+
+        private static PayloadReadLocks HoldExtractedPayloadReadLocks(
+            string extractionDirectory)
+        {
+            var lockedFiles = new List<FileStream>();
+            try
+            {
+                foreach (var filePath in Directory.GetFiles(extractionDirectory))
+                {
+                    lockedFiles.Add(new FileStream(
+                        filePath,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.Read));
+                }
+
+                return new PayloadReadLocks(lockedFiles);
+            }
+            catch
+            {
+                foreach (var lockedFile in lockedFiles)
+                {
+                    lockedFile.Dispose();
+                }
+
+                throw;
             }
         }
 
@@ -174,8 +262,7 @@ namespace LockingGlass.WindowsInstallerBootstrapper
 
                 var hash = line.Substring(0, separator);
                 var fileName = line.Substring(separator + 2);
-                if (Path.IsPathRooted(fileName) ||
-                    fileName.IndexOfAny(new[] { '/', '\\' }) >= 0 ||
+                if (!IsValidPayloadFileName(fileName) ||
                     fileName == "LOCKING_GLASS_PAYLOAD_MANIFEST.txt")
                 {
                     throw new InvalidOperationException(
@@ -231,7 +318,8 @@ namespace LockingGlass.WindowsInstallerBootstrapper
             string extractionDirectory,
             string? installDirectory,
             bool enableAutostart,
-            bool launchAfterInstall)
+            bool launchAfterInstall,
+            bool quiet)
         {
             var installerScript = Path.Combine(extractionDirectory, "Install-LockingGlass.ps1");
             if (!File.Exists(installerScript))
@@ -244,7 +332,11 @@ namespace LockingGlass.WindowsInstallerBootstrapper
             {
                 FileName = ResolveWindowsPowerShellPath(),
                 WorkingDirectory = extractionDirectory,
-                UseShellExecute = false
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
             };
 
             startInfo.ArgumentList.Add("-NoProfile");
@@ -271,28 +363,27 @@ namespace LockingGlass.WindowsInstallerBootstrapper
                 startInfo.ArgumentList.Add("-LaunchAfterInstall");
             }
 
-            // ArgumentList avoids command-line quoting bugs for paths with
-            // spaces, including the public "Locking Glass" install path.
-            using var process = Process.Start(startInfo)
-                ?? throw new InvalidOperationException(
-                    "Failed to launch the Locking Glass installer script.");
+            RunCheckedChildProcess(
+                startInfo,
+                "Failed to launch the Locking Glass installer script.",
+                "Locking Glass installation");
 
-            process.WaitForExit();
-            if (process.ExitCode != 0)
+            Console.WriteLine("Locking Glass installation completed.");
+            if (!quiet)
             {
-                throw new InvalidOperationException(
-                    "Locking Glass installation exited with code " + process.ExitCode + ".");
+                ShowInformationMessage(
+                    "Locking Glass installed",
+                    BuildInstallerSuccessMessage(enableAutostart, launchAfterInstall));
             }
 
-            TryDeleteExtractionDirectory(extractionDirectory);
-            Console.WriteLine("Locking Glass installation completed.");
             return 0;
         }
 
         private static int RunUninstaller(
             string extractionDirectory,
             string? installDirectory,
-            bool removeUserData)
+            bool removeUserData,
+            bool quiet)
         {
             var uninstallerScript =
                 Path.Combine(extractionDirectory, "Uninstall-LockingGlass.ps1");
@@ -306,7 +397,11 @@ namespace LockingGlass.WindowsInstallerBootstrapper
             {
                 FileName = ResolveWindowsPowerShellPath(),
                 WorkingDirectory = extractionDirectory,
-                UseShellExecute = false
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
             };
 
             startInfo.ArgumentList.Add("-NoProfile");
@@ -326,23 +421,126 @@ namespace LockingGlass.WindowsInstallerBootstrapper
                 startInfo.ArgumentList.Add("-RemoveUserData");
             }
 
-            // The uninstaller uses the same validated payload as the installer,
-            // so release downloads stay to three simple executables without a
-            // separate loose script bundle.
+            if (quiet)
+            {
+                startInfo.ArgumentList.Add("-Quiet");
+            }
+
+            RunCheckedChildProcess(
+                startInfo,
+                "Failed to launch the Locking Glass uninstaller script.",
+                "Locking Glass uninstallation");
+
+            Console.WriteLine("Locking Glass uninstallation completed.");
+            if (!quiet)
+            {
+                ShowInformationMessage(
+                    "Locking Glass uninstalled",
+                    "Locking Glass has been removed for the current user.");
+            }
+
+            return 0;
+        }
+
+        private static int RunApp(
+            string extractionDirectory,
+            IReadOnlyList<string> appArguments,
+            out bool deleteExtractionDirectory)
+        {
+            deleteExtractionDirectory = true;
+            var appPath = Path.Combine(extractionDirectory, "Locking Glass.exe");
+            if (!File.Exists(appPath))
+            {
+                throw new InvalidOperationException(
+                    "The extracted payload is missing Locking Glass.exe.");
+            }
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = appPath,
+                WorkingDirectory = extractionDirectory,
+                UseShellExecute = false
+            };
+
+            if (appArguments.Count == 0)
+            {
+                startInfo.ArgumentList.Add("--background");
+                startInfo.Environment["LOCKING_GLASS_STARTUP_NOTICE"] = "runner";
+                using var backgroundProcess = Process.Start(startInfo)
+                    ?? throw new InvalidOperationException(
+                        "Failed to launch the Locking Glass app.");
+
+                if (backgroundProcess.WaitForExit(5000))
+                {
+                    if (backgroundProcess.ExitCode != 0)
+                    {
+                        throw new InvalidOperationException(
+                            "Locking Glass exited with code " +
+                            backgroundProcess.ExitCode + ".");
+                    }
+
+                    return 0;
+                }
+
+                // The single-use app now owns this extracted payload. Keep the
+                // directory so the live session can use its helper DLL, script,
+                // and probe executable after this bootstrapper exits.
+                deleteExtractionDirectory = false;
+                return 0;
+            }
+
+            foreach (var argument in appArguments)
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+
             using var process = Process.Start(startInfo)
                 ?? throw new InvalidOperationException(
-                    "Failed to launch the Locking Glass uninstaller script.");
+                    "Failed to launch the Locking Glass app.");
 
             process.WaitForExit();
             if (process.ExitCode != 0)
             {
                 throw new InvalidOperationException(
-                    "Locking Glass uninstallation exited with code " + process.ExitCode + ".");
+                    "Locking Glass exited with code " + process.ExitCode + ".");
             }
 
-            TryDeleteExtractionDirectory(extractionDirectory);
-            Console.WriteLine("Locking Glass uninstallation completed.");
             return 0;
+        }
+
+        private static void RunCheckedChildProcess(
+            ProcessStartInfo startInfo,
+            string launchFailureMessage,
+            string operationName)
+        {
+            // The public setup executables are GUI-subsystem binaries. Hide the
+            // internal console child while still preserving script output for
+            // command-line smoke tests that redirect the bootstrapper streams.
+            using var process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException(launchFailureMessage);
+
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var stderrTask = process.StandardError.ReadToEndAsync();
+            process.WaitForExit();
+
+            var stdout = stdoutTask.GetAwaiter().GetResult();
+            var stderr = stderrTask.GetAwaiter().GetResult();
+
+            if (!string.IsNullOrWhiteSpace(stdout))
+            {
+                Console.Out.Write(stdout);
+            }
+
+            if (!string.IsNullOrWhiteSpace(stderr))
+            {
+                Console.Error.Write(stderr);
+            }
+
+            if (process.ExitCode != 0)
+            {
+                throw new InvalidOperationException(
+                    operationName + " exited with code " + process.ExitCode + ".");
+            }
         }
 
         private static string ResolveWindowsPowerShellPath()
@@ -363,6 +561,68 @@ namespace LockingGlass.WindowsInstallerBootstrapper
             }
 
             return @"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe";
+        }
+
+        private static string BuildInstallerSuccessMessage(
+            bool enableAutostart,
+            bool launchAfterInstall)
+        {
+            var paragraphs = new List<string>();
+            if (launchAfterInstall)
+            {
+                paragraphs.Add(
+                    "Locking Glass is now running." + Environment.NewLine +
+                    "Use the icon in the notification area to lock/unlock monitors." +
+                    Environment.NewLine +
+                    "Note that it may be hidden by the arrow.");
+            }
+            else
+            {
+                paragraphs.Add(
+                    "Locking Glass was installed. Start it from the Start Menu when " +
+                    "you want to use the tray app.");
+            }
+
+            if (enableAutostart)
+            {
+                paragraphs.Add(
+                    "Now installed, this app will also automatically run when you " +
+                    "sign in, so it should always be available.");
+            }
+            else
+            {
+                paragraphs.Add("Startup was not changed for this install.");
+            }
+
+            return string.Join(Environment.NewLine + Environment.NewLine, paragraphs);
+        }
+
+        private static string GetFailureTitle(BootstrapperMode mode)
+        {
+            return mode switch
+            {
+                BootstrapperMode.Uninstall => "Locking Glass uninstall failed",
+                BootstrapperMode.Run => "Locking Glass could not start",
+                _ => "Locking Glass install failed"
+            };
+        }
+
+        private static void ShowInformationMessage(string title, string message)
+        {
+            MessageBoxW(
+                IntPtr.Zero,
+                message,
+                title,
+                MessageBoxOk | MessageBoxIconInformation | MessageBoxTaskModal);
+        }
+
+        private static void ShowErrorMessage(string title, string message)
+        {
+            MessageBoxW(
+                IntPtr.Zero,
+                message,
+                title,
+                MessageBoxOk | MessageBoxIconError | MessageBoxTaskModal);
         }
 
         private static void TryDeleteExtractionDirectory(string extractionDirectory)
@@ -391,7 +651,25 @@ namespace LockingGlass.WindowsInstallerBootstrapper
 
         public bool RemoveUserData { get; private set; }
 
-        public static InstallerOptions Parse(string[] args)
+        public bool Quiet { get; private set; }
+
+        public List<string> AppArguments { get; } = new List<string>();
+
+        public static bool ContainsQuietFlag(string[] args)
+        {
+            foreach (var argument in args)
+            {
+                if (string.Equals(argument, "--quiet", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(argument, "--no-ui", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public static InstallerOptions Parse(string[] args, BootstrapperMode mode)
         {
             var options = new InstallerOptions();
 
@@ -418,7 +696,17 @@ namespace LockingGlass.WindowsInstallerBootstrapper
                     case "--remove-user-data":
                         options.RemoveUserData = true;
                         break;
+                    case "--quiet":
+                    case "--no-ui":
+                        options.Quiet = true;
+                        break;
                     default:
+                        if (mode == BootstrapperMode.Run)
+                        {
+                            options.AppArguments.Add(args[index]);
+                            break;
+                        }
+
                         throw new InvalidOperationException("Unknown argument: " + args[index]);
                 }
             }
@@ -441,6 +729,25 @@ namespace LockingGlass.WindowsInstallerBootstrapper
     internal enum BootstrapperMode
     {
         Install,
-        Uninstall
+        Uninstall,
+        Run
+    }
+
+    internal sealed class PayloadReadLocks : IDisposable
+    {
+        private readonly List<FileStream> _lockedFiles;
+
+        public PayloadReadLocks(List<FileStream> lockedFiles)
+        {
+            _lockedFiles = lockedFiles;
+        }
+
+        public void Dispose()
+        {
+            foreach (var lockedFile in _lockedFiles)
+            {
+                lockedFile.Dispose();
+            }
+        }
     }
 }

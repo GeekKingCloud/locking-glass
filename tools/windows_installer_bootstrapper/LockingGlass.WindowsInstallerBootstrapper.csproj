@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <AssemblyName>LockingGlass.WindowsInstallerBootstrapper</AssemblyName>
@@ -8,8 +8,14 @@
     <LangVersion>8.0</LangVersion>
     <!-- The same source builds installer and uninstaller executables. -->
     <BootstrapperMode Condition="'$(BootstrapperMode)' == ''">install</BootstrapperMode>
-    <Description>Locking Glass Windows setup bootstrapper</Description>
-    <FileDescription>Locking Glass Windows setup bootstrapper</FileDescription>
+    <BootstrapperFileDescription Condition="'$(BootstrapperMode)' == 'install'">Locking Glass Installer</BootstrapperFileDescription>
+    <BootstrapperFileDescription Condition="'$(BootstrapperMode)' == 'run'">Locking Glass</BootstrapperFileDescription>
+    <BootstrapperFileDescription Condition="'$(BootstrapperMode)' == 'uninstall'">Locking Glass Uninstaller</BootstrapperFileDescription>
+    <BootstrapperFileDescription Condition="'$(BootstrapperFileDescription)' == ''">Locking Glass</BootstrapperFileDescription>
+    <AssemblyTitle>$(BootstrapperFileDescription)</AssemblyTitle>
+    <Description>$(BootstrapperFileDescription)</Description>
+    <FileDescription>$(BootstrapperFileDescription)</FileDescription>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>

@@ -3,8 +3,15 @@
 
 #if defined(_WIN32)
 
+#include <algorithm>
 #include <cstring>
+#include <memory>
+#include <mutex>
 #include <vector>
+
+#include <objidl.h>
+#include <propidl.h>
+#include <gdiplus.h>
 
 namespace locking_glass::platform::internal {
 
@@ -18,6 +25,78 @@ struct IconColor {
   BYTE blue = 0;
   BYTE alpha = 255;
 };
+
+bool EnsureGdiplusStarted() {
+  static std::once_flag start_once;
+  static bool started = false;
+  static ULONG_PTR gdiplus_token = 0;
+
+  std::call_once(start_once, [] {
+    Gdiplus::GdiplusStartupInput input;
+    started = Gdiplus::GdiplusStartup(&gdiplus_token, &input, nullptr) ==
+              Gdiplus::Ok;
+  });
+
+  return started;
+}
+
+std::unique_ptr<Gdiplus::Bitmap> LoadPngResource(const UINT resource_id) {
+  if (!EnsureGdiplusStarted()) {
+    return nullptr;
+  }
+
+  HMODULE module = GetModuleHandleW(nullptr);
+  HRSRC resource =
+      FindResourceW(module, MAKEINTRESOURCEW(resource_id), RT_RCDATA);
+  if (resource == nullptr) {
+    return nullptr;
+  }
+
+  const DWORD resource_size = SizeofResource(module, resource);
+  HGLOBAL loaded_resource = LoadResource(module, resource);
+  const void* resource_data = LockResource(loaded_resource);
+  if (resource_size == 0 || loaded_resource == nullptr ||
+      resource_data == nullptr) {
+    return nullptr;
+  }
+
+  HGLOBAL resource_copy =
+      GlobalAlloc(GMEM_MOVEABLE, static_cast<SIZE_T>(resource_size));
+  if (resource_copy == nullptr) {
+    return nullptr;
+  }
+
+  void* copy_data = GlobalLock(resource_copy);
+  if (copy_data == nullptr) {
+    GlobalFree(resource_copy);
+    return nullptr;
+  }
+  std::memcpy(copy_data, resource_data, resource_size);
+  GlobalUnlock(resource_copy);
+
+  IStream* stream = nullptr;
+  if (FAILED(CreateStreamOnHGlobal(resource_copy, TRUE, &stream))) {
+    GlobalFree(resource_copy);
+    return nullptr;
+  }
+
+  std::unique_ptr<Gdiplus::Bitmap> source(
+      Gdiplus::Bitmap::FromStream(stream));
+  std::unique_ptr<Gdiplus::Bitmap> result;
+  if (source != nullptr && source->GetLastStatus() == Gdiplus::Ok) {
+    Gdiplus::Bitmap* clone =
+        source->Clone(0, 0, source->GetWidth(), source->GetHeight(),
+                      PixelFormat32bppARGB);
+    if (clone != nullptr && clone->GetLastStatus() == Gdiplus::Ok) {
+      result.reset(clone);
+    } else {
+      delete clone;
+    }
+  }
+
+  stream->Release();
+  return result;
+}
 
 void SetPixel(std::vector<DWORD>* pixels, const int x, const int y,
               const IconColor color) {
@@ -67,6 +146,40 @@ void DrawLockBadge(std::vector<DWORD>* pixels, const IconColor accent,
     SetPixel(pixels, 14, 6, white);
     SetPixel(pixels, 14, 7, white);
   }
+}
+
+UINT TrayMenuStatusResourceId(const RECT& rect, const bool locked) {
+  const int width = rect.right - rect.left;
+  const int height = rect.bottom - rect.top;
+  const int size = std::min(width, height);
+  if (locked) {
+    return size > 20 ? LOCKING_GLASS_TRAY_LOCKED_32_PNG
+                     : LOCKING_GLASS_TRAY_LOCKED_16_PNG;
+  }
+  return size > 20 ? LOCKING_GLASS_TRAY_UNLOCKED_32_PNG
+                   : LOCKING_GLASS_TRAY_UNLOCKED_16_PNG;
+}
+
+bool DrawPngResource(HDC dc, const RECT& rect, const UINT resource_id) {
+  auto bitmap = LoadPngResource(resource_id);
+  if (bitmap == nullptr) {
+    return false;
+  }
+
+  const int width = rect.right - rect.left;
+  const int height = rect.bottom - rect.top;
+  if (width <= 0 || height <= 0) {
+    return false;
+  }
+
+  Gdiplus::Graphics graphics(dc);
+  graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
+  graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
+  graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+  graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+
+  const Gdiplus::Rect destination(rect.left, rect.top, width, height);
+  return graphics.DrawImage(bitmap.get(), destination) == Gdiplus::Ok;
 }
 
 }  // namespace
@@ -139,6 +252,15 @@ HICON CreateTrayStatusIcon(const core::TrayIconState& icon) {
   DeleteObject(color_bitmap);
   DeleteObject(mask_bitmap);
   return icon_handle;
+}
+
+bool DrawTrayMenuStatusIcon(HDC dc, const RECT& rect, const bool locked) {
+  return DrawPngResource(dc, rect, TrayMenuStatusResourceId(rect, locked));
+}
+
+bool DrawOverlayStatusIcon(HDC dc, const RECT& rect, const bool locked) {
+  return DrawPngResource(dc, rect, locked ? LOCKING_GLASS_OVERLAY_LOCKED_128_PNG
+                                          : LOCKING_GLASS_OVERLAY_UNLOCKED_128_PNG);
 }
 
 }  // namespace locking_glass::platform::internal

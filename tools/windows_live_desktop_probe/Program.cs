@@ -276,7 +276,8 @@ namespace LockingGlass.WindowsLiveDesktopProbe
                     helperDllPath);
             }
 
-            VerifyHelperHash(helperDllPath);
+            using var helperDllLock = OpenHelperDllReadLock(helperDllPath);
+            VerifyHelperHash(helperDllPath, helperDllLock);
 
             _libraryHandle = NativeLibrary.Load(helperDllPath);
             _getDesktopCount = LoadRequiredDelegate<GetDesktopCountDelegate>("GetDesktopCount");
@@ -412,9 +413,28 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             return delegateObject;
         }
 
-        private static void VerifyHelperHash(string helperDllPath)
+        private static FileStream OpenHelperDllReadLock(string helperDllPath)
         {
-            var actualHash = ComputeSha256(helperDllPath);
+            try
+            {
+                return new FileStream(
+                    helperDllPath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.Read);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    "Locking Glass fails closed because the live helper DLL could not be " +
+                    "opened with a read lock: " + helperDllPath,
+                    ex);
+            }
+        }
+
+        private static void VerifyHelperHash(string helperDllPath, Stream helperDllStream)
+        {
+            var actualHash = ComputeSha256(helperDllStream);
             if (!string.Equals(
                     actualHash,
                     ExpectedHelperSha256,
@@ -427,9 +447,9 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             }
         }
 
-        private static string ComputeSha256(string path)
+        private static string ComputeSha256(Stream stream)
         {
-            using (var stream = File.OpenRead(path))
+            stream.Position = 0;
             using (var sha256 = SHA256.Create())
             {
                 return BitConverter.ToString(sha256.ComputeHash(stream))
@@ -1142,40 +1162,6 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             return false;
         }
 
-        private static IntPtr FindWindowByTitleFragment(string titleFragment)
-        {
-            IntPtr foundHandle = IntPtr.Zero;
-            EnumWindows(
-                delegate(IntPtr windowHandle, IntPtr parameter)
-                {
-                    if (!IsWindowVisible(windowHandle))
-                    {
-                        return true;
-                    }
-
-                    var titleLength = GetWindowTextLength(windowHandle);
-                    if (titleLength <= 0)
-                    {
-                        return true;
-                    }
-
-                    var titleBuilder = new StringBuilder(titleLength + 1);
-                    GetWindowText(windowHandle, titleBuilder, titleBuilder.Capacity);
-                    if (titleBuilder.ToString().IndexOf(
-                            titleFragment,
-                            StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        foundHandle = windowHandle;
-                        return false;
-                    }
-
-                    return true;
-                },
-                IntPtr.Zero);
-
-            return foundHandle;
-        }
-
         private void ScheduleDesktopSwitch(int desktopNumber, int delayMilliseconds)
         {
             _scheduledDesktopNumber = desktopNumber;
@@ -1348,28 +1334,11 @@ namespace LockingGlass.WindowsLiveDesktopProbe
             IntPtr wParam,
             IntPtr lParam);
 
-        private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr parameter);
-
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern IntPtr GetModuleHandle(string? lpModuleName);
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern ushort RegisterClassEx(ref WNDCLASSEX windowClass);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr parameter);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        private static extern bool IsWindowVisible(IntPtr hwnd);
-
-        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern int GetWindowTextLength(IntPtr hwnd);
-
-        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern int GetWindowText(
-            IntPtr hwnd,
-            StringBuilder text,
-            int maximumCount);
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern IntPtr CreateWindowEx(

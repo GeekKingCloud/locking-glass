@@ -75,8 +75,10 @@ function Test-SafeInstallDirectory([string]$TargetInstallDir) {
 function Stop-InstalledRuntimeProcesses([string]$TargetInstallDir) {
     $normalizedInstallDir = Resolve-InstallDirectory -TargetInstallDir $TargetInstallDir
     $expectedExecutablePath = Join-Path $normalizedInstallDir 'Locking Glass.exe'
-    # Stop only the installed executable path, not every process with the same
-    # image name. A user may be running a portable test build elsewhere.
+    $installedPathPrefix = $normalizedInstallDir + [System.IO.Path]::DirectorySeparatorChar
+    # Stop only processes running from the installed app directory, not every
+    # process with the same image name. A user may be running a portable test
+    # build elsewhere, while the bundled helper can outlive the tray process.
     $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object {
             if ([string]::IsNullOrWhiteSpace($_.ExecutablePath)) {
@@ -84,10 +86,13 @@ function Stop-InstalledRuntimeProcesses([string]$TargetInstallDir) {
             }
 
             $candidatePath = [System.IO.Path]::GetFullPath($_.ExecutablePath)
-            return [string]::Equals(
+            return ([string]::Equals(
                 $candidatePath,
                 $expectedExecutablePath,
-                [System.StringComparison]::OrdinalIgnoreCase)
+                [System.StringComparison]::OrdinalIgnoreCase) -or
+                $candidatePath.StartsWith(
+                    $installedPathPrefix,
+                    [System.StringComparison]::OrdinalIgnoreCase))
         })
 
     foreach ($process in $processes | Sort-Object -Property ProcessId -Descending) {
@@ -115,12 +120,197 @@ function Copy-InstallFile([string]$SourcePath, [string]$DestinationPath) {
     }
 }
 
+function Invoke-InstalledAppCommand(
+    [string]$FilePath,
+    [string[]]$Arguments,
+    [string]$WorkingDirectory,
+    [string]$Description
+) {
+    $outputDir = Join-Path ([System.IO.Path]::GetTempPath()) 'Locking Glass Installer'
+    New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+    $name = [System.IO.Path]::GetRandomFileName()
+    $stdoutPath = Join-Path $outputDir ($name + '.stdout.txt')
+    $stderrPath = Join-Path $outputDir ($name + '.stderr.txt')
+
+    try {
+        $process = Start-Process `
+            -FilePath $FilePath `
+            -ArgumentList $Arguments `
+            -WorkingDirectory $WorkingDirectory `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput $stdoutPath `
+            -RedirectStandardError $stderrPath `
+            -Wait `
+            -PassThru
+        if ($null -eq $process) {
+            throw "Failed to start $Description from '$FilePath'."
+        }
+
+        $stdout = if (Test-Path $stdoutPath) {
+            [System.IO.File]::ReadAllText($stdoutPath)
+        } else {
+            ''
+        }
+        $stderr = if (Test-Path $stderrPath) {
+            [System.IO.File]::ReadAllText($stderrPath)
+        } else {
+            ''
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($stderr)) {
+            Write-Host $stderr.TrimEnd()
+        }
+        if (-not [string]::IsNullOrWhiteSpace($stdout)) {
+            Write-Host $stdout.TrimEnd()
+        }
+
+        if ($process.ExitCode -ne 0) {
+            throw "$Description failed with exit code $($process.ExitCode) from '$FilePath'."
+        }
+    } finally {
+        Remove-Item -Force $stdoutPath, $stderrPath -ErrorAction SilentlyContinue
+    }
+}
+
+function Start-InstalledBackgroundApp([string]$FilePath, [string]$WorkingDirectory) {
+    $process = Start-Process `
+        -FilePath $FilePath `
+        -ArgumentList @('--background') `
+        -WorkingDirectory $WorkingDirectory `
+        -WindowStyle Hidden `
+        -PassThru
+    if ($null -eq $process) {
+        throw "Failed to launch the installed Locking Glass app from '$FilePath'."
+    }
+
+    Start-Sleep -Milliseconds 1500
+    if ($process.HasExited) {
+        if ($process.ExitCode -eq 0) {
+            return 'Locking Glass was already running in this Windows session'
+        }
+
+        throw "The installed Locking Glass app exited immediately with code $($process.ExitCode)."
+    }
+
+    return 'started the installed background app (PID ' + $process.Id + ')'
+}
+
 function Get-VersionText([string]$Path) {
     if (-not (Test-Path $Path)) {
         return $null
     }
 
     return (Get-Content -Path $Path -Raw).Trim()
+}
+
+function Get-UninstallRegistryKeyName {
+    $override = $env:LOCKING_GLASS_UNINSTALL_REGISTRY_KEY_NAME
+    if ([string]::IsNullOrWhiteSpace($override)) {
+        return 'Locking Glass'
+    }
+
+    if ($override.IndexOfAny([char[]]@('\', '/')) -ge 0) {
+        throw "Uninstall registry key name must not contain a path separator: '$override'."
+    }
+
+    return $override
+}
+
+function Remove-LegacyStartMenuShortcuts {
+    $programsDir = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
+    $legacyStartMenuDir = Join-Path $programsDir 'LockingGlass'
+    $legacyLaunchShortcut = Join-Path (Join-Path $programsDir 'Locking Glass') 'Locking Glass Tray.lnk'
+
+    Remove-Item -Recurse -Force -Path $legacyStartMenuDir -ErrorAction SilentlyContinue
+    Remove-Item -Force -Path $legacyLaunchShortcut -ErrorAction SilentlyContinue
+}
+
+function ConvertTo-QuotedCommandArgument([string]$Value) {
+    if ($Value.Contains('"')) {
+        throw "Command argument contains an unsupported quote character: '$Value'."
+    }
+
+    return '"' + $Value + '"'
+}
+
+function Get-InstallDirectorySizeKilobytes([string]$TargetInstallDir) {
+    $totalBytes = 0
+    if (Test-Path $TargetInstallDir) {
+        $totalBytes = (Get-ChildItem -Path $TargetInstallDir -Recurse -File |
+            Measure-Object -Property Length -Sum).Sum
+    }
+
+    if ($null -eq $totalBytes -or $totalBytes -le 0) {
+        return 1
+    }
+
+    return [Math]::Min([int]::MaxValue, [int][Math]::Ceiling($totalBytes / 1KB))
+}
+
+function Set-UninstallRegistryValue(
+    [string]$Path,
+    [string]$Name,
+    $Value,
+    [Microsoft.Win32.RegistryValueKind]$Kind
+) {
+    New-ItemProperty -Path $Path -Name $Name -Value $Value -PropertyType $Kind -Force | Out-Null
+}
+
+function Register-CurrentUserUninstallEntry(
+    [string]$TargetInstallDir,
+    [string]$Version
+) {
+    $keyName = Get-UninstallRegistryKeyName
+    $registryPath = Join-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' $keyName
+    $installedExePath = Join-Path $TargetInstallDir 'Locking Glass.exe'
+    $uninstallerScriptPath = Join-Path $TargetInstallDir 'Uninstall-LockingGlass.ps1'
+    $powerShellPath = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $baseUninstallCommand = (ConvertTo-QuotedCommandArgument $powerShellPath) +
+        ' -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ' +
+        (ConvertTo-QuotedCommandArgument $uninstallerScriptPath) +
+        ' -InstallDir ' +
+        (ConvertTo-QuotedCommandArgument $TargetInstallDir)
+    $displayVersion = if ([string]::IsNullOrWhiteSpace($Version)) { '0.0.0' } else { $Version }
+
+    New-Item -Path $registryPath -Force | Out-Null
+    Set-UninstallRegistryValue -Path $registryPath -Name 'DisplayName' -Value 'Locking Glass' -Kind String
+    Set-UninstallRegistryValue -Path $registryPath -Name 'DisplayVersion' -Value $displayVersion -Kind String
+    Set-UninstallRegistryValue -Path $registryPath -Name 'Publisher' -Value 'GeekKingCloud' -Kind String
+    Set-UninstallRegistryValue -Path $registryPath -Name 'InstallLocation' -Value $TargetInstallDir -Kind String
+    Set-UninstallRegistryValue -Path $registryPath -Name 'DisplayIcon' -Value ($installedExePath + ',0') -Kind String
+    Set-UninstallRegistryValue -Path $registryPath -Name 'UninstallString' -Value $baseUninstallCommand -Kind String
+    Set-UninstallRegistryValue -Path $registryPath -Name 'QuietUninstallString' -Value ($baseUninstallCommand + ' -Quiet') -Kind String
+    Set-UninstallRegistryValue -Path $registryPath -Name 'NoModify' -Value 1 -Kind DWord
+    Set-UninstallRegistryValue -Path $registryPath -Name 'NoRepair' -Value 1 -Kind DWord
+    Set-UninstallRegistryValue -Path $registryPath -Name 'EstimatedSize' -Value (Get-InstallDirectorySizeKilobytes $TargetInstallDir) -Kind DWord
+    Set-UninstallRegistryValue -Path $registryPath -Name 'InstallDate' -Value (Get-Date -Format 'yyyyMMdd') -Kind String
+
+    return $registryPath
+}
+
+function Get-PayloadManifestFileNames([string]$ManifestPath) {
+    if (-not (Test-Path $ManifestPath)) {
+        throw "Staged install source is missing the payload manifest at '$ManifestPath'."
+    }
+
+    $fileNames = @()
+    foreach ($line in Get-Content -Path $ManifestPath) {
+        $separator = $line.IndexOf('  ')
+        if ($separator -le 0 -or $separator + 2 -ge $line.Length) {
+            throw "Payload manifest contains an invalid line: '$line'."
+        }
+
+        $fileName = $line.Substring($separator + 2)
+        if ([string]::IsNullOrWhiteSpace($fileName) -or
+            [System.IO.Path]::IsPathRooted($fileName) -or
+            $fileName.IndexOfAny([char[]]@('/', '\', ':')) -ge 0) {
+            throw "Payload manifest contains an invalid file name: '$fileName'."
+        }
+
+        $fileNames += $fileName
+    }
+
+    return $fileNames
 }
 
 $InstallDir = Test-SafeInstallDirectory -TargetInstallDir $InstallDir
@@ -149,9 +339,10 @@ foreach ($requiredFile in $requiredFiles) {
     }
 }
 
-$bundledProbeFiles = Get-ChildItem -Path $SourceDir -File |
-    Where-Object { $_.Name -like 'LockingGlass.WindowsLiveDesktopProbe*' }
-if ($bundledProbeFiles.Count -eq 0) {
+$manifestFileNames = Get-PayloadManifestFileNames -ManifestPath (Join-Path $SourceDir 'LOCKING_GLASS_PAYLOAD_MANIFEST.txt')
+$bundledProbeFileNames = @($manifestFileNames |
+    Where-Object { $_ -like 'LockingGlass.WindowsLiveDesktopProbe*' })
+if ($bundledProbeFileNames.Count -eq 0) {
     throw 'Staged install source is missing the bundled Windows live desktop probe publish output.'
 }
 
@@ -189,15 +380,16 @@ foreach ($fileName in $filesToCopy) {
     }
 }
 
-foreach ($probeFile in $bundledProbeFiles) {
-    Copy-InstallFile -SourcePath $probeFile.FullName -DestinationPath (Join-Path $InstallDir $probeFile.Name)
+foreach ($probeFileName in $bundledProbeFileNames) {
+    Copy-InstallFile -SourcePath (Join-Path $SourceDir $probeFileName) -DestinationPath (Join-Path $InstallDir $probeFileName)
 }
 
 $startMenuDir = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Locking Glass'
+Remove-LegacyStartMenuShortcuts
 New-Item -ItemType Directory -Force -Path $startMenuDir | Out-Null
 
 $shell = New-Object -ComObject WScript.Shell
-$launchShortcut = $shell.CreateShortcut((Join-Path $startMenuDir 'Locking Glass Tray.lnk'))
+$launchShortcut = $shell.CreateShortcut((Join-Path $startMenuDir 'Locking Glass.lnk'))
 $launchShortcut.TargetPath = $installedExe
 $launchShortcut.Arguments = '--background'
 $launchShortcut.WorkingDirectory = $InstallDir
@@ -225,23 +417,31 @@ $thirdPartyShortcut.Save()
 
 $uninstallShortcut = $shell.CreateShortcut((Join-Path $startMenuDir 'Uninstall Locking Glass.lnk'))
 $uninstallShortcut.TargetPath = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
-$uninstallShortcut.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $InstallDir 'Uninstall-LockingGlass.ps1') + '"'
+$uninstallShortcut.Arguments = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $InstallDir 'Uninstall-LockingGlass.ps1') + '"'
 $uninstallShortcut.WorkingDirectory = $InstallDir
 $uninstallShortcut.IconLocation = (Join-Path $InstallDir 'Locking Glass.exe') + ',0'
 $uninstallShortcut.Description = 'Uninstall Locking Glass for the current user.'
 $uninstallShortcut.Save()
 
+$uninstallRegistryPath = Register-CurrentUserUninstallEntry `
+    -TargetInstallDir $InstallDir `
+    -Version $incomingVersion
+
+$launchStatus = $null
 if (-not $NoAutostart) {
     # Delegate Run-key formatting to the app so installer and runtime quoting
     # stay in one place, especially now that the installed path contains spaces.
-    & $installedExe --install-autostart
-    if ($LASTEXITCODE -ne 0) {
-        throw "Locking Glass autostart registration failed from '$installedExe'."
-    }
+    Invoke-InstalledAppCommand `
+        -FilePath $installedExe `
+        -Arguments @('--install-autostart') `
+        -WorkingDirectory $InstallDir `
+        -Description 'Locking Glass autostart registration'
 }
 
 if ($LaunchAfterInstall) {
-    Start-Process -FilePath $installedExe -ArgumentList '--background' -WorkingDirectory $InstallDir -WindowStyle Hidden | Out-Null
+    $launchStatus = Start-InstalledBackgroundApp `
+        -FilePath $installedExe `
+        -WorkingDirectory $InstallDir
 }
 
 $installVerb = if ($wasInstalled) { 'Updated' } else { 'Installed' }
@@ -255,11 +455,12 @@ if (-not [string]::IsNullOrWhiteSpace($incomingVersion)) {
         Write-Host ('Version: ' + $incomingVersion)
     }
 }
-Write-Host ('Launch shortcut: ' + (Join-Path $startMenuDir 'Locking Glass Tray.lnk'))
+Write-Host ('Launch shortcut: ' + (Join-Path $startMenuDir 'Locking Glass.lnk'))
 Write-Host ('README shortcut: ' + (Join-Path $startMenuDir 'Locking Glass README.lnk'))
 Write-Host ('License shortcut: ' + (Join-Path $startMenuDir 'Locking Glass License.lnk'))
 Write-Host ('Third-party notices shortcut: ' + (Join-Path $startMenuDir 'Locking Glass Third-Party Notices.lnk'))
 Write-Host ('Uninstall shortcut: ' + (Join-Path $startMenuDir 'Uninstall Locking Glass.lnk'))
+Write-Host ('Add/Remove Programs entry: ' + $uninstallRegistryPath)
 Write-Host 'Updates: rerun a newer Locking Glass installer executable or Install-LockingGlass.ps1 over the existing install'
 if (-not $NoAutostart) {
     Write-Host 'Autostart: enabled for the current user'
@@ -267,7 +468,7 @@ if (-not $NoAutostart) {
     Write-Host 'Autostart: not changed'
 }
 if ($LaunchAfterInstall) {
-    Write-Host 'Launch: started the installed background tray app'
+    Write-Host ('Launch: ' + $launchStatus)
 } else {
     Write-Host 'Launch: not started by the installer script'
 }

@@ -65,15 +65,9 @@ HMODULE LoadVirtualDesktopHelper() {
       continue;
     }
 
-    std::string hash_detail;
-    if (!VerifyVirtualDesktopAccessorSha256(candidate, &hash_detail)) {
-      continue;
-    }
-
+    std::string load_detail;
     if (HMODULE library =
-            LoadLibraryExW(candidate.c_str(), nullptr,
-                           LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
-                               LOAD_LIBRARY_SEARCH_SYSTEM32);
+            LoadVerifiedVirtualDesktopAccessor(candidate, &load_detail);
         library != nullptr) {
       return library;
     }

@@ -54,6 +54,22 @@ std::filesystem::path ResolveWindowsPowerShellPath() {
       "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
 }
 
+std::filesystem::path ResolveModuleRelativeRepositoryRoot(
+    const std::filesystem::path& module_directory) {
+  std::error_code error;
+  auto candidate =
+      std::filesystem::weakly_canonical(module_directory / ".." / "..", error);
+  if (error) {
+    candidate = (module_directory / ".." / "..").lexically_normal();
+  }
+
+  if (HasRepositoryLiveWatchAssets(candidate)) {
+    return candidate;
+  }
+
+  return {};
+}
+
 }  // namespace
 
 std::filesystem::path BuildLiveWatchLogPath() {
@@ -75,13 +91,7 @@ std::filesystem::path FindLiveWatchAssetRoot() {
     return module_directory;
   }
 
-  std::error_code error;
-  const auto current_directory = std::filesystem::current_path(error);
-  if (!error && HasRepositoryLiveWatchAssets(current_directory)) {
-    return current_directory;
-  }
-
-  return {};
+  return ResolveModuleRelativeRepositoryRoot(module_directory);
 }
 
 std::string QuoteCommandArgument(const std::string& value) {

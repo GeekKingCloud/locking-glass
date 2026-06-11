@@ -57,9 +57,13 @@ std::wstring ResolveCommandProcessorPath() {
 
 struct HiddenWatchProcess {
   HANDLE output_read = nullptr;
+  HANDLE job = nullptr;
   HANDLE process = nullptr;
   HANDLE thread = nullptr;
 };
+
+constexpr DWORD kHiddenWatchExitWaitMilliseconds = 5000;
+constexpr DWORD kHiddenWatchForcedExitWaitMilliseconds = 5000;
 
 void CloseHandleIfPresent(HANDLE* handle) {
   if (handle != nullptr && *handle != nullptr &&
@@ -86,6 +90,24 @@ bool StartHiddenWatchProcess(const std::filesystem::path& command_script_path,
   }
   SetHandleInformation(output_read, HANDLE_FLAG_INHERIT, 0);
 
+  HANDLE job = CreateJobObjectW(nullptr, nullptr);
+  if (job == nullptr) {
+    CloseHandleIfPresent(&output_read);
+    CloseHandleIfPresent(&output_write);
+    return false;
+  }
+
+  JOBOBJECT_EXTENDED_LIMIT_INFORMATION job_limits{};
+  job_limits.BasicLimitInformation.LimitFlags =
+      JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+  if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation,
+                               &job_limits, sizeof(job_limits))) {
+    CloseHandleIfPresent(&job);
+    CloseHandleIfPresent(&output_read);
+    CloseHandleIfPresent(&output_write);
+    return false;
+  }
+
   STARTUPINFOW startup_info{};
   startup_info.cb = sizeof(startup_info);
   startup_info.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
@@ -99,16 +121,41 @@ bool StartHiddenWatchProcess(const std::filesystem::path& command_script_path,
   std::wstring command_line = L"\"" + command_processor + L"\" /d /s /c \"\"" +
                               command_script_path.wstring() + L"\"\"";
   const BOOL started = CreateProcessW(
-      nullptr, command_line.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
+      nullptr, command_line.data(), nullptr, nullptr, TRUE,
+      CREATE_NO_WINDOW | CREATE_SUSPENDED,
       nullptr, nullptr, &startup_info, &process_info);
 
   CloseHandleIfPresent(&output_write);
   if (!started) {
+    CloseHandleIfPresent(&job);
+    CloseHandleIfPresent(&output_read);
+    return false;
+  }
+
+  if (!AssignProcessToJobObject(job, process_info.hProcess)) {
+    TerminateProcess(process_info.hProcess, 1);
+    WaitForSingleObject(process_info.hProcess,
+                        kHiddenWatchForcedExitWaitMilliseconds);
+    CloseHandleIfPresent(&process_info.hThread);
+    CloseHandleIfPresent(&process_info.hProcess);
+    CloseHandleIfPresent(&job);
+    CloseHandleIfPresent(&output_read);
+    return false;
+  }
+
+  if (ResumeThread(process_info.hThread) == static_cast<DWORD>(-1)) {
+    TerminateJobObject(job, 1);
+    WaitForSingleObject(process_info.hProcess,
+                        kHiddenWatchForcedExitWaitMilliseconds);
+    CloseHandleIfPresent(&process_info.hThread);
+    CloseHandleIfPresent(&process_info.hProcess);
+    CloseHandleIfPresent(&job);
     CloseHandleIfPresent(&output_read);
     return false;
   }
 
   watch_process->output_read = output_read;
+  watch_process->job = job;
   watch_process->process = process_info.hProcess;
   watch_process->thread = process_info.hThread;
   return true;
@@ -143,6 +190,22 @@ bool ReadNextProcessLine(HANDLE output_read, std::string* pending,
   }
 }
 
+void StopHiddenWatchProcess(HiddenWatchProcess* watch_process) {
+  if (watch_process == nullptr || watch_process->process == nullptr) {
+    return;
+  }
+
+  DWORD exit_code = 0;
+  if (GetExitCodeProcess(watch_process->process, &exit_code) &&
+      exit_code == STILL_ACTIVE) {
+    if (watch_process->job != nullptr) {
+      TerminateJobObject(watch_process->job, 1);
+    } else {
+      TerminateProcess(watch_process->process, 1);
+    }
+  }
+}
+
 int FinishHiddenWatchProcess(HiddenWatchProcess* watch_process) {
   if (watch_process == nullptr) {
     return 1;
@@ -150,13 +213,23 @@ int FinishHiddenWatchProcess(HiddenWatchProcess* watch_process) {
 
   DWORD exit_code = 1;
   if (watch_process->process != nullptr) {
-    WaitForSingleObject(watch_process->process, INFINITE);
-    GetExitCodeProcess(watch_process->process, &exit_code);
+    DWORD wait_result =
+        WaitForSingleObject(watch_process->process,
+                            kHiddenWatchExitWaitMilliseconds);
+    if (wait_result == WAIT_TIMEOUT) {
+      StopHiddenWatchProcess(watch_process);
+      wait_result = WaitForSingleObject(
+          watch_process->process, kHiddenWatchForcedExitWaitMilliseconds);
+    }
+    if (wait_result == WAIT_OBJECT_0) {
+      GetExitCodeProcess(watch_process->process, &exit_code);
+    }
   }
 
   CloseHandleIfPresent(&watch_process->output_read);
   CloseHandleIfPresent(&watch_process->thread);
   CloseHandleIfPresent(&watch_process->process);
+  CloseHandleIfPresent(&watch_process->job);
   return static_cast<int>(exit_code);
 }
 
@@ -500,6 +573,7 @@ int WatchWindowsLiveSwitches(const core::SessionStore& store,
   std::string helper_library_detail;
   std::vector<std::string> helper_lines;
   std::size_t observed_events = 0;
+  bool stop_watch_process = false;
   std::string pending_output;
   std::string line;
 
@@ -519,6 +593,7 @@ int WatchWindowsLiveSwitches(const core::SessionStore& store,
           std::cerr << "Locking Glass could not load VirtualDesktopAccessor.dll "
                        "for live window moves: "
                     << helper_library_detail << '\n';
+          stop_watch_process = true;
           break;
         }
       }
@@ -527,6 +602,7 @@ int WatchWindowsLiveSwitches(const core::SessionStore& store,
       ++observed_events;
       if (!callback(BuildWindowsLiveDesktopSwitchReport(store, event, monitors,
                                                         *helper))) {
+        stop_watch_process = true;
         break;
       }
       continue;
@@ -535,6 +611,10 @@ int WatchWindowsLiveSwitches(const core::SessionStore& store,
     if (helper_lines.size() < 8U) {
       helper_lines.push_back(line);
     }
+  }
+
+  if (stop_watch_process) {
+    StopHiddenWatchProcess(&watch_process);
   }
 
   const int exit_code = FinishHiddenWatchProcess(&watch_process);

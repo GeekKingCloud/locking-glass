@@ -28,6 +28,18 @@ Locking Glass copies this notice into staged and installed Windows packages as `
 
 The release staging script copies these files from the `dotnet.exe` installation used to publish the self-contained helper executables. They are required package payload files so the bundled .NET runtime notices ship with the installer payload.
 
+## GCC Runtime Libraries and MinGW-w64 Runtime Components
+
+- Purpose: statically linked Windows C++ runtime support for `Locking Glass.exe`
+- Build flags: `-static -static-libgcc -static-libstdc++`
+- Runtime components: `libgcc`, `libstdc++`, and MinGW-w64 runtime support components supplied by the Windows GCC toolchain used for the release build
+- License: GNU GPL version 3 with the GCC Runtime Library Exception for GCC runtime libraries; MinGW-w64 runtime components are covered by the MinGW-w64 runtime license notices supplied with the release build toolchain
+- Upstream projects:
+  - <https://gcc.gnu.org/>
+  - <https://www.mingw-w64.org/>
+
+These runtime libraries are linked into the Windows executable by the release build toolchain rather than shipped as separate DLL files.
+
 MIT License
 
 Copyright (c) 2015-2024 Jari Pennanen

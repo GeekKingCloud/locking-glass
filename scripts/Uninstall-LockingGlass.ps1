@@ -1,6 +1,7 @@
 param(
     [string]$InstallDir,
-    [switch]$RemoveUserData
+    [switch]$RemoveUserData,
+    [switch]$Quiet
 )
 
 $ErrorActionPreference = 'Stop'
@@ -62,8 +63,10 @@ function Test-SafeInstallDirectory([string]$TargetInstallDir) {
 function Stop-InstalledRuntimeProcesses([string]$TargetInstallDir) {
     $normalizedInstallDir = Resolve-InstallDirectory -TargetInstallDir $TargetInstallDir
     $expectedExecutablePath = Join-Path $normalizedInstallDir 'Locking Glass.exe'
-    # Match the full installed path so uninstall does not kill a portable copy
-    # the user launched for testing.
+    $installedPathPrefix = $normalizedInstallDir + [System.IO.Path]::DirectorySeparatorChar
+    # Match the installed directory so uninstall does not kill a portable copy
+    # the user launched for testing, while still clearing bundled helper
+    # processes that can outlive the tray process.
     $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object {
             if ([string]::IsNullOrWhiteSpace($_.ExecutablePath)) {
@@ -71,10 +74,13 @@ function Stop-InstalledRuntimeProcesses([string]$TargetInstallDir) {
             }
 
             $candidatePath = [System.IO.Path]::GetFullPath($_.ExecutablePath)
-            return [string]::Equals(
+            return ([string]::Equals(
                 $candidatePath,
                 $expectedExecutablePath,
-                [System.StringComparison]::OrdinalIgnoreCase)
+                [System.StringComparison]::OrdinalIgnoreCase) -or
+                $candidatePath.StartsWith(
+                    $installedPathPrefix,
+                    [System.StringComparison]::OrdinalIgnoreCase))
         })
 
     foreach ($process in $processes | Sort-Object -Property ProcessId -Descending) {
@@ -90,6 +96,37 @@ function Remove-CurrentUserAutostart {
     $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
     if (Test-Path $runKey) {
         Remove-ItemProperty -Path $runKey -Name 'Locking Glass' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $runKey -Name 'Locking Glass.exe' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $runKey -Name 'LockingGlass' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $runKey -Name 'LockingGlass.exe' -ErrorAction SilentlyContinue
+    }
+
+    $startupApprovedRunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'
+    if (Test-Path $startupApprovedRunKey) {
+        Remove-ItemProperty -Path $startupApprovedRunKey -Name 'Locking Glass' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $startupApprovedRunKey -Name 'Locking Glass.exe' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $startupApprovedRunKey -Name 'LockingGlass' -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $startupApprovedRunKey -Name 'LockingGlass.exe' -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-UninstallRegistryKeyName {
+    $override = $env:LOCKING_GLASS_UNINSTALL_REGISTRY_KEY_NAME
+    if ([string]::IsNullOrWhiteSpace($override)) {
+        return 'Locking Glass'
+    }
+
+    if ($override.IndexOfAny([char[]]@('\', '/')) -ge 0) {
+        throw "Uninstall registry key name must not contain a path separator: '$override'."
+    }
+
+    return $override
+}
+
+function Remove-CurrentUserUninstallEntry {
+    $registryPath = Join-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' (Get-UninstallRegistryKeyName)
+    if (Test-Path $registryPath) {
+        Remove-Item -Recurse -Force -Path $registryPath
     }
 }
 
@@ -97,6 +134,11 @@ function Remove-StartMenuShortcuts {
     $startMenuDir = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Locking Glass'
     if (Test-Path $startMenuDir) {
         Remove-Item -Recurse -Force -Path $startMenuDir
+    }
+
+    $legacyStartMenuDir = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\LockingGlass'
+    if (Test-Path $legacyStartMenuDir) {
+        Remove-Item -Recurse -Force -Path $legacyStartMenuDir
     }
 }
 
@@ -123,6 +165,7 @@ $InstallDir = Test-SafeInstallDirectory -TargetInstallDir $InstallDir
 
 Stop-InstalledRuntimeProcesses -TargetInstallDir $InstallDir
 Remove-CurrentUserAutostart
+Remove-CurrentUserUninstallEntry
 Remove-StartMenuShortcuts
 Remove-InstallDirectory -TargetInstallDir $InstallDir
 

@@ -1,10 +1,13 @@
 #include "locking_glass/core/session_store.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <cerrno>
 #include <cstring>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -42,6 +45,8 @@ namespace {
 constexpr std::string_view kVersionTag = "version";
 constexpr std::string_view kMonitorTag = "monitor";
 constexpr std::string_view kFormatVersion = "1";
+std::atomic<unsigned long long> g_save_counter{0};
+std::mutex g_save_mutex;
 
 std::string EscapeField(const std::string_view field) {
   std::string escaped;
@@ -126,6 +131,19 @@ std::string BoolField(const bool value) { return value ? "1" : "0"; }
 
 std::filesystem::path InvalidBackupPath(const std::filesystem::path& storage_path) {
   return storage_path.string() + ".invalid";
+}
+
+std::filesystem::path BuildTemporarySavePath(
+    const std::filesystem::path& storage_path) {
+  const auto parent = storage_path.parent_path();
+  const auto file_name = storage_path.filename().string();
+  const auto tick =
+      std::chrono::steady_clock::now().time_since_epoch().count();
+  const auto counter = g_save_counter.fetch_add(1, std::memory_order_relaxed);
+  const auto temporary_name = file_name + ".tmp." + std::to_string(tick) + "." +
+                              std::to_string(counter);
+  return parent.empty() ? std::filesystem::path(temporary_name)
+                        : parent / temporary_name;
 }
 
 void AppendStorageDetail(std::string* detail, const std::string& suffix) {
@@ -574,6 +592,8 @@ SessionLoadResult SessionStore::Load() const {
 }
 
 bool SessionStore::Save(const SessionSnapshot& snapshot) const {
+  std::lock_guard lock(g_save_mutex);
+
   const auto parent = storage_path_.parent_path();
   if (!parent.empty()) {
     std::error_code create_error;
@@ -583,7 +603,7 @@ bool SessionStore::Save(const SessionSnapshot& snapshot) const {
     }
   }
 
-  const auto temporary_path = storage_path_.string() + ".tmp";
+  const auto temporary_path = BuildTemporarySavePath(storage_path_);
   std::ofstream output(temporary_path, std::ios::binary | std::ios::trunc);
   if (!output.is_open()) {
     return false;

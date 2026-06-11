@@ -1,5 +1,7 @@
 #include "test_helpers.h"
 
+#include "../src/platform/background_session_internal.h"
+
 namespace locking_glass::tests {
 
 bool RunBackgroundControllerStatusChecks() {
@@ -18,6 +20,13 @@ bool RunBackgroundControllerStatusChecks() {
 
   SetEnvironmentVariable("LOCKING_GLASS_SESSION_PATH", session_path.string());
   SetEnvironmentVariable("LOCKING_GLASS_TRAY_SCRIPT", script_path.string());
+  SetEnvironmentVariable("LOCKING_GLASS_BACKGROUND_CONTROLLER_STATUS", "ready");
+  failures += !Expect(
+      !locking_glass::platform::internal::
+           ResolveBackgroundControllerCapabilityOverride()
+               .has_value(),
+      "background controller env override should not accept synthetic ready status");
+
   SetEnvironmentVariable("LOCKING_GLASS_BACKGROUND_CONTROLLER_STATUS",
                          "unavailable:VirtualDesktopAccessor.dll missing");
 

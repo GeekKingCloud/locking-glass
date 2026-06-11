@@ -33,7 +33,8 @@ BackgroundSessionUnlockReturn RunUnlockReturn(
     locking_glass::integration::VirtualDesktopController*
         unlock_return_controller,
     const std::shared_ptr<WindowReturnTracker>& window_return_tracker,
-    const MonitorDescriptor& monitor);
+    const MonitorDescriptor& monitor,
+    bool allow_script_replay = true);
 BackgroundSessionEvent BuildSessionEvent(
     const core::TrayMenuModel& model,
     const locking_glass::integration::CapabilityReport&

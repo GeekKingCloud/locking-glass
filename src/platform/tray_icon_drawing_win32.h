@@ -15,6 +15,8 @@
 namespace locking_glass::platform::internal {
 
 HICON CreateTrayStatusIcon(const core::TrayIconState& icon);
+bool DrawTrayMenuStatusIcon(HDC dc, const RECT& rect, bool locked);
+bool DrawOverlayStatusIcon(HDC dc, const RECT& rect, bool locked);
 
 }  // namespace locking_glass::platform::internal
 

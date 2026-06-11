@@ -18,7 +18,14 @@ constexpr char kAutostartScope[] = "current-user logon";
 constexpr char kAutostartLocation[] =
     "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 constexpr char kAutostartEntryName[] = "Locking Glass";
+constexpr char kStartupApprovedRunLocation[] =
+    "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run";
 constexpr char kBackgroundArgument[] = "--background";
+constexpr const char* kLegacyAutostartEntryNames[] = {
+    "Locking Glass.exe",
+    "LockingGlass",
+    "LockingGlass.exe",
+};
 
 #if defined(_WIN32)
 std::wstring Widen(const std::string& value) {
@@ -59,6 +66,34 @@ std::wstring ReadValue(HKEY key, const wchar_t* value_name) {
   }
   return value;
 }
+
+LONG DeleteValue(HKEY key, const std::string& value_name) {
+  const std::wstring wide_value_name = Widen(value_name);
+  return RegDeleteValueW(key, wide_value_name.c_str());
+}
+
+bool DeleteLegacyValues(HKEY key) {
+  bool changed = false;
+  for (const char* legacy_name : kLegacyAutostartEntryNames) {
+    changed = DeleteValue(key, legacy_name) == ERROR_SUCCESS || changed;
+  }
+  return changed;
+}
+
+bool DeleteStartupApprovedValues() {
+  HKEY key = nullptr;
+  const std::wstring subkey = Widen(kStartupApprovedRunLocation);
+  const LONG open_status =
+      RegOpenKeyExW(HKEY_CURRENT_USER, subkey.c_str(), 0, KEY_SET_VALUE, &key);
+  if (open_status != ERROR_SUCCESS) {
+    return false;
+  }
+
+  bool changed = DeleteValue(key, kAutostartEntryName) == ERROR_SUCCESS;
+  changed = DeleteLegacyValues(key) || changed;
+  RegCloseKey(key);
+  return changed;
+}
 #endif
 
 std::string BuildLaunchCommand(const std::string& executable_path) {
@@ -73,7 +108,8 @@ class AutostartManagerImpl final : public AutostartManager {
     const bool registry_ready =
         advapi32 != nullptr && GetProcAddress(advapi32, "RegCreateKeyExW") != nullptr &&
         GetProcAddress(advapi32, "RegQueryValueExW") != nullptr &&
-        GetProcAddress(advapi32, "RegSetValueExW") != nullptr;
+        GetProcAddress(advapi32, "RegSetValueExW") != nullptr &&
+        GetProcAddress(advapi32, "RegDeleteValueW") != nullptr;
 
     if (advapi32 != nullptr) {
       FreeLibrary(advapi32);
@@ -141,17 +177,21 @@ class AutostartManagerImpl final : public AutostartManager {
       };
     }
 
+    const bool startup_cache_removed = DeleteStartupApprovedValues();
     const std::wstring value_name = Widen(plan.entry_name);
     const std::wstring expected_command = Widen(plan.launch_command);
+    const bool legacy_run_removed = DeleteLegacyValues(key);
     const std::wstring existing_command = ReadValue(key, value_name.c_str());
 
     if (existing_command == expected_command) {
       RegCloseKey(key);
       return AutostartRegistrationResult{
           .success = true,
-          .changed = false,
+          .changed = startup_cache_removed || legacy_run_removed,
           .detail =
-              "Locking Glass autostart was already enabled for the current user.",
+              startup_cache_removed || legacy_run_removed
+                  ? "Refreshed current-user Locking Glass autostart metadata."
+                  : "Locking Glass autostart was already enabled for the current user.",
       };
     }
 
@@ -181,6 +221,72 @@ class AutostartManagerImpl final : public AutostartManager {
         .changed = false,
         .detail =
             "Autostart installation can only run on Windows because it writes the current-user Run key.",
+    };
+#endif
+  }
+
+  AutostartRegistrationResult Disable() const override {
+#if defined(_WIN32)
+    const bool startup_cache_removed = DeleteStartupApprovedValues();
+    HKEY key = nullptr;
+    const std::wstring subkey =
+        Widen("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
+    const LONG open_status =
+        RegOpenKeyExW(HKEY_CURRENT_USER, subkey.c_str(), 0,
+                      KEY_QUERY_VALUE | KEY_SET_VALUE, &key);
+    if (open_status == ERROR_FILE_NOT_FOUND) {
+      return AutostartRegistrationResult{
+          .success = true,
+          .changed = startup_cache_removed,
+          .detail =
+              startup_cache_removed
+                  ? "Removed stale Locking Glass startup approval metadata."
+                  : "Locking Glass autostart was already disabled for the current user.",
+      };
+    }
+    if (open_status != ERROR_SUCCESS) {
+      return AutostartRegistrationResult{
+          .success = false,
+          .changed = false,
+          .detail =
+              "Failed to open the current-user Run key for Locking Glass autostart removal.",
+      };
+    }
+
+    const LONG delete_status = DeleteValue(key, kAutostartEntryName);
+    const bool legacy_run_removed = DeleteLegacyValues(key);
+    RegCloseKey(key);
+
+    if (delete_status == ERROR_FILE_NOT_FOUND) {
+      return AutostartRegistrationResult{
+          .success = true,
+          .changed = startup_cache_removed || legacy_run_removed,
+          .detail =
+              startup_cache_removed || legacy_run_removed
+                  ? "Removed stale Locking Glass autostart metadata."
+                  : "Locking Glass autostart was already disabled for the current user.",
+      };
+    }
+    if (delete_status != ERROR_SUCCESS) {
+      return AutostartRegistrationResult{
+          .success = false,
+          .changed = false,
+          .detail =
+              "Failed to remove the Locking Glass Run entry for background startup.",
+      };
+    }
+
+    return AutostartRegistrationResult{
+        .success = true,
+        .changed = true,
+        .detail = "Disabled current-user Locking Glass autostart in the Windows Run key.",
+    };
+#else
+    return AutostartRegistrationResult{
+        .success = false,
+        .changed = false,
+        .detail =
+            "Autostart removal can only run on Windows because it writes the current-user Run key.",
     };
 #endif
   }

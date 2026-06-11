@@ -1,0 +1,22 @@
+<svg width="1280" height="640" viewBox="0 0 1280 640" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Locking Glass social preview</title>
+  <desc id="desc">Locking Glass preview card with the app logo and short description.</desc>
+  <rect width="1280" height="640" fill="#F7FAFC"/>
+  <rect x="0" y="0" width="456" height="640" fill="#172640"/>
+  <rect x="456" y="0" width="34" height="640" fill="#FFD91A"/>
+  <rect x="82" y="125" width="270" height="214" rx="17" fill="#0E1728"/>
+  <rect x="100" y="143" width="234" height="162" rx="4" fill="#83BDF1"/>
+  <path d="M204 339h46v38h50v29H154v-29h50v-38Z" fill="#0E1728"/>
+  <rect x="220" y="301" width="150" height="132" rx="8" fill="#FFD91A" stroke="#F7FAFC" stroke-width="10"/>
+  <path d="M247 301v-34c0-27 21-48 48-48s48 21 48 48v34h-27v-34c0-12-9-21-21-21s-21 9-21 21v34h-27Z" fill="#EAF6FF" stroke="#F7FAFC" stroke-width="10" stroke-linejoin="round"/>
+  <circle cx="295" cy="365" r="18" fill="#0E1728"/>
+  <rect x="284" y="369" width="22" height="38" rx="6" fill="#0E1728"/>
+  <path d="M130 171h178" stroke="#EAF6FF" stroke-width="11" stroke-linecap="square" opacity=".72"/>
+  <text x="585" y="231" fill="#111827" font-family="Segoe UI, Arial, sans-serif" font-size="72" font-weight="850">Locking Glass</text>
+  <text x="590" y="299" fill="#2F5C88" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="650">Pin selected monitors across</text>
+  <text x="590" y="345" fill="#2F5C88" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="650">Windows virtual desktops.</text>
+  <rect x="590" y="421" width="235" height="54" rx="8" fill="#172640"/>
+  <text x="621" y="457" fill="#FFFFFF" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="750">Installer</text>
+  <rect x="847" y="421" width="300" height="54" rx="8" fill="#FFD91A"/>
+  <text x="879" y="457" fill="#111827" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="800">One-time runner</text>
+</svg>

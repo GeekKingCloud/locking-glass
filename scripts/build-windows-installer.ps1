@@ -2,6 +2,7 @@ param(
     [string]$StageDir,
     [string]$OutputDir,
     [string]$SetupExeName = 'Locking Glass Installer.exe',
+    [string]$RunExeName = 'Locking Glass.exe',
     [string]$UninstallerExeName = 'Locking Glass Uninstaller.exe',
     [switch]$SkipStage
 )
@@ -21,7 +22,6 @@ if ([string]::IsNullOrWhiteSpace($OutputDir)) {
 }
 
 $StageDir = [System.IO.Path]::GetFullPath($StageDir)
-$OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
 
 if (-not (Test-Path $bootstrapperProject)) {
     throw "Missing Windows installer bootstrapper project at '$bootstrapperProject'."
@@ -47,6 +47,28 @@ function Require-DotNetCompatibleSdk {
     }
 
     return $dotnet
+}
+
+function Resolve-InstallerOutputDirectory([string]$TargetOutputDir) {
+    if ([string]::IsNullOrWhiteSpace($TargetOutputDir)) {
+        throw 'OutputDir must not be empty.'
+    }
+
+    $resolvedOutputDir = [System.IO.Path]::GetFullPath($TargetOutputDir).TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar)
+    $allowedRoot = [System.IO.Path]::GetFullPath(
+        (Join-Path $repoRoot 'build\windows-installer')).TrimEnd(
+            [System.IO.Path]::DirectorySeparatorChar,
+            [System.IO.Path]::AltDirectorySeparatorChar)
+    if ($resolvedOutputDir -ne $allowedRoot -and -not (
+            $resolvedOutputDir.StartsWith(
+                $allowedRoot + [System.IO.Path]::DirectorySeparatorChar,
+                [System.StringComparison]::OrdinalIgnoreCase))) {
+        throw "OutputDir must be under the repo-local build\windows-installer directory: '$resolvedOutputDir'."
+    }
+
+    return $resolvedOutputDir
 }
 
 function Invoke-DotNet {
@@ -78,6 +100,8 @@ function Invoke-DotNet {
     }
 }
 
+$OutputDir = Resolve-InstallerOutputDirectory -TargetOutputDir $OutputDir
+
 if (-not $SkipStage) {
     & $stageScript -OutputDir $StageDir
     if ($LASTEXITCODE -ne 0) {
@@ -99,13 +123,15 @@ $dotnet = Require-DotNetCompatibleSdk
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 $payloadZip = Join-Path $OutputDir 'LockingGlass-stage-payload.zip'
 $installerPublishDir = Join-Path $OutputDir 'publish-installer'
+$runPublishDir = Join-Path $OutputDir 'publish-run'
 $uninstallerPublishDir = Join-Path $OutputDir 'publish-uninstaller'
 $targetExe = Join-Path $OutputDir $SetupExeName
+$targetRunExe = Join-Path $OutputDir $RunExeName
 $targetUninstallerExe = Join-Path $OutputDir $UninstallerExeName
 
-Remove-Item -Recurse -Force $installerPublishDir, $uninstallerPublishDir -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force $installerPublishDir, $runPublishDir, $uninstallerPublishDir -ErrorAction SilentlyContinue
 Remove-Item -Force $payloadZip -ErrorAction SilentlyContinue
-Remove-Item -Force $targetExe, $targetUninstallerExe -ErrorAction SilentlyContinue
+Remove-Item -Force $targetExe, $targetRunExe, $targetUninstallerExe -ErrorAction SilentlyContinue
 
 # The payload is intentionally flat; the bootstrapper rejects nested or rooted
 # entries before extraction.
@@ -145,8 +171,10 @@ function Publish-Bootstrapper([string]$Mode, [string]$PublishDir, [string]$Targe
 }
 
 Publish-Bootstrapper -Mode 'install' -PublishDir $installerPublishDir -TargetPath $targetExe
+Publish-Bootstrapper -Mode 'run' -PublishDir $runPublishDir -TargetPath $targetRunExe
 Publish-Bootstrapper -Mode 'uninstall' -PublishDir $uninstallerPublishDir -TargetPath $targetUninstallerExe
 
 Write-Host ('Built Locking Glass installer: ' + $targetExe)
+Write-Host ('Built Locking Glass one-time runner: ' + $targetRunExe)
 Write-Host ('Built Locking Glass uninstaller: ' + $targetUninstallerExe)
 Write-Host ('Embedded payload zip: ' + $payloadZip)

@@ -29,6 +29,7 @@ class AutostartManager {
   virtual AutostartPlan BuildPlan(const std::string& executable_path) const = 0;
   virtual AutostartRegistrationResult Enable(
       const std::string& executable_path) const = 0;
+  virtual AutostartRegistrationResult Disable() const = 0;
 };
 
 std::string QuoteWindowsCommandArg(const std::string& value);

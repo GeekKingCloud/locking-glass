@@ -51,6 +51,7 @@ struct TrackedWindowReturn {
 struct UnlockReturnRequest {
   platform::MonitorDescriptor monitor;
   std::vector<TrackedWindowReturn> tracked_windows;
+  bool allow_script_replay = true;
 };
 
 struct UnlockReturnSkip {

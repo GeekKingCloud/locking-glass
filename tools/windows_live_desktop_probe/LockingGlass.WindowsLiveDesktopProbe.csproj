@@ -7,7 +7,8 @@
     <LangVersion>8.0</LangVersion>
     <AssemblyName>LockingGlass.WindowsLiveDesktopProbe</AssemblyName>
     <RootNamespace>LockingGlass.WindowsLiveDesktopProbe</RootNamespace>
-    <Description>Locking Glass Windows live desktop proof probe</Description>
-    <FileDescription>Locking Glass Windows live desktop proof probe</FileDescription>
+    <AssemblyTitle>Locking Glass Desktop Probe</AssemblyTitle>
+    <Description>Locking Glass Desktop Probe</Description>
+    <FileDescription>Locking Glass Desktop Probe</FileDescription>
   </PropertyGroup>
 </Project>

@@ -1,9 +1,8 @@
 param(
     [ValidateSet('All', 'Hygiene', 'Build', 'Package')]
     [string]$Mode = 'All',
-    [string]$AppExeName,
     [string]$SetupExeName,
-    [string]$UninstallerExeName
+    [string]$RunExeName
 )
 
 $ErrorActionPreference = 'Stop'
@@ -14,21 +13,22 @@ $version = (Get-Content (Join-Path $repoRoot 'VERSION') -Raw).Trim()
 $helperResolverPath = Join-Path $repoRoot 'scripts\resolve-virtual-desktop-helper.ps1'
 . $helperResolverPath
 
-if ([string]::IsNullOrWhiteSpace($AppExeName)) {
-    $AppExeName = 'Locking Glass.exe'
-}
-
 if ([string]::IsNullOrWhiteSpace($SetupExeName)) {
     $SetupExeName = 'Locking Glass Installer.exe'
 }
 
-if ([string]::IsNullOrWhiteSpace($UninstallerExeName)) {
-    $UninstallerExeName = 'Locking Glass Uninstaller.exe'
+if ([string]::IsNullOrWhiteSpace($RunExeName)) {
+    $RunExeName = 'Locking Glass.exe'
 }
 
 function Write-Step([string]$Message) {
     Write-Host ''
     Write-Host ('==> ' + $Message)
+}
+
+function Get-PublicReleaseAssetName([string]$FileName) {
+    # GitHub release uploads normalize spaces in asset filenames to dots.
+    return $FileName.Replace(' ', '.')
 }
 
 function Invoke-Checked {
@@ -65,6 +65,58 @@ function Invoke-Checked {
             $env:MSBuildSDKsPath = $previousMSBuildSDKsPath
         }
         Pop-Location
+    }
+}
+
+function Invoke-CheckedWindowsExecutable {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+        [string[]]$Arguments = @(),
+        [string]$WorkingDirectory = $repoRoot
+    )
+
+    Write-Host ('> ' + $FilePath + ' ' + ($Arguments -join ' '))
+    $outputDir = Join-Path $repoRoot 'build\release-command-output'
+    New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+    $name = [System.IO.Path]::GetRandomFileName()
+    $stdoutPath = Join-Path $outputDir ($name + '.stdout.txt')
+    $stderrPath = Join-Path $outputDir ($name + '.stderr.txt')
+
+    try {
+        $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = $FilePath
+        $startInfo.WorkingDirectory = $WorkingDirectory
+        $startInfo.UseShellExecute = $false
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        foreach ($argument in $Arguments) {
+            $startInfo.ArgumentList.Add($argument)
+        }
+
+        $process = [System.Diagnostics.Process]::Start($startInfo)
+        if ($null -eq $process) {
+            throw "Failed to start command: $FilePath $($Arguments -join ' ')"
+        }
+
+        $stdout = $process.StandardOutput.ReadToEnd()
+        $stderr = $process.StandardError.ReadToEnd()
+        $process.WaitForExit()
+        Set-Content -Path $stdoutPath -Value $stdout -Encoding utf8
+        Set-Content -Path $stderrPath -Value $stderr -Encoding utf8
+
+        if ($process.ExitCode -ne 0) {
+            throw "Command failed with exit code $($process.ExitCode): $FilePath $($Arguments -join ' ')`n$stderr"
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($stderr)) {
+            Write-Host $stderr.TrimEnd()
+        }
+        if (-not [string]::IsNullOrWhiteSpace($stdout)) {
+            Write-Host $stdout.TrimEnd()
+        }
+    } finally {
+        Remove-Item -Force $stdoutPath, $stderrPath -ErrorAction SilentlyContinue
     }
 }
 
@@ -296,7 +348,11 @@ function Test-ThirdPartyNoticeCoverage {
     $requiredNoticePatterns = @(
         'VirtualDesktopAccessor\.dll',
         'DOTNET_RUNTIME_LICENSE\.txt',
-        'DOTNET_RUNTIME_THIRD_PARTY_NOTICES\.txt'
+        'DOTNET_RUNTIME_THIRD_PARTY_NOTICES\.txt',
+        'libgcc',
+        'libstdc\+\+',
+        'MinGW-w64',
+        'GCC Runtime Library Exception'
     )
 
     $missingPatterns = @()
@@ -335,6 +391,79 @@ function Test-HelperHashPinConsistency {
     }
 }
 
+function Get-PngDimensions([string]$Path) {
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    $signature = @(137, 80, 78, 71, 13, 10, 26, 10)
+    if ($bytes.Length -lt 24) {
+        throw "PNG file '$Path' is too short to contain an IHDR chunk."
+    }
+
+    for ($index = 0; $index -lt $signature.Count; $index++) {
+        if ($bytes[$index] -ne $signature[$index]) {
+            throw "PNG file '$Path' does not have a valid PNG signature."
+        }
+    }
+
+    $width = ([uint32]$bytes[16] -shl 24) -bor
+        ([uint32]$bytes[17] -shl 16) -bor
+        ([uint32]$bytes[18] -shl 8) -bor
+        [uint32]$bytes[19]
+    $height = ([uint32]$bytes[20] -shl 24) -bor
+        ([uint32]$bytes[21] -shl 16) -bor
+        ([uint32]$bytes[22] -shl 8) -bor
+        [uint32]$bytes[23]
+
+    return [pscustomobject]@{
+        Width = [int]$width
+        Height = [int]$height
+    }
+}
+
+function Test-IconAssetContract {
+    $appIconPath = Join-Path $repoRoot 'assets\locking-glass.ico'
+    if (-not (Test-Path $appIconPath)) {
+        throw "Missing canonical Windows app icon: assets\locking-glass.ico"
+    }
+
+    $requiredPngs = @(
+        @{ Path = 'assets/icons/ico-source/16.png'; Width = 16; Height = 16 },
+        @{ Path = 'assets/icons/ico-source/24.png'; Width = 24; Height = 24 },
+        @{ Path = 'assets/icons/ico-source/32.png'; Width = 32; Height = 32 },
+        @{ Path = 'assets/icons/ico-source/48.png'; Width = 48; Height = 48 },
+        @{ Path = 'assets/icons/ico-source/64.png'; Width = 64; Height = 64 },
+        @{ Path = 'assets/icons/ico-source/128.png'; Width = 128; Height = 128 },
+        @{ Path = 'assets/icons/ico-source/256.png'; Width = 256; Height = 256 },
+        @{ Path = 'assets/icons/tray/locked/16.png'; Width = 16; Height = 16 },
+        @{ Path = 'assets/icons/tray/locked/32.png'; Width = 32; Height = 32 },
+        @{ Path = 'assets/icons/tray/unlocked/16.png'; Width = 16; Height = 16 },
+        @{ Path = 'assets/icons/tray/unlocked/32.png'; Width = 32; Height = 32 },
+        @{ Path = 'assets/icons/overlay/locked/64.png'; Width = 64; Height = 64 },
+        @{ Path = 'assets/icons/overlay/locked/128.png'; Width = 128; Height = 128 },
+        @{ Path = 'assets/icons/overlay/locked/256.png'; Width = 256; Height = 256 },
+        @{ Path = 'assets/icons/overlay/unlocked/64.png'; Width = 64; Height = 64 },
+        @{ Path = 'assets/icons/overlay/unlocked/128.png'; Width = 128; Height = 128 },
+        @{ Path = 'assets/icons/overlay/unlocked/256.png'; Width = 256; Height = 256 }
+    )
+
+    $failures = @()
+    foreach ($asset in $requiredPngs) {
+        $fullPath = Join-Path $repoRoot $asset.Path
+        if (-not (Test-Path $fullPath)) {
+            $failures += "Missing icon asset: $($asset.Path)"
+            continue
+        }
+
+        $dimensions = Get-PngDimensions $fullPath
+        if ($dimensions.Width -ne $asset.Width -or $dimensions.Height -ne $asset.Height) {
+            $failures += "$($asset.Path) is $($dimensions.Width)x$($dimensions.Height), expected $($asset.Width)x$($asset.Height)."
+        }
+    }
+
+    if ($failures.Count -gt 0) {
+        throw "Icon asset contract failed:`n$($failures -join [Environment]::NewLine)"
+    }
+}
+
 function Test-PowerShellSyntax {
     $scriptFiles = Get-ChildItem -Path (Join-Path $repoRoot 'scripts') -Filter '*.ps1' -File
     foreach ($scriptFile in $scriptFiles) {
@@ -364,6 +493,7 @@ function Test-Hygiene {
     Test-NoStaleRuntimeReferences
     Test-ThirdPartyNoticeCoverage
     Test-HelperHashPinConsistency
+    Test-IconAssetContract
     Test-PowerShellSyntax
 }
 
@@ -435,7 +565,7 @@ function Assert-PackagePayload([string]$Directory) {
     }
 }
 
-function Test-Sha256Sums([string]$SumPath, [string[]]$ExpectedPaths) {
+function Test-Sha256Sums([string]$SumPath, [string[]]$ExpectedPaths, [string[]]$ExpectedNames) {
     if (-not (Test-Path $SumPath)) {
         throw "Missing checksum file: $SumPath"
     }
@@ -445,15 +575,69 @@ function Test-Sha256Sums([string]$SumPath, [string[]]$ExpectedPaths) {
         throw "SHA256SUMS.txt should contain exactly $($ExpectedPaths.Count) lines, found $($lines.Count)."
     }
 
-    $expectedFiles = $ExpectedPaths | ForEach-Object { Get-Item $_ }
-    foreach ($expectedFile in $expectedFiles) {
+    if ($ExpectedNames.Count -ne $ExpectedPaths.Count) {
+        throw "ExpectedNames should contain exactly $($ExpectedPaths.Count) entries, found $($ExpectedNames.Count)."
+    }
+
+    $expectedFiles = @($ExpectedPaths | ForEach-Object { Get-Item $_ })
+    for ($index = 0; $index -lt $expectedFiles.Count; $index++) {
+        $expectedFile = $expectedFiles[$index]
         $expectedHash = (Get-FileHash -Algorithm SHA256 $expectedFile.FullName).Hash.ToLowerInvariant()
-        $expectedName = $expectedFile.Name
+        $expectedName = $ExpectedNames[$index]
         $expectedLine = "$expectedHash  $expectedName"
         $matching = @($lines | Where-Object { $_ -ceq $expectedLine })
         if ($matching.Count -ne 1) {
             throw "SHA256SUMS.txt does not contain the recomputed checksum line '$expectedLine'."
         }
+    }
+}
+
+function Get-UninstallRegistryPath([string]$KeyName) {
+    return Join-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' $KeyName
+}
+
+function Test-UninstallRegistryEntry(
+    [string]$KeyName,
+    [string]$InstallDir
+) {
+    $registryPath = Get-UninstallRegistryPath $KeyName
+    if (-not (Test-Path $registryPath)) {
+        throw "Installer smoke did not create uninstall registry key '$registryPath'."
+    }
+
+    $entry = Get-ItemProperty -Path $registryPath
+    $expectedExe = Join-Path $InstallDir 'Locking Glass.exe'
+    $expectedScript = Join-Path $InstallDir 'Uninstall-LockingGlass.ps1'
+
+    if ($entry.DisplayName -ne 'Locking Glass') {
+        throw "Uninstall registry DisplayName was '$($entry.DisplayName)', expected 'Locking Glass'."
+    }
+    if ($entry.DisplayVersion -ne $version) {
+        throw "Uninstall registry DisplayVersion was '$($entry.DisplayVersion)', expected '$version'."
+    }
+    if ($entry.Publisher -ne 'GeekKingCloud') {
+        throw "Uninstall registry Publisher was '$($entry.Publisher)', expected 'GeekKingCloud'."
+    }
+    if ($entry.InstallLocation -ne $InstallDir) {
+        throw "Uninstall registry InstallLocation was '$($entry.InstallLocation)', expected '$InstallDir'."
+    }
+    if ($entry.DisplayIcon -ne ($expectedExe + ',0')) {
+        throw "Uninstall registry DisplayIcon was '$($entry.DisplayIcon)', expected '$expectedExe,0'."
+    }
+    if ($entry.UninstallString -notlike ('*' + $expectedScript + '*')) {
+        throw "Uninstall registry UninstallString does not reference '$expectedScript'."
+    }
+    if ($entry.QuietUninstallString -notlike '*-Quiet*') {
+        throw "Uninstall registry QuietUninstallString does not include -Quiet."
+    }
+    if ([int]$entry.NoModify -ne 1 -or [int]$entry.NoRepair -ne 1) {
+        throw 'Uninstall registry NoModify/NoRepair values were not both set to 1.'
+    }
+    if ([int]$entry.EstimatedSize -le 0) {
+        throw "Uninstall registry EstimatedSize was '$($entry.EstimatedSize)', expected a positive value."
+    }
+    if ($entry.InstallDate -notmatch '^\d{8}$') {
+        throw "Uninstall registry InstallDate was '$($entry.InstallDate)', expected yyyyMMdd."
     }
 }
 
@@ -468,6 +652,21 @@ function Test-PinnedVirtualDesktopHelper([string]$Directory, [string]$Label) {
     $actualHash = (Get-FileHash -Algorithm SHA256 $helperPath).Hash.ToUpperInvariant()
     if ($actualHash -ne $script:LockingGlassVirtualDesktopAccessorSha256) {
         throw "$Label bundled VirtualDesktopAccessor.dll SHA-256 '$actualHash' did not match expected '$script:LockingGlassVirtualDesktopAccessorSha256'."
+    }
+}
+
+function Assert-FileDescription(
+    [string]$FilePath,
+    [string]$ExpectedDescription,
+    [string]$Label
+) {
+    if (-not (Test-Path $FilePath)) {
+        throw "$Label executable is missing at '$FilePath'."
+    }
+
+    $actualDescription = (Get-Item -Path $FilePath).VersionInfo.FileDescription
+    if ($actualDescription -ne $ExpectedDescription) {
+        throw "$Label file description '$actualDescription' did not match expected '$ExpectedDescription'."
     }
 }
 
@@ -501,6 +700,16 @@ function Test-ExtractedPackage([string]$Directory, [string]$Label) {
     Test-PinnedVirtualDesktopHelper -Directory $Directory -Label $Label
 
     $packagedExe = Join-Path $Directory 'Locking Glass.exe'
+    Assert-FileDescription `
+        -FilePath $packagedExe `
+        -ExpectedDescription 'Locking Glass' `
+        -Label "$Label Locking Glass.exe"
+    $probeExe = Join-Path $Directory 'LockingGlass.WindowsLiveDesktopProbe.exe'
+    Assert-FileDescription `
+        -FilePath $probeExe `
+        -ExpectedDescription 'Locking Glass Desktop Probe' `
+        -Label "$Label Windows live desktop probe"
+
     $versionOutput = Invoke-ExecutableOutput $packagedExe -Arguments @('--version') -Description "$Label --version check"
     if ($versionOutput -notmatch [regex]::Escape($version)) {
         throw "$Label --version output '$versionOutput' did not include expected version '$version'."
@@ -515,13 +724,23 @@ function Test-Package {
     $installerDir = Join-Path $repoRoot 'build\windows-installer'
     $releaseDir = Join-Path $repoRoot 'build\release'
     $extractDir = Join-Path $repoRoot 'build\windows-installer-smoke'
+    $runExtractDir = Join-Path $repoRoot 'build\windows-run-smoke'
     $installSmokeRoot = Join-Path $repoRoot 'build\windows-install-smoke'
     $installDir = Join-Path $installSmokeRoot 'Programs\Locking Glass'
+    $uninstallRegistryKeyName = 'Locking Glass Smoke Test'
+    $uninstallRegistryPath = Get-UninstallRegistryPath $uninstallRegistryKeyName
     $setupPath = Join-Path $installerDir $SetupExeName
-    $uninstallerPath = Join-Path $installerDir $UninstallerExeName
-    $releaseAppPath = Join-Path $releaseDir $AppExeName
+    $runPath = Join-Path $installerDir $RunExeName
+    $uninstallerPath = Join-Path $installerDir 'Locking Glass Uninstaller.exe'
     $releaseSetupPath = Join-Path $releaseDir $SetupExeName
-    $releaseUninstallerPath = Join-Path $releaseDir $UninstallerExeName
+    $releaseRunPath = Join-Path $releaseDir $RunExeName
+    $legacyReleasePortableZipPath = Join-Path $releaseDir 'Locking Glass Portable.zip'
+    $legacyReleaseDottedPortableZipPath = Join-Path $releaseDir 'Locking.Glass.Portable.zip'
+    $legacyReleaseDottedAppPath = Join-Path $releaseDir 'Locking.Glass.exe'
+    $legacyReleaseSetupPath = Join-Path $releaseDir 'Locking Glass Installer.exe'
+    $legacyReleaseDottedSetupPath = Join-Path $releaseDir 'Locking.Glass.Installer.exe'
+    $legacyReleaseUninstallerPath = Join-Path $releaseDir 'Locking Glass Uninstaller.exe'
+    $legacyReleaseDottedUninstallerPath = Join-Path $releaseDir 'Locking.Glass.Uninstaller.exe'
     $sumPath = Join-Path $releaseDir 'SHA256SUMS.txt'
 
     & (Join-Path $repoRoot 'scripts\stage-windows-install.ps1')
@@ -534,42 +753,97 @@ function Test-Package {
         -StageDir $stageDir `
         -OutputDir $installerDir `
         -SetupExeName $SetupExeName `
-        -UninstallerExeName $UninstallerExeName `
+        -RunExeName $RunExeName `
+        -UninstallerExeName 'Locking Glass Uninstaller.exe' `
         -SkipStage
     Assert-LastCommandSucceeded 'build-windows-installer.ps1'
 
     New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
-    Remove-Item -Force $releaseAppPath, $releaseSetupPath, $releaseUninstallerPath, $sumPath -ErrorAction SilentlyContinue
-    Copy-Item -Path (Join-Path $stageDir 'Locking Glass.exe') -Destination $releaseAppPath -Force
+    Remove-Item -Force @(
+        $releaseSetupPath,
+        $releaseRunPath,
+        $legacyReleasePortableZipPath,
+        $legacyReleaseDottedPortableZipPath,
+        $legacyReleaseDottedAppPath,
+        $legacyReleaseSetupPath,
+        $legacyReleaseDottedSetupPath,
+        $legacyReleaseUninstallerPath,
+        $legacyReleaseDottedUninstallerPath,
+        $sumPath
+    ) -ErrorAction SilentlyContinue
     Copy-Item -Path $setupPath -Destination $releaseSetupPath -Force
-    Copy-Item -Path $uninstallerPath -Destination $releaseUninstallerPath -Force
+    Copy-Item -Path $runPath -Destination $releaseRunPath -Force
+    Assert-FileDescription `
+        -FilePath $releaseSetupPath `
+        -ExpectedDescription 'Locking Glass Installer' `
+        -Label 'Release installer'
+    Assert-FileDescription `
+        -FilePath $releaseRunPath `
+        -ExpectedDescription 'Locking Glass' `
+        -Label 'Release one-time runner'
 
     $sumLines = @(
-        "$((Get-FileHash -Algorithm SHA256 $releaseAppPath).Hash.ToLowerInvariant())  $AppExeName",
-        "$((Get-FileHash -Algorithm SHA256 $releaseSetupPath).Hash.ToLowerInvariant())  $SetupExeName",
-        "$((Get-FileHash -Algorithm SHA256 $releaseUninstallerPath).Hash.ToLowerInvariant())  $UninstallerExeName"
+        "$((Get-FileHash -Algorithm SHA256 $releaseSetupPath).Hash.ToLowerInvariant())  $(Get-PublicReleaseAssetName $SetupExeName)",
+        "$((Get-FileHash -Algorithm SHA256 $releaseRunPath).Hash.ToLowerInvariant())  $(Get-PublicReleaseAssetName $RunExeName)"
     )
     Set-Content -Path $sumPath -Value $sumLines -Encoding ascii
-    Test-Sha256Sums -SumPath $sumPath -ExpectedPaths @($releaseAppPath, $releaseSetupPath, $releaseUninstallerPath)
+    Test-Sha256Sums `
+        -SumPath $sumPath `
+        -ExpectedPaths @($releaseSetupPath, $releaseRunPath) `
+        -ExpectedNames @(
+            (Get-PublicReleaseAssetName $SetupExeName),
+            (Get-PublicReleaseAssetName $RunExeName)
+    )
 
     Remove-Item -Recurse -Force $extractDir -ErrorAction SilentlyContinue
-    Invoke-Checked $releaseSetupPath -Arguments @('--extract-only', $extractDir)
+    Invoke-CheckedWindowsExecutable $releaseSetupPath -Arguments @('--extract-only', $extractDir)
     Test-ExtractedPackage -Directory $extractDir -Label 'Setup extract-only smoke'
 
+    Remove-Item -Recurse -Force $runExtractDir -ErrorAction SilentlyContinue
+    Invoke-CheckedWindowsExecutable $releaseRunPath -Arguments @('--extract-only', $runExtractDir)
+    Test-ExtractedPackage -Directory $runExtractDir -Label 'Run executable extract-only smoke'
+    Invoke-CheckedWindowsExecutable $releaseRunPath -Arguments @('--version')
+    Invoke-CheckedWindowsExecutable $releaseRunPath -Arguments @('--self-check')
+
     Remove-Item -Recurse -Force $installSmokeRoot -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force $uninstallRegistryPath -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $installSmokeRoot | Out-Null
     $previousAppData = $env:APPDATA
     $previousLocalAppData = $env:LOCALAPPDATA
+    $previousUninstallRegistryKeyName = $env:LOCKING_GLASS_UNINSTALL_REGISTRY_KEY_NAME
     try {
         $env:APPDATA = Join-Path $installSmokeRoot 'Roaming'
         $env:LOCALAPPDATA = Join-Path $installSmokeRoot 'Local'
+        $env:LOCKING_GLASS_UNINSTALL_REGISTRY_KEY_NAME = $uninstallRegistryKeyName
         New-Item -ItemType Directory -Force -Path $env:APPDATA, $env:LOCALAPPDATA | Out-Null
-        Invoke-Checked $releaseSetupPath -Arguments @('--install-dir', $installDir, '--no-autostart', '--no-launch-after-install')
+        Invoke-CheckedWindowsExecutable $releaseSetupPath -Arguments @('--quiet', '--install-dir', $installDir, '--no-autostart', '--no-launch-after-install')
         Test-ExtractedPackage -Directory $installDir -Label 'Installed setup smoke'
-        Invoke-Checked $releaseUninstallerPath -Arguments @('--install-dir', $installDir)
+        Test-UninstallRegistryEntry -KeyName $uninstallRegistryKeyName -InstallDir $installDir
+        $launchShortcutPath = Join-Path $installSmokeRoot 'Roaming\Microsoft\Windows\Start Menu\Programs\Locking Glass\Locking Glass.lnk'
+        $legacyLaunchShortcutPath = Join-Path $installSmokeRoot 'Roaming\Microsoft\Windows\Start Menu\Programs\Locking Glass\Locking Glass Tray.lnk'
+        $legacyStartMenuDir = Join-Path $installSmokeRoot 'Roaming\Microsoft\Windows\Start Menu\Programs\LockingGlass'
+        if (-not (Test-Path $launchShortcutPath)) {
+            throw "Installer smoke did not create launch shortcut '$launchShortcutPath'."
+        }
+        if (Test-Path $legacyLaunchShortcutPath) {
+            throw "Installer smoke left legacy launch shortcut '$legacyLaunchShortcutPath'."
+        }
+        if (Test-Path $legacyStartMenuDir) {
+            throw "Installer smoke left legacy Start Menu directory '$legacyStartMenuDir'."
+        }
+        Invoke-CheckedWindowsExecutable $uninstallerPath -Arguments @('--quiet', '--install-dir', $installDir)
+        if (Test-Path $uninstallRegistryPath) {
+            throw "Uninstaller smoke did not remove uninstall registry key '$uninstallRegistryPath'."
+        }
     } finally {
         $env:APPDATA = $previousAppData
         $env:LOCALAPPDATA = $previousLocalAppData
+        if ($null -eq $previousUninstallRegistryKeyName) {
+            Remove-Item Env:LOCKING_GLASS_UNINSTALL_REGISTRY_KEY_NAME -ErrorAction SilentlyContinue
+        } else {
+            $env:LOCKING_GLASS_UNINSTALL_REGISTRY_KEY_NAME = $previousUninstallRegistryKeyName
+        }
+        Remove-Item -Recurse -Force $uninstallRegistryPath -ErrorAction SilentlyContinue
     }
     if (Test-Path $installDir) {
         throw "Uninstaller smoke did not remove install directory '$installDir'."

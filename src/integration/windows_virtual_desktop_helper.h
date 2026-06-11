@@ -20,6 +20,8 @@ std::filesystem::path ResolvePreferredHelperDllPath(
     const std::filesystem::path& asset_root);
 bool VerifyVirtualDesktopAccessorSha256(const std::filesystem::path& path,
                                         std::string* detail);
+HMODULE LoadVerifiedVirtualDesktopAccessor(const std::filesystem::path& path,
+                                           std::string* detail);
 
 class WindowsVirtualDesktopHelper {
  public:

@@ -362,7 +362,8 @@ class VirtualDesktopControllerImpl final : public VirtualDesktopController {
   UnlockReturnReport ReturnTrackedWindows(
       const UnlockReturnRequest& request) const override {
     const char* replay_path = std::getenv(kDesktopReturnScriptEnv);
-    if (replay_path != nullptr && replay_path[0] != '\0') {
+    if (request.allow_script_replay && replay_path != nullptr &&
+        replay_path[0] != '\0') {
       const auto replay_state = internal::LoadDesktopReturnScript(replay_path);
       return internal::BuildScriptedUnlockReturnReport(request, replay_state);
     }

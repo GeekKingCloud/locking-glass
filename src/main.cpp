@@ -26,6 +26,7 @@ struct ParsedArguments {
   bool self_check = false;
   bool prototype_windows_apis = false;
   bool install_autostart = false;
+  bool remove_autostart = false;
   bool watch_monitors = false;
   bool watch_virtual_desktops = false;
   bool background = false;
@@ -46,6 +47,8 @@ ParsedArguments ParseArguments(int argc, char** argv, bool* valid) {
       parsed.prototype_windows_apis = true;
     } else if (argument == "--install-autostart") {
       parsed.install_autostart = true;
+    } else if (argument == "--remove-autostart") {
+      parsed.remove_autostart = true;
     } else if (argument == "--watch-monitors") {
       parsed.watch_monitors = true;
     } else if (argument == "--watch-virtual-desktops") {
@@ -70,7 +73,11 @@ std::string ResolveExecutablePath(char** argv) {
   const DWORD module_length =
       GetModuleFileNameW(nullptr, module_path, MAX_PATH);
   if (module_length > 0 && module_length < MAX_PATH) {
-    return std::filesystem::path(module_path).lexically_normal().string();
+    const auto normalized_path =
+        std::filesystem::path(module_path).lexically_normal();
+    const auto utf8_path = normalized_path.u8string();
+    return std::string(reinterpret_cast<const char*>(utf8_path.data()),
+                       utf8_path.size());
   }
 #endif
 
@@ -79,7 +86,8 @@ std::string ResolveExecutablePath(char** argv) {
 
 void PrintUsage() {
   std::cout << "Usage: locking_glass [--version] [--self-check] "
-               "[--install-autostart] [--prototype-windows-apis] [--watch-monitors] "
+               "[--install-autostart] [--remove-autostart] "
+               "[--prototype-windows-apis] [--watch-monitors] "
                "[--watch-virtual-desktops] [--background]\n";
 #if defined(_WIN32)
   std::cout << "On Windows, launching Locking Glass with no arguments starts the "
@@ -91,6 +99,7 @@ bool RunsTrayMode(const ParsedArguments& arguments) {
   return arguments.background ||
          (!arguments.version && !arguments.self_check &&
           !arguments.prototype_windows_apis && !arguments.install_autostart &&
+          !arguments.remove_autostart &&
           !arguments.watch_monitors && !arguments.watch_virtual_desktops &&
           !arguments.help);
 }
@@ -120,6 +129,12 @@ int main(int argc, char** argv) {
     return 0;
   }
 
+  if (arguments.install_autostart && arguments.remove_autostart) {
+    std::cerr << "--install-autostart and --remove-autostart cannot be used together.\n";
+    PrintUsage();
+    return 64;
+  }
+
   if (arguments.version) {
     std::cout << "Locking Glass " << LOCKING_GLASS_VERSION_STR << '\n';
     return 0;
@@ -134,6 +149,12 @@ int main(int argc, char** argv) {
 
   if (arguments.install_autostart) {
     const auto result = runtime.autostart_manager->Enable(executable_path);
+    std::cout << result.detail << '\n';
+    return result.success ? 0 : 1;
+  }
+
+  if (arguments.remove_autostart) {
+    const auto result = runtime.autostart_manager->Disable();
     std::cout << result.detail << '\n';
     return result.success ? 0 : 1;
   }

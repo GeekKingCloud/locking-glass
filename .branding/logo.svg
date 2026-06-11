@@ -1,0 +1,15 @@
+<svg width="1000" height="260" viewBox="0 0 1000 260" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Locking Glass</title>
+  <desc id="desc">Locking Glass wordmark with a monitor and lock brandmark.</desc>
+  <rect x="6" y="6" width="988" height="248" rx="20" fill="#F7FAFC" stroke="#D6E2EE" stroke-width="2"/>
+  <rect x="28" y="27" width="206" height="162" rx="11" fill="#172640"/>
+  <rect x="40" y="39" width="182" height="126" rx="2" fill="#83BDF1"/>
+  <path d="M120 189h35v27h37v20H84v-20h36v-27Z" fill="#172640"/>
+  <rect x="148" y="126" width="110" height="95" rx="5" fill="#FFD91A" stroke="#111827" stroke-width="9"/>
+  <path d="M168 126v-24c0-19 15-35 35-35s35 16 35 35v24h-19v-24c0-9-7-16-16-16s-16 7-16 16v24h-19Z" fill="#EAF6FF" stroke="#111827" stroke-width="9" stroke-linejoin="round"/>
+  <circle cx="203" cy="173" r="13" fill="#111827"/>
+  <rect x="195" y="176" width="16" height="26" rx="4" fill="#111827"/>
+  <path d="M58 60h144" stroke="#EAF6FF" stroke-width="8" stroke-linecap="square" opacity=".72"/>
+  <text x="305" y="121" fill="#111827" font-family="Segoe UI, Arial, sans-serif" font-size="76" font-weight="800">Locking Glass</text>
+  <text x="310" y="177" fill="#2F5C88" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="600">Monitor locks for Windows virtual desktops</text>
+</svg>

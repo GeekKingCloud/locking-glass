@@ -31,18 +31,22 @@ using std::min;
 
 constexpr char kBackgroundDesktopReportPathEnv[] =
     "LOCKING_GLASS_BACKGROUND_REPORT_PATH";
+constexpr char kStartupNoticeEnv[] = "LOCKING_GLASS_STARTUP_NOTICE";
 constexpr UINT kTrayIconMessage = WM_APP + 1;
 constexpr UINT kLiveControllerWatchFailedMessage = WM_APP + 2;
+constexpr UINT kStartupNoticeRequestedMessage = WM_APP + 3;
 constexpr UINT_PTR kMenuHoverTimer = 1;
 constexpr UINT kMenuCommandMonitorBase = 1000;
 constexpr UINT kMenuCommandRefresh = 9000;
 constexpr UINT kMenuCommandExit = 9001;
+constexpr wchar_t kSingleInstanceMutexName[] =
+    L"Local\\LockingGlass.BackgroundSession";
 constexpr wchar_t kBackgroundWindowClassName[] = L"LockingGlassBackgroundWindow";
 constexpr wchar_t kIdentifyOverlayWindowClassName[] =
     L"LockingGlassIdentifyOverlayWindow";
 constexpr int kIdentifyOverlayInset = 18;
 constexpr int kIdentifyOverlayBorder = 6;
-constexpr int kIdentifyOverlayCardWidth = 520;
+constexpr int kIdentifyOverlayCardWidth = 440;
 constexpr int kIdentifyOverlayCardHeight = 168;
 constexpr BYTE kIdentifyOverlayOpacity = 224;
 constexpr int kTrayPopupIconGap = 10;
@@ -97,6 +101,48 @@ struct BackgroundSessionState {
   locking_glass::integration::CapabilityReport live_controller_capability =
       MakeReadyControllerCapability();
   bool live_controller_watcher_started = true;
+};
+
+struct SingleInstanceLock {
+  HANDLE handle = nullptr;
+  bool owns = false;
+  bool already_running = false;
+
+  SingleInstanceLock() = default;
+  SingleInstanceLock(const SingleInstanceLock&) = delete;
+  SingleInstanceLock& operator=(const SingleInstanceLock&) = delete;
+
+  SingleInstanceLock(SingleInstanceLock&& other) noexcept
+      : handle(std::exchange(other.handle, nullptr)),
+        owns(std::exchange(other.owns, false)),
+        already_running(std::exchange(other.already_running, false)) {}
+
+  SingleInstanceLock& operator=(SingleInstanceLock&& other) noexcept {
+    if (this != &other) {
+      if (handle != nullptr) {
+        if (owns) {
+          ReleaseMutex(handle);
+        }
+        CloseHandle(handle);
+      }
+      handle = std::exchange(other.handle, nullptr);
+      owns = std::exchange(other.owns, false);
+      already_running = std::exchange(other.already_running, false);
+    }
+    return *this;
+  }
+
+  ~SingleInstanceLock() {
+    if (handle == nullptr) {
+      return;
+    }
+    if (owns) {
+      ReleaseMutex(handle);
+    }
+    CloseHandle(handle);
+  }
+
+  bool valid() const { return handle != nullptr; }
 };
 
 void PollMenuHover(HWND window, BackgroundSessionState* state);
@@ -234,6 +280,10 @@ void DrawPadlockGlyph(HDC dc, RECT rect,
 
 void DrawOverlayStateIcon(HDC dc, RECT rect, const bool locked,
                           const bool requires_confirmation) {
+  if (!requires_confirmation && DrawOverlayStatusIcon(dc, rect, locked)) {
+    return;
+  }
+
   core::TrayPadlockIconState icon{
       .variant = locked ? "locked" : "unlocked",
       .accent =
@@ -306,7 +356,11 @@ void DrawMonitorMenuItem(const DRAWITEMSTRUCT* item) {
   if (draw_item->monitor != nullptr) {
     RECT icon_rect{item->rcItem.left + 7, item->rcItem.top + 6,
                    item->rcItem.left + 29, item->rcItem.bottom - 6};
-    DrawPadlockGlyph(item->hDC, icon_rect, draw_item->monitor->padlock_icon);
+    if (draw_item->monitor->requires_confirmation ||
+        !DrawTrayMenuStatusIcon(item->hDC, icon_rect,
+                                draw_item->monitor->locked)) {
+      DrawPadlockGlyph(item->hDC, icon_rect, draw_item->monitor->padlock_icon);
+    }
     text_left = item->rcItem.left + 36;
   }
 
@@ -353,6 +407,53 @@ std::string ReadBackgroundDesktopReportPathFromEnv() {
   return raw_value;
 }
 
+std::string ReadStartupNoticeFromEnv() {
+  const char* raw_value = std::getenv(kStartupNoticeEnv);
+  if (raw_value == nullptr) {
+    return {};
+  }
+
+  return raw_value;
+}
+
+bool StartupNoticeWasRequestedByRunner() {
+  return ReadStartupNoticeFromEnv() == "runner";
+}
+
+SingleInstanceLock AcquireSingleInstanceLock() {
+  SingleInstanceLock lock;
+  lock.handle = CreateMutexW(nullptr, FALSE, kSingleInstanceMutexName);
+  if (lock.handle == nullptr) {
+    return lock;
+  }
+
+  const DWORD wait_result = WaitForSingleObject(lock.handle, 0);
+  if (wait_result == WAIT_OBJECT_0 || wait_result == WAIT_ABANDONED) {
+    lock.owns = true;
+    return lock;
+  }
+
+  if (wait_result == WAIT_TIMEOUT) {
+    lock.already_running = true;
+    return lock;
+  }
+
+  CloseHandle(lock.handle);
+  lock.handle = nullptr;
+  return lock;
+}
+
+void NotifyExistingBackgroundSessionIfRequested() {
+  if (!StartupNoticeWasRequestedByRunner()) {
+    return;
+  }
+
+  HWND existing_window = FindWindowW(kBackgroundWindowClassName, nullptr);
+  if (existing_window != nullptr) {
+    PostMessageW(existing_window, kStartupNoticeRequestedMessage, 0, 0);
+  }
+}
+
 void EmitBackgroundDesktopSwitchReport(
     const std::string& report_path,
     const locking_glass::integration::DesktopSwitchReport& report) {
@@ -388,6 +489,31 @@ std::string BuildMonitorIdentityKey(const MonitorDescriptor& monitor) {
     return monitor.stable_id;
   }
   return monitor.label;
+}
+
+bool IsMonitorMenuCommand(const core::TrayMenuModel& model,
+                          const TrayMenuMode menu_mode, const UINT command) {
+  if (menu_mode != TrayMenuMode::kMonitorOnly ||
+      command < kMenuCommandMonitorBase) {
+    return false;
+  }
+
+  const std::size_t index =
+      static_cast<std::size_t>(command - kMenuCommandMonitorBase);
+  return index < model.monitors.size();
+}
+
+bool IsIdentifyOverlayVisible(const BackgroundSessionState* state) {
+  return state != nullptr && state->identify_overlay_window != nullptr &&
+         IsWindowVisible(state->identify_overlay_window);
+}
+
+bool IsIdentifyOverlayShowingMonitor(
+    const BackgroundSessionState* state,
+    const core::TrayMonitorState& monitor) {
+  return IsIdentifyOverlayVisible(state) &&
+         state->highlighted_monitor_key ==
+             BuildMonitorIdentityKey(monitor.monitor);
 }
 
 void ReleaseTrayIconHandle(BackgroundSessionState* state) {
@@ -516,24 +642,35 @@ LRESULT CALLBACK IdentifyOverlayWindowProc(HWND window, UINT message,
       HGDIOBJ previous_font =
           SelectObject(dc, title_font != nullptr ? title_font : fallback_font);
 
-      RECT icon_rect{card_rect.left + 24, card_rect.top + 34,
-                     card_rect.left + 88, card_rect.bottom - 34};
+      RECT icon_rect{card_rect.left + 24, card_rect.top + 28,
+                     card_rect.left + 136, card_rect.bottom - 28};
       DrawOverlayStateIcon(dc, icon_rect,
                            state != nullptr && state->identify_overlay_locked,
                            state != nullptr &&
                                state->identify_overlay_requires_confirmation);
 
-      RECT title_rect{card_rect.left + 106, card_rect.top + 28,
-                      card_rect.right - 24, card_rect.top + 76};
-      RECT message_rect{card_rect.left + 108, card_rect.top + 84,
-                        card_rect.right - 24, card_rect.bottom - 26};
       if (state != nullptr) {
+        const bool has_message = !state->identify_overlay_message.empty();
+        const int text_content_height = has_message ? 100 : 52;
+        const int card_height =
+            static_cast<int>(card_rect.bottom - card_rect.top);
+        const int text_top =
+            static_cast<int>(card_rect.top) +
+            max(0, (card_height - text_content_height) / 2);
+        const int text_left = static_cast<int>(card_rect.left) + 154;
+        const int text_right = static_cast<int>(card_rect.right) - 24;
+        RECT title_rect{text_left, text_top, text_right, text_top + 52};
+        RECT message_rect{text_left + 2, text_top + 58, text_right,
+                          text_top + 100};
         DrawTextW(dc, state->identify_overlay_title.c_str(), -1, &title_rect,
-                  DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
-        SelectObject(dc,
-                     message_font != nullptr ? message_font : fallback_font);
-        DrawTextW(dc, state->identify_overlay_message.c_str(), -1, &message_rect,
-                  DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
+                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        if (has_message) {
+          SelectObject(dc,
+                       message_font != nullptr ? message_font : fallback_font);
+          DrawTextW(dc, state->identify_overlay_message.c_str(), -1,
+                    &message_rect,
+                    DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        }
       }
 
       SelectObject(dc, previous_font);
@@ -611,10 +748,13 @@ void ShowIdentifyOverlay(BackgroundSessionState* state,
   const int x = overlay.monitor.bounds.left;
   const int y = overlay.monitor.bounds.top;
 
+  UINT flags = SWP_NOACTIVATE;
+  if (!IsIdentifyOverlayVisible(state)) {
+    flags |= SWP_SHOWWINDOW;
+  }
   SetWindowPos(state->identify_overlay_window, HWND_TOPMOST, x, y,
-               monitor_width, monitor_height,
-               SWP_NOACTIVATE | SWP_SHOWWINDOW);
-  InvalidateRect(state->identify_overlay_window, nullptr, TRUE);
+               monitor_width, monitor_height, flags);
+  InvalidateRect(state->identify_overlay_window, nullptr, FALSE);
   UpdateWindow(state->identify_overlay_window);
 }
 
@@ -634,9 +774,24 @@ void PublishHoverClearEvent(BackgroundSessionState* state) {
                state->live_controller_watcher_started, true);
 }
 
+void ShowTrayNotification(HWND window, BackgroundSessionState* state,
+                          const std::string& title,
+                          const std::string& message);
+
 void ShowReviewNotification(HWND window, BackgroundSessionState* state,
                             const core::MonitorReviewPrompt& prompt) {
   if (window == nullptr || state == nullptr || !prompt.visible) {
+    return;
+  }
+
+  ShowTrayNotification(window, state, prompt.title, prompt.message);
+}
+
+void ShowTrayNotification(HWND window, BackgroundSessionState* state,
+                          const std::string& title,
+                          const std::string& message) {
+  if (window == nullptr || state == nullptr || title.empty() ||
+      message.empty()) {
     return;
   }
 
@@ -648,11 +803,24 @@ void ShowReviewNotification(HWND window, BackgroundSessionState* state,
   notification.dwInfoFlags = NIIF_INFO;
   notification.uTimeout = 10000;
 
-  const auto title = Widen(prompt.title);
-  const auto message = Widen(prompt.message);
-  wcsncpy_s(notification.szInfoTitle, title.c_str(), _TRUNCATE);
-  wcsncpy_s(notification.szInfo, message.c_str(), _TRUNCATE);
+  const auto wide_title = Widen(title);
+  const auto wide_message = Widen(message);
+  wcsncpy_s(notification.szInfoTitle, wide_title.c_str(), _TRUNCATE);
+  wcsncpy_s(notification.szInfo, wide_message.c_str(), _TRUNCATE);
   Shell_NotifyIconW(NIM_MODIFY, &notification);
+}
+
+void ShowRunnerStartupNotice(HWND window, BackgroundSessionState* state) {
+  ShowTrayNotification(
+      window, state, "Locking Glass is now running",
+      "Use the icon in the notification area to lock/unlock monitors.\n"
+      "Note that it may be hidden by the arrow.");
+}
+
+void ShowStartupNotice(HWND window, BackgroundSessionState* state) {
+  if (StartupNoticeWasRequestedByRunner()) {
+    ShowRunnerStartupNotice(window, state);
+  }
 }
 
 void LogControllerUnavailable(
@@ -715,7 +883,8 @@ void UnlockAndReturnAllOnExit(BackgroundSessionState* state) {
     const auto unlock_return =
         RunUnlockReturn(state->live_controller_capability,
                         state->unlock_return_controller.get(),
-                        state->window_return_tracker, monitor_state.monitor);
+                        state->window_return_tracker, monitor_state.monitor,
+                        false);
     (void)unlock_return;
   }
 
@@ -819,6 +988,7 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state,
   BackgroundSessionUnlockReturn unlock_return;
   POINT menu_origin{};
   GetCursorPos(&menu_origin);
+  bool preserve_identify_overlay = false;
   while (true) {
     const auto model = RefreshTrayModel(window, state, trigger, true, false,
                                         unlock_return);
@@ -836,7 +1006,10 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state,
         menu_mode == TrayMenuMode::kMonitorOnly ? model : core::TrayMenuModel{};
     state->active_menu_handle = menu;
     state->tray_menu_open = true;
-    HideIdentifyOverlay(state);
+    if (!preserve_identify_overlay) {
+      HideIdentifyOverlay(state);
+    }
+    preserve_identify_overlay = false;
 
     // Win32 menu items borrow string and owner-draw storage while the menu is
     // open, so these backing containers must outlive TrackPopupMenu.
@@ -913,20 +1086,37 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state,
     g_menu_hook_state = nullptr;
     DestroyMenu(menu);
     PostMessageW(window, WM_NULL, 0, 0);
+    const bool monitor_command =
+        IsMonitorMenuCommand(model, menu_mode, command);
+    const auto monitor_index =
+        monitor_command
+            ? static_cast<std::size_t>(command - kMenuCommandMonitorBase)
+            : 0U;
+    const bool preserve_after_command =
+        monitor_command &&
+        IsIdentifyOverlayShowingMonitor(state, model.monitors[monitor_index]);
     state->tray_menu_open = false;
     state->active_menu_handle = nullptr;
     state->active_menu_model = {};
-    HideIdentifyOverlay(state);
+    if (!preserve_after_command) {
+      HideIdentifyOverlay(state);
+    }
 
-    if (menu_mode == TrayMenuMode::kMonitorOnly &&
-        command >= kMenuCommandMonitorBase &&
-        command < kMenuCommandMonitorBase + model.monitors.size()) {
-      const auto monitor =
-          model.monitors[command - kMenuCommandMonitorBase].monitor;
+    if (monitor_command) {
+      const auto& selected_monitor = model.monitors[monitor_index];
+      const auto monitor = selected_monitor.monitor;
       bool locked_after = false;
       if (!core::ToggleMonitorLock(state->session_store, &state->session.snapshot,
                                    monitor, &locked_after)) {
+        HideIdentifyOverlay(state);
         return;
+      }
+      if (preserve_after_command) {
+        auto updated_monitor = selected_monitor;
+        updated_monitor.locked = locked_after;
+        ShowIdentifyOverlay(state,
+                            core::BuildTrayIdentifyOverlay(updated_monitor));
+        preserve_identify_overlay = true;
       }
       if (state->window_return_tracker != nullptr && locked_after) {
         state->window_return_tracker->ClearMonitor(
@@ -935,8 +1125,8 @@ void ShowTrayMenu(HWND window, BackgroundSessionState* state,
       unlock_return =
           !locked_after
               ? RunUnlockReturn(state->live_controller_capability,
-                                state->unlock_return_controller.get(),
-                                state->window_return_tracker, monitor)
+                                 state->unlock_return_controller.get(),
+                                 state->window_return_tracker, monitor, false)
               : BackgroundSessionUnlockReturn{};
       trigger = "tray-toggle";
       continue;
@@ -963,9 +1153,7 @@ void UpdateHoverOverlay(BackgroundSessionState* state, const UINT command,
   }
 
   if (flags == 0xFFFF && menu_handle == 0) {
-    if (HideIdentifyOverlay(state)) {
-      PublishHoverClearEvent(state);
-    }
+    PublishHoverClearEvent(state);
     return;
   }
 
@@ -1144,6 +1332,11 @@ LRESULT CALLBACK BackgroundWindowProc(HWND window, UINT message, WPARAM w_param,
         DestroyWindow(window);
       }
       return 0;
+    case kStartupNoticeRequestedMessage:
+      if (state != nullptr) {
+        ShowRunnerStartupNotice(window, state);
+      }
+      return 0;
     case kTrayIconMessage:
       if (state != nullptr) {
         const UINT notification =
@@ -1183,6 +1376,15 @@ LRESULT CALLBACK BackgroundWindowProc(HWND window, UINT message, WPARAM w_param,
 }  // namespace
 
 int RunWindowsTraySession(const BackgroundSessionObserver& observer) {
+  auto single_instance_lock = AcquireSingleInstanceLock();
+  if (!single_instance_lock.valid()) {
+    return 1;
+  }
+  if (single_instance_lock.already_running) {
+    NotifyExistingBackgroundSessionIfRequested();
+    return 0;
+  }
+
   HINSTANCE instance = GetModuleHandleW(nullptr);
   auto live_controller =
       locking_glass::integration::CreateVirtualDesktopController();
@@ -1270,6 +1472,7 @@ int RunWindowsTraySession(const BackgroundSessionObserver& observer) {
 
   RepublishCurrentModel(window, state.get(), "startup", false,
                         core::BuildMonitorReviewPrompt(state->session));
+  ShowStartupNotice(window, state.get());
 
   MSG message{};
   while (GetMessageW(&message, nullptr, 0, 0) > 0) {

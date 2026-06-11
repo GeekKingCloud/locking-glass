@@ -53,6 +53,11 @@ small and easy to audit.
 ## Documentation
 
 - Keep the project described as Windows-specific.
-- Keep README, CONTRIBUTING, install package notes, and release workflow wording
-  aligned when packaging behavior changes.
+- Keep `README.md` user-facing and short. Put contributor setup, validation
+  commands, packaging internals, and proof boundaries in `CONTRIBUTING.md`.
+- Keep README, CONTRIBUTING, install package notes, AGENTS, STYLE, and release
+  workflow wording aligned when packaging behavior changes.
 - Prefer direct release commands and concrete prerequisites over broad prose.
+- Keep app/tray icon assets in `assets/` and README/social branding assets in
+  `.branding/`. Prefer editable SVG for logos and commit the exported social
+  preview PNG when the README or repository metadata needs a raster preview.

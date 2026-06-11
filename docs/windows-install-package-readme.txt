@@ -48,9 +48,10 @@ How to use it
 - The installer executable and installer script enable current-user startup after sign-in by default. Use the installer `--no-autostart` flag or installer-script `-NoAutostart` switch for installs that must not write the Run key.
 - The installer launches Locking Glass after install by default. Use the installer `--no-launch-after-install` flag or installer-script `-NoLaunchAfterInstall` switch for verification runs that should not leave the tray app running.
 - Run Locking Glass.exe --install-autostart to repair current-user startup manually.
+- Run Locking Glass.exe --remove-autostart to remove current-user startup without uninstalling.
 - Re-run Install-LockingGlass.ps1 to refresh or upgrade an existing install. The installer script stops the current installed runtime before replacing files in place.
-- Run Uninstall-LockingGlass.ps1, the Start Menu uninstall shortcut, or the release `Locking Glass Uninstaller.exe` to remove the installed app. User data is preserved unless `-RemoveUserData` or `--remove-user-data` is supplied.
-- The supported public upgrade path is to run a newer Locking Glass installer executable over the existing install.
+- Use Windows Add or Remove Programs, run Uninstall-LockingGlass.ps1, or use the Start Menu uninstall shortcut to remove the installed app. User data is preserved unless `-RemoveUserData` is supplied.
+- The supported public upgrade path is to run a newer public Locking Glass Installer.exe executable over the existing install.
 
 Startup note
 - Every app start begins with all present monitors unlocked.
@@ -65,10 +66,11 @@ Unlock return note
 - If the remembered workspace no longer exists, the window stays where it is.
 
 Installer note
-- Public releases ship `Locking Glass.exe`, `Locking Glass Installer.exe`, and `Locking Glass Uninstaller.exe`.
-- Locking Glass.exe is the run-once portable app binary and does not install itself; live tray locking still requires the bundled helper DLL and probe script beside the app.
-- The installer and uninstaller executables are wrappers around this same payload and use the bundled PowerShell scripts for the actual install and uninstall logic.
-- The installer executable and installer script are upgrade-safe by design: they keep the stable install path and do not move the external session-state file.
+- Public releases ship `Locking Glass Installer.exe` and `Locking Glass.exe`.
+- The public installer embeds this whole payload, extracts it to a temporary setup directory, runs the bundled installer script, enables current-user startup by default, and launches the installed app by default.
+- The public installer registers a current-user Add or Remove Programs entry for uninstall.
+- The public one-time runner embeds this same payload, extracts it to a temporary directory, starts the app for the current session, and does not install startup.
+- The public installer and installer script are upgrade-safe by design: they keep the stable install path and do not move the external session-state file.
 - Package smoke tests should pass `--no-autostart` so verification never writes the real user's startup registry entry.
 - Custom install directories must name an app-specific Locking Glass folder, not a shared parent directory.
 - The uninstaller refuses to remove an install directory that is missing the Locking Glass payload manifest or app executable.

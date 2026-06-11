@@ -4,9 +4,9 @@ CLAUDE.md
 .claude/
 
 # Tools
-.lumberhack/
+.lumber-hack/
 .atoshell/
-.reef/
+.g8ldfish/
 
 # Secrets
 .env

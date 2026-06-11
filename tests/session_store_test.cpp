@@ -1,5 +1,9 @@
 #include "test_helpers.h"
 
+#include <atomic>
+#include <thread>
+#include <vector>
+
 namespace locking_glass::tests {
 
 bool RunSessionStoreChecks() {
@@ -36,6 +40,40 @@ bool RunSessionStoreChecks() {
                       "session snapshot should persist to disk");
   failures += !Expect(std::filesystem::exists(session_path),
                       "saving the session should create the session file");
+
+  {
+    const auto concurrent_session_path =
+        temp_directory / "concurrent-session-state.tsv";
+    std::atomic<int> successful_saves{0};
+    std::vector<std::thread> save_threads;
+    for (int index = 0; index < 8; ++index) {
+      save_threads.emplace_back([&]() {
+        if (locking_glass::core::SessionStore(concurrent_session_path)
+                .Save(initial.snapshot)) {
+          successful_saves.fetch_add(1, std::memory_order_relaxed);
+        }
+      });
+    }
+    for (auto& save_thread : save_threads) {
+      save_thread.join();
+    }
+
+    failures += !Expect(
+        successful_saves.load(std::memory_order_relaxed) == 8,
+        "concurrent session saves should not fight over one temporary path");
+
+    std::size_t temporary_leftovers = 0;
+    for (const auto& entry :
+         std::filesystem::directory_iterator(temp_directory)) {
+      if (entry.path().filename().string().rfind(
+              "concurrent-session-state.tsv.tmp.", 0) == 0) {
+        ++temporary_leftovers;
+      }
+    }
+    failures += !Expect(
+        temporary_leftovers == 0U,
+        "successful concurrent session saves should clean up temporary files");
+  }
 
   auto refreshed =
       locking_glass::core::SessionStore(session_path).Restore({left_monitor, right_monitor});
