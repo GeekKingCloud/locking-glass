@@ -272,7 +272,8 @@ HMODULE LoadVerifiedVirtualDesktopAccessor(const std::filesystem::path& path,
 }
 
 WindowsVirtualDesktopHelper::WindowsVirtualDesktopHelper(
-    HMODULE library, GetDesktopCountFn get_desktop_count,
+    HMODULE library, GetCurrentDesktopNumberFn get_current_desktop_number,
+    GetDesktopCountFn get_desktop_count,
     GetDesktopNameFn get_desktop_name,
     GetDesktopIdByNumberFn get_desktop_id_by_number,
     GetWindowDesktopNumberFn get_window_desktop_number,
@@ -280,6 +281,7 @@ WindowsVirtualDesktopHelper::WindowsVirtualDesktopHelper(
     CreateDesktopFn create_desktop, SetDesktopNameFn set_desktop_name,
     RemoveDesktopFn remove_desktop)
     : library_(library),
+      get_current_desktop_number_(get_current_desktop_number),
       get_desktop_count_(get_desktop_count),
       get_desktop_name_(get_desktop_name),
       get_desktop_id_by_number_(get_desktop_id_by_number),
@@ -298,6 +300,11 @@ WindowsVirtualDesktopHelper::~WindowsVirtualDesktopHelper() {
 
 int WindowsVirtualDesktopHelper::GetDesktopCount() const {
   return get_desktop_count_ != nullptr ? get_desktop_count_() : 0;
+}
+
+int WindowsVirtualDesktopHelper::GetCurrentDesktopNumber() const {
+  return get_current_desktop_number_ != nullptr ? get_current_desktop_number_()
+                                                : -1;
 }
 
 DesktopIdentity WindowsVirtualDesktopHelper::GetDesktopIdentity(
@@ -559,6 +566,8 @@ std::unique_ptr<WindowsVirtualDesktopHelper> WindowsVirtualDesktopHelper::Load(
       continue;
     }
 
+    const FARPROC get_current_desktop_number_symbol =
+        GetProcAddress(library, "GetCurrentDesktopNumber");
     const FARPROC get_desktop_count_symbol =
         GetProcAddress(library, "GetDesktopCount");
     const FARPROC get_desktop_name_symbol =
@@ -575,6 +584,11 @@ std::unique_ptr<WindowsVirtualDesktopHelper> WindowsVirtualDesktopHelper::Load(
         GetProcAddress(library, "SetDesktopName");
     const FARPROC remove_desktop_symbol =
         GetProcAddress(library, "RemoveDesktop");
+    const auto get_current_desktop_number =
+        get_current_desktop_number_symbol != nullptr
+            ? std::bit_cast<GetCurrentDesktopNumberFn>(
+                  get_current_desktop_number_symbol)
+            : nullptr;
     const auto get_desktop_count =
         get_desktop_count_symbol != nullptr
             ? std::bit_cast<GetDesktopCountFn>(get_desktop_count_symbol)
@@ -610,7 +624,8 @@ std::unique_ptr<WindowsVirtualDesktopHelper> WindowsVirtualDesktopHelper::Load(
         remove_desktop_symbol != nullptr
             ? std::bit_cast<RemoveDesktopFn>(remove_desktop_symbol)
             : nullptr;
-    if (get_desktop_count == nullptr || get_desktop_name == nullptr ||
+    if (get_current_desktop_number == nullptr ||
+        get_desktop_count == nullptr || get_desktop_name == nullptr ||
         get_desktop_id_by_number == nullptr ||
         get_window_desktop_number == nullptr ||
         move_window_to_desktop_number == nullptr ||
@@ -627,7 +642,8 @@ std::unique_ptr<WindowsVirtualDesktopHelper> WindowsVirtualDesktopHelper::Load(
       *detail = candidate.string();
     }
     return std::make_unique<WindowsVirtualDesktopHelper>(
-        library, get_desktop_count, get_desktop_name,
+        library, get_current_desktop_number, get_desktop_count,
+        get_desktop_name,
         get_desktop_id_by_number, get_window_desktop_number,
         move_window_to_desktop_number, create_desktop, set_desktop_name,
         remove_desktop);

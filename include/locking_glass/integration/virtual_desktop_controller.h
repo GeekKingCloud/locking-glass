@@ -40,6 +40,9 @@ struct DesktopWatchOptions {
   bool allow_script_replay = true;
   int required_events = 2;
   int timeout_seconds = 0;
+  std::function<core::MonitorLockingPlan(
+      const core::SessionStore&, const core::DesktopSwitchScenario&)>
+      build_plan;
 };
 
 struct TrackedWindowReturn {
@@ -52,6 +55,8 @@ struct UnlockReturnRequest {
   platform::MonitorDescriptor monitor;
   std::vector<TrackedWindowReturn> tracked_windows;
   bool allow_script_replay = true;
+  std::optional<DesktopIdentity> monitor_home_desktop;
+  std::optional<DesktopIdentity> current_desktop;
 };
 
 struct UnlockReturnSkip {
@@ -63,6 +68,10 @@ struct UnlockReturnSkip {
 
 struct UnlockReturnReport {
   platform::MonitorDescriptor monitor;
+  std::optional<DesktopIdentity> monitor_home_desktop;
+  std::optional<DesktopIdentity> current_desktop;
+  std::vector<DesktopIdentity> borrowed_desktops;
+  std::vector<TrackedWindowReturn> return_candidates;
   std::vector<WindowMoveResult> move_results;
   std::vector<UnlockReturnSkip> skipped_windows;
   std::vector<core::DesktopWindow> resulting_windows;

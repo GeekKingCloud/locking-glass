@@ -752,7 +752,13 @@ void ShowIdentifyOverlay(BackgroundSessionState* state,
   if (!IsIdentifyOverlayVisible(state)) {
     flags |= SWP_SHOWWINDOW;
   }
-  SetWindowPos(state->identify_overlay_window, HWND_TOPMOST, x, y,
+  HWND insert_after = HWND_TOPMOST;
+  if (state->tray_menu_open) {
+    // The tray popup is already active; hover updates should not reorder the
+    // identify overlay above the shell-owned menu window.
+    flags |= SWP_NOZORDER;
+  }
+  SetWindowPos(state->identify_overlay_window, insert_after, x, y,
                monitor_width, monitor_height, flags);
   InvalidateRect(state->identify_overlay_window, nullptr, FALSE);
   UpdateWindow(state->identify_overlay_window);
@@ -1268,6 +1274,21 @@ bool StartLiveControllerWatcher(
                   .allow_script_replay = false,
                   .required_events = 0,
                   .timeout_seconds = 0,
+                  .build_plan =
+                      [window_return_tracker](
+                          const locking_glass::core::SessionStore& store,
+                          const locking_glass::core::DesktopSwitchScenario&
+                              scenario) {
+                        auto tracked_scenario = scenario;
+                        if (window_return_tracker != nullptr) {
+                          tracked_scenario.use_staging_restore_hints = true;
+                          tracked_scenario.staging_restore_hints =
+                              window_return_tracker->BuildStagingRestoreHints(
+                                  scenario);
+                        }
+                        return locking_glass::core::BuildMonitorLockingPlan(
+                            store, tracked_scenario);
+                      },
               });
           PostMessageW(window, kLiveControllerWatchFailedMessage, 0, 0);
         })

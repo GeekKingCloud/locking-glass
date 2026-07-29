@@ -1,6 +1,7 @@
 #include "background_session_internal.h"
 
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <optional>
 #include <sstream>
@@ -14,6 +15,8 @@ namespace {
 
 constexpr char kBackgroundControllerStatusOverrideEnv[] =
     "LOCKING_GLASS_BACKGROUND_CONTROLLER_STATUS";
+constexpr char kUnlockReturnReportPathEnv[] =
+    "LOCKING_GLASS_UNLOCK_RETURN_REPORT_PATH";
 
 BackgroundSessionPrompt BuildBackgroundPrompt(
     const core::MonitorReviewPrompt& prompt) {
@@ -44,6 +47,27 @@ std::size_t CountUnlockReturnFailures(
     }
   }
   return failures;
+}
+
+void EmitUnlockReturnReport(
+    const locking_glass::integration::UnlockReturnReport& report) {
+  const std::string formatted =
+      locking_glass::integration::FormatUnlockReturnReport(report);
+  std::cout << formatted << std::flush;
+
+  const char* raw_report_path = std::getenv(kUnlockReturnReportPathEnv);
+  if (raw_report_path == nullptr || raw_report_path[0] == '\0') {
+    return;
+  }
+
+  std::ofstream output(raw_report_path,
+                       std::ios::out | std::ios::app | std::ios::binary);
+  if (!output) {
+    std::cerr << "Locking Glass could not append the unlock return report to "
+              << raw_report_path << '\n';
+    return;
+  }
+  output << formatted << '\n';
 }
 
 BackgroundSessionUnlockReturn BuildUnlockReturnSummary(
@@ -212,8 +236,10 @@ BackgroundSessionUnlockReturn RunUnlockReturn(
   }
 
   const std::string monitor_key = BuildTrackedMonitorKey(monitor);
-  const auto tracked_windows = window_return_tracker->ConsumeMonitor(monitor_key);
-  if (tracked_windows.empty()) {
+  const auto return_state =
+      window_return_tracker->ConsumeMonitorState(monitor_key);
+  const auto& tracked_windows = return_state.tracked_windows;
+  if (tracked_windows.empty() && !return_state.home_desktop.has_value()) {
     if (IsLiveControllerAvailable(live_controller_capability) &&
         unlock_return_controller != nullptr) {
       (void)unlock_return_controller->CleanupStagingDesktop();
@@ -223,6 +249,10 @@ BackgroundSessionUnlockReturn RunUnlockReturn(
 
   locking_glass::integration::UnlockReturnReport report{
       .monitor = monitor,
+      .monitor_home_desktop = return_state.home_desktop,
+      .current_desktop = return_state.current_desktop,
+      .borrowed_desktops = {},
+      .return_candidates = {},
       .move_results = {},
       .skipped_windows = {},
       .resulting_windows = {},
@@ -248,15 +278,26 @@ BackgroundSessionUnlockReturn RunUnlockReturn(
             .monitor = monitor,
             .tracked_windows = tracked_windows,
             .allow_script_replay = allow_script_replay,
+            .monitor_home_desktop = return_state.home_desktop,
+            .current_desktop = return_state.current_desktop,
         });
   }
 
   const auto summary = BuildUnlockReturnSummary(report);
+  const auto& return_candidates =
+      report.return_candidates.empty() ? tracked_windows
+                                       : report.return_candidates;
   const auto retryable_tracked_windows =
-      SelectRetryableTrackedWindows(report, tracked_windows);
-  if (summary.failed_windows > 0U || summary.skipped_windows > 0U) {
-    window_return_tracker->RestoreMonitor(monitor_key,
-                                          retryable_tracked_windows);
+      SelectRetryableTrackedWindows(report, return_candidates);
+  if ((summary.failed_windows > 0U || summary.skipped_windows > 0U) &&
+      !retryable_tracked_windows.empty()) {
+    window_return_tracker->RestoreMonitorState(
+        monitor_key,
+        MonitorReturnState{
+            .tracked_windows = retryable_tracked_windows,
+            .home_desktop = return_state.home_desktop,
+            .current_desktop = return_state.current_desktop,
+        });
   } else if (IsLiveControllerAvailable(live_controller_capability) &&
              unlock_return_controller != nullptr) {
     (void)unlock_return_controller->CleanupStagingDesktop();
@@ -264,8 +305,7 @@ BackgroundSessionUnlockReturn RunUnlockReturn(
   auto unlock_return = summary;
   unlock_return.retryable_windows = retryable_tracked_windows.size();
   if (summary.attempted) {
-    std::cout << locking_glass::integration::FormatUnlockReturnReport(report)
-              << std::flush;
+    EmitUnlockReturnReport(report);
   }
   return unlock_return;
 }

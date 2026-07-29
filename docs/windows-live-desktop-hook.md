@@ -7,7 +7,9 @@ Locking Glass's proof path for real Windows virtual desktop switching is now exp
 - Live desktop notifications come from `VirtualDesktopAccessor.dll:RegisterPostMessageHook`, delivered to a hidden or tool-window message loop on the Windows runtime.
 - Live window moves use `VirtualDesktopAccessor.dll:MoveWindowToDesktopNumber` on already-selected top-level windows after the core lock policy decides which windows must stay visually pinned.
 - When a locked monitor's target desktop already has windows, Locking Glass creates a named `Locking Glass` virtual desktop through `CreateDesktop` and `SetDesktopName` and stages those target-desktop windows there until unlock return. During the same app run, Locking Glass reuses only the staging desktop identity it created itself, and removes it when it is empty and still matches that owned identity.
-- That same helper-backed move path is also used for the best-effort immediate unlock return when Locking Glass sends tracked windows back to their remembered original workspace.
+- If the user switches onto that `Locking Glass` holding desktop, tracker-owned staged windows are restored to their remembered home desktops before the held monitor content follows away. Untracked windows that happen to be on the holding desktop are not treated as parked workspace windows.
+- That same helper-backed move path is also used for the best-effort immediate unlock return. Locking Glass sends remembered moved windows plus current movable top-level windows on the borrowed monitor back to the monitor's remembered original workspace.
+- Unlock return resolves `GetCurrentDesktopNumber` before sweeping current monitor windows, so same-monitor windows on non-current virtual desktops are not pulled into the remembered workspace.
 - `IVirtualDesktopManager` remains part of the Windows capability probe and a useful verification seam, but it is not treated as sufficient proof of the live hook on its own because it does not provide the desktop-switch notification stream Locking Glass needs.
 - The live move-path proof on the real Windows runtime showed `IVirtualDesktopManager.MoveWindowToDesktop` returning access denied for the disposable probe target, while the helper move export succeeded and the COM desktop-id query confirmed the result. That makes the helper move export the concrete supported move path for Locking Glass.
 
@@ -29,7 +31,8 @@ Locking Glass must mark live desktop locking as unavailable instead of guessing 
 
 ## Evidence Hierarchy
 
-- The automated `locking_glass_tests` runner proves host-side policy and scripted seam behavior, including unlock-return logic.
+- The automated `locking_glass_tests` runner proves host-side policy and scripted seam behavior, including current-monitor unlock-return logic and the non-current-desktop exclusion.
+- The automated tests also cover staging-restore hints, source=`Locking Glass` switch planning, tracker cleanup after staging restore, and live destination resolution for staging-to-home moves. They still do not replace live shell proof.
 - GitHub Actions package smoke checks prove that the built installer can unpack the expected payload, launch the packaged app for diagnostic checks, and uninstall the current-user install path.
 - The PowerShell proof scripts prove the live helper-backed Windows path on a real desktop shell.
 - Dated proof notes under `docs/` are audit artifacts for specific runs. When runtime behavior changes, they must either be updated with a new proof run or clearly marked as predating the change.

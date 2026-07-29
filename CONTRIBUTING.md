@@ -111,6 +111,16 @@ Automated tests prove policy, persistence, replay/scripted seams, packaging,
 and smoke behavior. They do not prove real tray interaction, real multiple
 monitor behavior, or real Windows virtual desktop movement.
 
+Unlock-return changes should cover remembered moved windows, newly present
+top-level windows on the borrowed monitor, and the same-monitor non-current
+desktop exclusion in replay tests.
+
+Holding-desktop changes should also cover the `Locking Glass` staging desktop
+as an active user-visible stop. When a locked monitor enters or leaves that
+desktop, tracker-owned parked windows must restore to their own remembered
+desktops, untracked staging windows must not be stolen, and the held monitor
+content must remain the only content that follows the user.
+
 Manual proof scripts live under `scripts/`:
 
 - `scripts/run-live-desktop-probe.ps1`
@@ -123,6 +133,10 @@ Update the relevant docs under `docs/` and rerun the appropriate proof scripts
 when changing live desktop watching, background tray behavior, installed
 packaging, or fail-closed behavior. If you cannot run a live proof, say so in
 the PR.
+
+Manual exploratory desktop testing is useful evidence, but it is not a
+replacement for a proof script unless the artifacts and exact app build are
+captured in the proof document.
 
 ## Pull Request Notes
 

@@ -25,6 +25,7 @@ HMODULE LoadVerifiedVirtualDesktopAccessor(const std::filesystem::path& path,
 
 class WindowsVirtualDesktopHelper {
  public:
+  using GetCurrentDesktopNumberFn = int(WINAPI*)();
   using GetDesktopCountFn = int(WINAPI*)();
   using GetDesktopNameFn = int(WINAPI*)(int, char*, std::size_t);
   using GetDesktopIdByNumberFn = GUID(WINAPI*)(int);
@@ -35,6 +36,7 @@ class WindowsVirtualDesktopHelper {
   using RemoveDesktopFn = int(WINAPI*)(int, int);
 
   WindowsVirtualDesktopHelper(HMODULE library,
+                              GetCurrentDesktopNumberFn get_current_desktop_number,
                               GetDesktopCountFn get_desktop_count,
                               GetDesktopNameFn get_desktop_name,
                               GetDesktopIdByNumberFn get_desktop_id_by_number,
@@ -50,6 +52,7 @@ class WindowsVirtualDesktopHelper {
       delete;
 
   int GetDesktopCount() const;
+  int GetCurrentDesktopNumber() const;
   DesktopIdentity GetDesktopIdentity(int desktop_number) const;
   std::vector<DesktopIdentity> ListDesktops() const;
   int GetWindowDesktopNumber(HWND window) const;
@@ -65,6 +68,7 @@ class WindowsVirtualDesktopHelper {
 
  private:
   HMODULE library_ = nullptr;
+  GetCurrentDesktopNumberFn get_current_desktop_number_ = nullptr;
   GetDesktopCountFn get_desktop_count_ = nullptr;
   GetDesktopNameFn get_desktop_name_ = nullptr;
   GetDesktopIdByNumberFn get_desktop_id_by_number_ = nullptr;

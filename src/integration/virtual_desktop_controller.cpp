@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cctype>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -52,7 +53,8 @@ bool ParseIntField(const std::string& field, int* value) {
   }
 }
 
-bool GuidEquals(const std::string& left, const std::string& right) {
+bool AsciiCaseInsensitiveEquals(const std::string& left,
+                                const std::string& right) {
   if (left.size() != right.size()) {
     return false;
   }
@@ -64,6 +66,10 @@ bool GuidEquals(const std::string& left, const std::string& right) {
     }
   }
   return true;
+}
+
+bool GuidEquals(const std::string& left, const std::string& right) {
+  return AsciiCaseInsensitiveEquals(left, right);
 }
 
 std::string BuildDesktopDisplayId(int desktop_number,
@@ -124,7 +130,7 @@ bool DesktopIdentityEquals(const DesktopIdentity& left,
   }
 
   if (!left.display_id.empty() && !right.display_id.empty()) {
-    return left.display_id == right.display_id;
+    return AsciiCaseInsensitiveEquals(left.display_id, right.display_id);
   }
 
   if (!left.name.empty() && !right.name.empty()) {
@@ -143,6 +149,37 @@ const DesktopIdentity* FindMatchingDesktop(
     }
   }
   return nullptr;
+}
+
+std::optional<DesktopIdentity> ResolvePlannedDesktopDestination(
+    const std::string& destination_desktop_id,
+    const DesktopIdentity& source_desktop,
+    const DesktopIdentity& target_desktop,
+    const std::optional<DesktopIdentity>& staging_desktop,
+    const std::vector<DesktopIdentity>& available_desktops) {
+  if (destination_desktop_id.empty()) {
+    return std::nullopt;
+  }
+
+  const DesktopIdentity planned_desktop =
+      MakeDisplayOnlyDesktopIdentity(destination_desktop_id);
+  if (DesktopIdentityEquals(source_desktop, planned_desktop)) {
+    return source_desktop;
+  }
+  if (DesktopIdentityEquals(target_desktop, planned_desktop)) {
+    return target_desktop;
+  }
+  if (staging_desktop.has_value() &&
+      DesktopIdentityEquals(*staging_desktop, planned_desktop)) {
+    return *staging_desktop;
+  }
+  if (const auto* available_desktop =
+          FindMatchingDesktop(available_desktops, planned_desktop);
+      available_desktop != nullptr) {
+    return *available_desktop;
+  }
+
+  return std::nullopt;
 }
 
 std::string DescribeWindow(const core::DesktopWindow& window) {
@@ -187,6 +224,134 @@ const CapturedWindow* FindCapturedWindow(
   return nullptr;
 }
 
+bool HasTrackedWindow(const std::vector<TrackedWindowReturn>& tracked_windows,
+                      const std::string& window_id) {
+  for (const auto& tracked_window : tracked_windows) {
+    if (tracked_window.window.window_id == window_id) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool ContainsDesktopIdentity(const std::vector<DesktopIdentity>& desktops,
+                             const DesktopIdentity& desktop) {
+  for (const auto& existing : desktops) {
+    if (DesktopIdentityEquals(existing, desktop)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void AddBorrowedDesktop(std::vector<DesktopIdentity>* borrowed_desktops,
+                        const DesktopIdentity& home_desktop,
+                        const DesktopIdentity& borrowed_desktop) {
+  if (borrowed_desktops == nullptr ||
+      DesktopIdentityEquals(home_desktop, borrowed_desktop) ||
+      ContainsDesktopIdentity(*borrowed_desktops, borrowed_desktop)) {
+    return;
+  }
+  borrowed_desktops->push_back(borrowed_desktop);
+}
+
+std::vector<DesktopIdentity> BuildBorrowedDesktopCandidates(
+    const UnlockReturnRequest& request,
+    const std::vector<CapturedWindow>& current_windows,
+    const std::optional<DesktopIdentity>& monitor_home_desktop) {
+  std::vector<DesktopIdentity> borrowed_desktops;
+  if (!monitor_home_desktop.has_value()) {
+    return borrowed_desktops;
+  }
+
+  for (const auto& tracked_window : request.tracked_windows) {
+    if (!DesktopIdentityEquals(tracked_window.home_desktop,
+                               *monitor_home_desktop)) {
+      continue;
+    }
+    const auto* current_window =
+        FindCapturedWindow(current_windows, tracked_window.window.window_id);
+    if (current_window == nullptr ||
+        current_window->window.desktop_id.empty()) {
+      continue;
+    }
+    AddBorrowedDesktop(&borrowed_desktops, *monitor_home_desktop,
+                       current_window->desktop);
+  }
+
+  if (borrowed_desktops.empty() && request.current_desktop.has_value()) {
+    AddBorrowedDesktop(&borrowed_desktops, *monitor_home_desktop,
+                       *request.current_desktop);
+  }
+  return borrowed_desktops;
+}
+
+std::string FormatDesktopList(const std::vector<DesktopIdentity>& desktops) {
+  if (desktops.empty()) {
+    return "<none>";
+  }
+
+  std::ostringstream builder;
+  for (std::size_t index = 0; index < desktops.size(); ++index) {
+    if (index > 0U) {
+      builder << ", ";
+    }
+    builder << FormatDesktopIdentity(desktops[index]);
+  }
+  return builder.str();
+}
+
+std::string FormatOptionalDesktop(
+    const std::optional<DesktopIdentity>& desktop) {
+  if (!desktop.has_value()) {
+    return "<none>";
+  }
+  return FormatDesktopIdentity(*desktop);
+}
+
+std::vector<TrackedWindowReturn> BuildUnlockReturnCandidates(
+    const UnlockReturnRequest& request,
+    const std::vector<CapturedWindow>& current_windows,
+    const std::optional<DesktopIdentity>& monitor_home_desktop,
+    const std::vector<DesktopIdentity>& borrowed_desktops) {
+  std::vector<TrackedWindowReturn> candidates = request.tracked_windows;
+
+  for (const auto& current_window : current_windows) {
+    if (!WindowMatchesMonitor(current_window.window, request.monitor)) {
+      continue;
+    }
+
+    if (HasTrackedWindow(candidates, current_window.window.window_id)) {
+      continue;
+    }
+    if (current_window.window.desktop_id.empty()) {
+      continue;
+    }
+    if (!current_window.window.is_top_level) {
+      continue;
+    }
+    if (!current_window.window.can_move) {
+      continue;
+    }
+    if (!monitor_home_desktop.has_value()) {
+      continue;
+    }
+    if (borrowed_desktops.empty()) {
+      continue;
+    }
+    if (!ContainsDesktopIdentity(borrowed_desktops, current_window.desktop)) {
+      continue;
+    }
+
+    candidates.push_back(TrackedWindowReturn{
+        .window = current_window.window,
+        .home_desktop = *monitor_home_desktop,
+        .staging_desktop = std::nullopt,
+    });
+  }
+  return candidates;
+}
+
 core::DesktopWindow* FindReturnResultWindow(
     std::vector<core::DesktopWindow>* windows, const std::string& window_id) {
   if (windows == nullptr) {
@@ -223,6 +388,10 @@ UnlockReturnReport BuildUnlockReturnReport(
                                          const DesktopIdentity&)>& attempt_move) {
   UnlockReturnReport report{
       .monitor = request.monitor,
+      .monitor_home_desktop = {},
+      .current_desktop = request.current_desktop,
+      .borrowed_desktops = {},
+      .return_candidates = {},
       .move_results = {},
       .skipped_windows = {},
       .resulting_windows = {},
@@ -233,7 +402,13 @@ UnlockReturnReport BuildUnlockReturnReport(
     report.resulting_windows.push_back(current_window.window);
   }
 
-  for (const auto& tracked_window : request.tracked_windows) {
+  report.monitor_home_desktop = request.monitor_home_desktop;
+  report.borrowed_desktops = BuildBorrowedDesktopCandidates(
+      request, current_windows, report.monitor_home_desktop);
+  report.return_candidates = BuildUnlockReturnCandidates(
+      request, current_windows, report.monitor_home_desktop,
+      report.borrowed_desktops);
+  for (const auto& tracked_window : report.return_candidates) {
     const auto* current_window =
         FindCapturedWindow(current_windows, tracked_window.window.window_id);
     if (current_window == nullptr) {
@@ -373,6 +548,10 @@ class VirtualDesktopControllerImpl final : public VirtualDesktopController {
 #else
     UnlockReturnReport report{
         .monitor = request.monitor,
+        .monitor_home_desktop = request.monitor_home_desktop,
+        .current_desktop = request.current_desktop,
+        .borrowed_desktops = {},
+        .return_candidates = {},
         .move_results = {},
         .skipped_windows = {},
         .resulting_windows = {},
@@ -466,8 +645,37 @@ std::string FormatUnlockReturnReport(const UnlockReturnReport& report) {
   builder << "  - label: " << report.monitor.label << '\n';
   builder << "  - id: " << report.monitor.stable_id << '\n';
   builder << "Summary:\n";
+  builder << "  - return candidates: " << report.return_candidates.size()
+          << '\n';
   builder << "  - return moves: " << report.move_results.size() << '\n';
   builder << "  - skipped windows: " << report.skipped_windows.size() << '\n';
+  builder << "  - monitor home: "
+          << internal::FormatOptionalDesktop(report.monitor_home_desktop)
+          << '\n';
+  builder << "  - current desktop: "
+          << internal::FormatOptionalDesktop(report.current_desktop) << '\n';
+  builder << "  - borrowed desktops: "
+          << internal::FormatDesktopList(report.borrowed_desktops) << '\n';
+
+  builder << "Return candidates:\n";
+  if (report.return_candidates.empty()) {
+    builder << "  - none\n";
+  } else {
+    for (const auto& candidate : report.return_candidates) {
+      const auto& window = candidate.window;
+      builder << "  - " << internal::DescribeWindow(window) << " ["
+              << internal::DescribeMonitor(window) << "] on "
+              << window.desktop_id << " id=" << window.window_id << " -> "
+              << FormatDesktopIdentity(candidate.home_desktop)
+              << " top-level=" << (window.is_top_level ? "yes" : "no")
+              << " can-move=" << (window.can_move ? "yes" : "no");
+      if (candidate.staging_desktop.has_value()) {
+        builder << " staging="
+                << FormatDesktopIdentity(*candidate.staging_desktop);
+      }
+      builder << '\n';
+    }
+  }
 
   builder << "Move results:\n";
   if (report.move_results.empty()) {
@@ -476,6 +684,7 @@ std::string FormatUnlockReturnReport(const UnlockReturnReport& report) {
     for (const auto& result : report.move_results) {
       builder << "  - " << internal::DescribeWindow(result.window) << " ["
               << internal::DescribeMonitor(result.window) << "] "
+              << "id=" << result.window.window_id << " "
               << FormatDesktopIdentity(result.from_desktop) << " -> "
               << FormatDesktopIdentity(result.to_desktop) << " : "
               << (result.success ? "moved" : "failed") << " (" << result.detail
@@ -490,6 +699,7 @@ std::string FormatUnlockReturnReport(const UnlockReturnReport& report) {
     for (const auto& skipped : report.skipped_windows) {
       builder << "  - " << internal::DescribeWindow(skipped.window) << " ["
               << internal::DescribeMonitor(skipped.window) << "] on "
+              << "id=" << skipped.window.window_id << " "
               << FormatDesktopIdentity(skipped.current_desktop) << " -> "
               << FormatDesktopIdentity(skipped.home_desktop) << " : "
               << skipped.reason << '\n';
@@ -502,8 +712,10 @@ std::string FormatUnlockReturnReport(const UnlockReturnReport& report) {
   } else {
     for (const auto& window : report.resulting_windows) {
       builder << "  - " << internal::DescribeWindow(window) << " ["
-              << internal::DescribeMonitor(window) << "] on " << window.desktop_id
-              << '\n';
+              << internal::DescribeMonitor(window) << "] on "
+              << window.desktop_id << " id=" << window.window_id
+              << " top-level=" << (window.is_top_level ? "yes" : "no")
+              << " can-move=" << (window.can_move ? "yes" : "no") << '\n';
     }
   }
 

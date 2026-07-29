@@ -35,13 +35,26 @@ Verdict: fully accomplished
 5. Confirm the locked monitor is restored while the unlocked monitor continues following the switch.
 6. Unlock `Display 2` from the tray and repeat the switch to confirm the pinning policy disengages.
 
-## Current Product Behavior
+## v1.0.0 Product Contract
 
-The current app also performs a best-effort immediate return on unlock for windows that Locking Glass itself moved while the monitor was locked.
+The v1.0.0 source contract also performs a best-effort immediate return on unlock for the current top-level windows on the borrowed monitor.
 
-- If the remembered original workspace still exists, Locking Glass tries to move those tracked windows back immediately when the monitor is unlocked.
+- If the remembered original workspace still exists, Locking Glass tries to move remembered moved windows plus current movable top-level windows on the borrowed monitor back immediately when the monitor is unlocked.
+- If the user switches onto the temporary `Locking Glass` holding desktop, parked workspace windows are restored to their own desktops and do not start following the locked monitor.
+- Unlocking while on the temporary `Locking Glass` holding desktop should return the held monitor content to its remembered desktop and leave the user on a normal Windows desktop when the holding desktop can be removed.
+- Same-monitor windows on non-current virtual desktops are left alone.
+- Locking Glass works at the top-level window level; it does not merge browser tabs or restore browser tab groups inside a browser process.
 - If the remembered workspace no longer exists, the window stays where it is.
 - This remembered-workspace state lives only in memory for the current app run and is not written to the session file.
+
+## Supplemental Manual Check
+
+Date: 2026-07-30
+
+- App under test: rebuilt `build/release/Locking Glass.exe` one-time runner for `v1.0.0`.
+- Scenario: lock `Display 2` on virtual desktop 1, switch through normal desktops, switch onto the temporary `Locking Glass` desktop, then unlock while there.
+- Observed result: parked windows inside the `Locking Glass` desktop moved back to their own workspaces when the user entered the holding desktop; unlocking from the holding desktop moved the followed monitor content back and returned the user to the normal desktop flow.
+- Evidence status: manual exploratory live confirmation. Re-run `scripts/run-live-background-proof.ps1` or a dedicated holding-desktop proof harness before treating this as artifact-backed release proof.
 
 ## Evidence
 
@@ -69,4 +82,4 @@ The current app also performs a best-effort immediate return on unlock for windo
 
 - No release-blocking product gap was observed in this acceptance run for the pinning behavior that was exercised on 2026-04-16.
 - Non-blocking proof caveat: the helper-only `switch_states.desktops` snapshot inside `proof-state.json` still collapses every proof window onto desktop `1` on this host. The authoritative acceptance evidence is `background.desktop-switch-reports.txt`, not that helper snapshot.
-- This dated proof predates the later immediate unlock-return feature. Re-run the live background proof to capture direct Windows evidence for the remembered-workspace return path.
+- This dated proof predates the v1.0.0 current-monitor unlock-return and holding-desktop behavior. The 2026-07-30 manual check confirmed the intended user-visible behavior, but a formal proof script should still be added or rerun for artifact-backed release evidence.

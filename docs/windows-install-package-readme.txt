@@ -9,7 +9,7 @@ Audit note
 What it does
 - Keeps selected monitors visually pinned while other monitors follow real Windows virtual desktop switches.
 - Stages destination-workspace windows on a named Locking Glass virtual desktop so a locked monitor does not push them into another user workspace.
-- When you unlock a monitor, it makes a best-effort attempt to return windows that Locking Glass moved for that lock back to their remembered original workspace if that workspace still exists.
+- When you unlock a monitor, it makes a best-effort attempt to return the current top-level windows on that borrowed monitor back to its remembered original workspace if that workspace still exists.
 - Uses the helper-backed live controller path. Run the proof scripts for current live Windows validation.
 - Fails closed when the live controller cannot start instead of pretending replay or prototype behavior is live.
 
@@ -60,9 +60,12 @@ Startup note
 
 Unlock return note
 - Locking Glass may create a virtual desktop named Locking Glass while monitors are locked; it only reuses a staging desktop identity it created during the same app run.
+- If you switch onto that Locking Glass desktop, parked workspace windows are restored to their own remembered desktops. The locked monitor content can continue following until you unlock it.
 - Locking Glass removes that staging desktop when it is empty and still matches the identity it created.
 - Remembered original workspaces are tracked only in memory for the current app run.
-- Only windows that Locking Glass itself moved successfully are eligible for automatic return on unlock.
+- Unlock return works at the top-level window level. It does not merge browser tabs or restore browser tab groups inside a process.
+- Windows that were moved by Locking Glass and current movable top-level windows on the borrowed monitor are eligible for automatic return on unlock.
+- Same-monitor windows on other virtual desktops are left alone instead of being stolen into the remembered workspace.
 - If the remembered workspace no longer exists, the window stays where it is.
 
 Installer note

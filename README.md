@@ -6,6 +6,10 @@ Locking Glass is a Windows tray app for pinning selected monitors while you swit
 
 Locked monitors keep their visible windows in place. Unlocked monitors keep following normal Windows virtual desktop behavior.
 
+When you unlock a monitor, Locking Glass returns the current top-level windows on that borrowed monitor back to its original virtual desktop where Windows allows it.
+
+If you switch onto the temporary `Locking Glass` holding desktop while a monitor is locked, parked workspace windows are restored to their own desktops. The locked monitor content can keep following you until you unlock it.
+
 ## Download
 
 Get the latest release from GitHub:
@@ -45,5 +49,7 @@ To remove Locking Glass, use Windows Add or Remove Programs or the Start Menu un
 ## Source
 
 Developer setup, tests, release checks, and contribution notes live in [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
+
+Release notes live in [CHANGELOG.md](CHANGELOG.md).
 
 Locking Glass is licensed under `GPL-3.0-only`. See [LICENSE](LICENSE).

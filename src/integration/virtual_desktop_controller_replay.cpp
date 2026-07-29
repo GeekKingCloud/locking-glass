@@ -40,6 +40,19 @@ DesktopReturnReplayState LoadDesktopReturnScript(const std::string& script_path)
       continue;
     }
 
+    if (fields[0] == "current" && (fields.size() == 4U || fields.size() == 5U)) {
+      int desktop_number = -1;
+      if (!ParseIntField(fields[1], &desktop_number)) {
+        return {};
+      }
+      auto desktop = MakeDesktopIdentity(desktop_number, fields[2], fields[3]);
+      if (fields.size() == 5U && !fields[4].empty()) {
+        desktop.display_id = fields[4];
+      }
+      state.current_desktop = std::move(desktop);
+      continue;
+    }
+
     if (fields[0] == "window" && (fields.size() == 10U || fields.size() == 11U)) {
       int desktop_number = -1;
       bool is_top_level = false;
@@ -122,6 +135,8 @@ std::vector<core::DesktopSwitchScenario> LoadDesktopScript(
           .staging_desktop_id = fields.size() == 6U ? fields[5] : std::string{},
           .monitors = {},
           .windows = {},
+          .use_staging_restore_hints = false,
+          .staging_restore_hints = {},
       });
       continue;
     }
@@ -217,8 +232,13 @@ DesktopSwitchReport BuildDesktopSwitchReport(
 UnlockReturnReport BuildScriptedUnlockReturnReport(
     const UnlockReturnRequest& request,
     const DesktopReturnReplayState& replay_state) {
+  UnlockReturnRequest replay_request = request;
+  if (replay_state.current_desktop.has_value()) {
+    replay_request.current_desktop = replay_state.current_desktop;
+  }
+
   return BuildUnlockReturnReport(
-      request, replay_state.desktops, replay_state.windows,
+      replay_request, replay_state.desktops, replay_state.windows,
       [](const CapturedWindow& current_window,
          const DesktopIdentity& remembered_desktop) {
         if (!current_window.forced_failure_detail.empty()) {

@@ -1,5 +1,7 @@
 #include "test_helpers.h"
 
+#include "locking_glass/core/monitor_locking.h"
+
 namespace locking_glass::tests {
 
 bool RunDesktopLockingChecks() {
@@ -62,6 +64,321 @@ bool RunDesktopLockingChecks() {
   failures += !Expect(
       locking_glass::core::SessionStore(session_path).Save(initial_snapshot),
       "desktop locking setup should persist the initial monitor lock");
+
+  {
+    const auto entering_staging_plan =
+        locking_glass::core::BuildMonitorLockingPlan(
+            locking_glass::core::SessionStore(session_path),
+            locking_glass::core::DesktopSwitchScenario{
+                .trigger = "enter-staging",
+                .source_desktop_id = "desktop-beta",
+                .target_desktop_id = "desktop-locking-glass",
+                .staging_desktop_id = "desktop-locking-glass",
+                .monitors = {left_monitor, right_monitor},
+                .windows =
+                    {
+                        locking_glass::core::DesktopWindow{
+                            .window_id = "left-pinned",
+                            .title = "Pinned source",
+                            .monitor_id = "stable-left",
+                            .monitor_label = "Display 1",
+                            .desktop_id = "desktop-beta",
+                            .is_top_level = true,
+                            .can_move = true,
+                        },
+                        locking_glass::core::DesktopWindow{
+                            .window_id = "left-staged-beta",
+                            .title = "Parked beta occupant",
+                            .monitor_id = "stable-left",
+                            .monitor_label = "Display 1",
+                            .desktop_id = "desktop-locking-glass",
+                            .is_top_level = true,
+                            .can_move = true,
+                        },
+                    },
+                .use_staging_restore_hints = true,
+                .staging_restore_hints =
+                    {
+                        locking_glass::core::StagingRestoreHint{
+                            .window_id = "left-staged-beta",
+                            .monitor_id = "stable-left",
+                            .monitor_label = "Display 1",
+                            .home_desktop_id = "desktop-beta",
+                        },
+                    },
+            });
+    failures += !Expect(
+        entering_staging_plan.moves.size() == 2U,
+        "entering staging should restore parked occupants and move pinned source windows");
+    if (entering_staging_plan.moves.size() == 2U) {
+      failures += !Expect(
+          entering_staging_plan.moves[0].window.window_id == "left-staged-beta",
+          "entering staging should restore parked occupants before moving pinned source windows");
+      failures += !Expect(
+          entering_staging_plan.moves[0].from_desktop_id ==
+              "desktop-locking-glass",
+          "entering staging should move the parked occupant from staging");
+      failures += !Expect(
+          entering_staging_plan.moves[0].to_desktop_id == "desktop-beta",
+          "entering staging should restore the parked occupant to the desktop being left");
+      failures += !Expect(
+          entering_staging_plan.moves[1].window.window_id == "left-pinned",
+          "entering staging should then move the pinned source window");
+      failures += !Expect(
+          entering_staging_plan.moves[1].to_desktop_id ==
+              "desktop-locking-glass",
+          "entering staging should keep the pinned monitor visible on the staging desktop");
+    }
+  }
+
+  {
+    const auto unowned_staging_plan =
+        locking_glass::core::BuildMonitorLockingPlan(
+            locking_glass::core::SessionStore(session_path),
+            locking_glass::core::DesktopSwitchScenario{
+                .trigger = "enter-staging-unowned",
+                .source_desktop_id = "desktop-beta",
+                .target_desktop_id = "desktop-locking-glass",
+                .staging_desktop_id = "desktop-locking-glass",
+                .monitors = {left_monitor, right_monitor},
+                .windows =
+                    {
+                        locking_glass::core::DesktopWindow{
+                            .window_id = "left-pinned",
+                            .title = "Pinned source",
+                            .monitor_id = "stable-left",
+                            .monitor_label = "Display 1",
+                            .desktop_id = "desktop-beta",
+                            .is_top_level = true,
+                            .can_move = true,
+                        },
+                        locking_glass::core::DesktopWindow{
+                            .window_id = "left-staging-user-window",
+                            .title = "User staging window",
+                            .monitor_id = "stable-left",
+                            .monitor_label = "Display 1",
+                            .desktop_id = "desktop-locking-glass",
+                            .is_top_level = true,
+                            .can_move = true,
+                        },
+                    },
+                .use_staging_restore_hints = true,
+                .staging_restore_hints = {},
+            });
+    failures += !Expect(
+        unowned_staging_plan.moves.size() == 1U,
+        "explicit staging restore mode should not restore untracked staging windows");
+    if (unowned_staging_plan.moves.size() == 1U) {
+      failures += !Expect(
+          unowned_staging_plan.moves[0].window.window_id == "left-pinned",
+          "untracked staging windows should stay on the holding desktop");
+    }
+  }
+
+  {
+    const std::string event_staging =
+        "Desktop 4 [3] \"Locking Glass\" {29ccd282-483a-4b9f-9b93-abb515d2e82a}";
+    const std::string helper_staging =
+        "Desktop 4 [3] \"Locking Glass\" {29CCD282-483A-4B9F-9B93-ABB515D2E82A}";
+    const auto cased_staging_plan =
+        locking_glass::core::BuildMonitorLockingPlan(
+            locking_glass::core::SessionStore(session_path),
+            locking_glass::core::DesktopSwitchScenario{
+                .trigger = "enter-staging-case-mismatch",
+                .source_desktop_id = "desktop-beta",
+                .target_desktop_id = event_staging,
+                .staging_desktop_id = helper_staging,
+                .monitors = {left_monitor, right_monitor},
+                .windows =
+                    {
+                        locking_glass::core::DesktopWindow{
+                            .window_id = "left-pinned",
+                            .title = "Pinned source",
+                            .monitor_id = "stable-left",
+                            .monitor_label = "Display 1",
+                            .desktop_id = "desktop-beta",
+                            .is_top_level = true,
+                            .can_move = true,
+                        },
+                        locking_glass::core::DesktopWindow{
+                            .window_id = "left-staged-beta",
+                            .title = "Parked beta occupant",
+                            .monitor_id = "stable-left",
+                            .monitor_label = "Display 1",
+                            .desktop_id = event_staging,
+                            .is_top_level = true,
+                            .can_move = true,
+                        },
+                    },
+                .use_staging_restore_hints = true,
+                .staging_restore_hints =
+                    {
+                        locking_glass::core::StagingRestoreHint{
+                            .window_id = "left-staged-beta",
+                            .monitor_id = "stable-left",
+                            .monitor_label = "Display 1",
+                            .home_desktop_id = "desktop-beta",
+                        },
+                    },
+            });
+    failures += !Expect(
+        cased_staging_plan.moves.size() == 2U,
+        "staging desktop GUID casing differences should still restore parked occupants when entering staging");
+    if (cased_staging_plan.moves.size() == 2U) {
+      failures += !Expect(
+          cased_staging_plan.moves[0].window.window_id == "left-staged-beta" &&
+              cased_staging_plan.moves[0].to_desktop_id == "desktop-beta",
+          "cased staging target occupants should restore to the desktop being left");
+      failures += !Expect(
+          cased_staging_plan.moves[1].window.window_id == "left-pinned" &&
+              cased_staging_plan.moves[1].to_desktop_id == event_staging,
+          "cased staging target should still receive the pinned source window");
+    }
+  }
+
+  {
+    const auto rotating_staging_plan =
+        locking_glass::core::BuildMonitorLockingPlan(
+            locking_glass::core::SessionStore(session_path),
+            locking_glass::core::DesktopSwitchScenario{
+                .trigger = "rotate-staging",
+                .source_desktop_id = "desktop-beta",
+                .target_desktop_id = "desktop-gamma",
+                .staging_desktop_id = "desktop-locking-glass",
+                .monitors = {left_monitor, right_monitor},
+                .windows =
+                    {
+                        locking_glass::core::DesktopWindow{
+                            .window_id = "left-pinned",
+                            .title = "Pinned source",
+                            .monitor_id = "stable-left",
+                            .monitor_label = "Display 1",
+                            .desktop_id = "desktop-beta",
+                            .is_top_level = true,
+                            .can_move = true,
+                        },
+                        locking_glass::core::DesktopWindow{
+                            .window_id = "left-staged-beta",
+                            .title = "Parked beta occupant",
+                            .monitor_id = "stable-left",
+                            .monitor_label = "Display 1",
+                            .desktop_id = "desktop-locking-glass",
+                            .is_top_level = true,
+                            .can_move = true,
+                        },
+                        locking_glass::core::DesktopWindow{
+                            .window_id = "left-gamma",
+                            .title = "Gamma occupant",
+                            .monitor_id = "stable-left",
+                            .monitor_label = "Display 1",
+                            .desktop_id = "desktop-gamma",
+                            .is_top_level = true,
+                            .can_move = true,
+                        },
+                    },
+                .use_staging_restore_hints = false,
+                .staging_restore_hints = {},
+            });
+    failures += !Expect(
+        rotating_staging_plan.moves.size() == 3U,
+        "normal desktop switches should restore the old parked occupant, park the next occupant, and move pinned windows");
+    if (rotating_staging_plan.moves.size() == 3U) {
+      failures += !Expect(
+          rotating_staging_plan.moves[0].window.window_id ==
+              "left-staged-beta",
+          "normal desktop switches should empty staging before parking the next desktop");
+      failures += !Expect(
+          rotating_staging_plan.moves[0].to_desktop_id == "desktop-beta",
+          "normal desktop switches should restore staged windows to the desktop being left");
+      failures += !Expect(
+          rotating_staging_plan.moves[1].window.window_id == "left-gamma",
+          "normal desktop switches should then stage the next target occupant");
+      failures += !Expect(
+          rotating_staging_plan.moves[1].to_desktop_id ==
+              "desktop-locking-glass",
+          "normal desktop switches should park target occupants on staging");
+      failures += !Expect(
+          rotating_staging_plan.moves[2].window.window_id == "left-pinned",
+          "normal desktop switches should move pinned windows after staging is ready");
+      failures += !Expect(
+          rotating_staging_plan.moves[2].to_desktop_id == "desktop-gamma",
+          "normal desktop switches should move pinned windows onto the next desktop");
+    }
+  }
+
+  {
+    const auto leaving_staging_plan =
+        locking_glass::core::BuildMonitorLockingPlan(
+            locking_glass::core::SessionStore(session_path),
+            locking_glass::core::DesktopSwitchScenario{
+                .trigger = "leave-staging",
+                .source_desktop_id = "desktop-locking-glass",
+                .target_desktop_id = "desktop-gamma",
+                .staging_desktop_id = "desktop-locking-glass",
+                .monitors = {left_monitor, right_monitor},
+                .windows =
+                    {
+                        locking_glass::core::DesktopWindow{
+                            .window_id = "left-pinned",
+                            .title = "Pinned source",
+                            .monitor_id = "stable-left",
+                            .monitor_label = "Display 1",
+                            .desktop_id = "desktop-locking-glass",
+                            .is_top_level = true,
+                            .can_move = true,
+                        },
+                        locking_glass::core::DesktopWindow{
+                            .window_id = "left-parked-beta",
+                            .title = "Parked beta occupant",
+                            .monitor_id = "stable-left",
+                            .monitor_label = "Display 1",
+                            .desktop_id = "desktop-locking-glass",
+                            .is_top_level = true,
+                            .can_move = true,
+                        },
+                        locking_glass::core::DesktopWindow{
+                            .window_id = "left-gamma",
+                            .title = "Gamma occupant",
+                            .monitor_id = "stable-left",
+                            .monitor_label = "Display 1",
+                            .desktop_id = "desktop-gamma",
+                            .is_top_level = true,
+                            .can_move = true,
+                        },
+                    },
+                .use_staging_restore_hints = true,
+                .staging_restore_hints =
+                    {
+                        locking_glass::core::StagingRestoreHint{
+                            .window_id = "left-parked-beta",
+                            .monitor_id = "stable-left",
+                            .monitor_label = "Display 1",
+                            .home_desktop_id = "desktop-beta",
+                        },
+                    },
+            });
+    failures += !Expect(
+        leaving_staging_plan.moves.size() == 3U,
+        "leaving staging should restore parked occupants, park the target desktop, and move pinned windows");
+    if (leaving_staging_plan.moves.size() == 3U) {
+      failures += !Expect(
+          leaving_staging_plan.moves[0].window.window_id ==
+              "left-parked-beta",
+          "leaving staging should restore parked occupants before any follow move");
+      failures += !Expect(
+          leaving_staging_plan.moves[0].to_desktop_id == "desktop-beta",
+          "leaving staging should restore parked occupants to their own desktop");
+      failures += !Expect(
+          leaving_staging_plan.moves[1].window.window_id == "left-gamma" &&
+              leaving_staging_plan.moves[1].to_desktop_id ==
+                  "desktop-locking-glass",
+          "leaving staging should park target occupants on the holding desktop");
+      failures += !Expect(
+          leaving_staging_plan.moves[2].window.window_id == "left-pinned" &&
+              leaving_staging_plan.moves[2].to_desktop_id == "desktop-gamma",
+          "leaving staging should move the held monitor content onto the target desktop");
+    }
+  }
 
   auto runtime = locking_glass::core::BuildRuntime();
   std::vector<locking_glass::integration::DesktopSwitchReport> reports;

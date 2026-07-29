@@ -119,29 +119,36 @@ WindowMonitorMatch MatchWindowToMonitor(
     const core::SessionRefreshResult& session) {
   WindowMonitorMatch match;
   const platform::MonitorDescriptor* resolved_monitor = nullptr;
+  long long resolved_area = 0;
+  long long second_best_area = 0;
   std::size_t intersection_count = 0;
 
   for (const auto& monitor : monitors) {
-    if (IntersectionArea(window_rect, monitor.bounds) == 0) {
+    const long long area = IntersectionArea(window_rect, monitor.bounds);
+    if (area == 0) {
       continue;
     }
 
     ++intersection_count;
-    if (resolved_monitor == nullptr) {
+    if (area > resolved_area) {
+      second_best_area = resolved_area;
       resolved_monitor = &monitor;
+      resolved_area = area;
+    } else if (area > second_best_area) {
+      second_best_area = area;
     }
     if (IsLockedPresentMonitor(session, monitor)) {
       match.touches_locked_monitor = true;
     }
   }
 
-  if (intersection_count == 1U) {
-    match.monitor = resolved_monitor;
+  if (intersection_count == 0U) {
+    match.extra_skip_reason = "window does not intersect any live monitor";
     return match;
   }
 
-  if (intersection_count == 0U) {
-    match.extra_skip_reason = "window does not intersect any live monitor";
+  if (resolved_monitor != nullptr && resolved_area > second_best_area) {
+    match.monitor = resolved_monitor;
     return match;
   }
 

@@ -17,6 +17,13 @@ struct DesktopWindow {
   bool can_move = true;
 };
 
+struct StagingRestoreHint {
+  std::string window_id;
+  std::string monitor_id;
+  std::string monitor_label;
+  std::string home_desktop_id;
+};
+
 struct DesktopSwitchScenario {
   std::string trigger;
   std::string source_desktop_id;
@@ -26,6 +33,8 @@ struct DesktopSwitchScenario {
   std::string staging_desktop_id;
   std::vector<platform::MonitorDescriptor> monitors;
   std::vector<DesktopWindow> windows;
+  bool use_staging_restore_hints = false;
+  std::vector<StagingRestoreHint> staging_restore_hints;
 };
 
 struct MonitorLockingMove {

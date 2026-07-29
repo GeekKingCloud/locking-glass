@@ -286,6 +286,8 @@ DesktopSwitchReport BuildBlockedDesktopSwitchReport(
       .staging_desktop_id = kStagingDesktopName,
       .monitors = monitors,
       .windows = {},
+      .use_staging_restore_hints = false,
+      .staging_restore_hints = {},
   };
   scenario.windows.reserve(captured_windows.size());
   std::map<std::string, DesktopIdentity> window_desktops;
@@ -332,7 +334,8 @@ DesktopSwitchReport BuildWindowsLiveDesktopSwitchReport(
     const core::SessionStore& store,
     const LiveDesktopSwitchEvent& event,
     const std::vector<platform::MonitorDescriptor>& monitors,
-    WindowsVirtualDesktopHelper& helper) {
+    WindowsVirtualDesktopHelper& helper,
+    const DesktopWatchOptions& options) {
   const core::SessionRefreshResult session = store.Restore(monitors);
   const WindowDesktopContextFormatter desktop_context{event};
   const auto captured_windows =
@@ -367,6 +370,8 @@ DesktopSwitchReport BuildWindowsLiveDesktopSwitchReport(
                                 : std::string{},
       .monitors = monitors,
       .windows = {},
+      .use_staging_restore_hints = false,
+      .staging_restore_hints = {},
   };
 
   scenario.windows.reserve(captured_windows.size());
@@ -388,7 +393,9 @@ DesktopSwitchReport BuildWindowsLiveDesktopSwitchReport(
   }
 
   DesktopSwitchReport report{
-      .plan = core::BuildMonitorLockingPlan(store, scenario),
+      .plan = options.build_plan ? options.build_plan(store, scenario)
+                                 : core::BuildMonitorLockingPlan(store,
+                                                                  scenario),
       .move_results = {},
       .resulting_windows = scenario.windows,
   };
@@ -396,6 +403,11 @@ DesktopSwitchReport BuildWindowsLiveDesktopSwitchReport(
   report.plan.skipped_windows.insert(report.plan.skipped_windows.end(),
                                      extra_skips.begin(), extra_skips.end());
 
+  const DesktopIdentity source_desktop =
+      desktop_context.Resolve(event.source_desktop_number);
+  const DesktopIdentity target_desktop =
+      desktop_context.Resolve(event.target_desktop_number);
+  const auto available_desktops = helper.ListDesktops();
   for (const auto& move : report.plan.moves) {
     auto* result_window = FindResultWindow(&report.resulting_windows, move);
     const auto handle_it = window_handles.find(move.window.window_id);
@@ -418,19 +430,23 @@ DesktopSwitchReport BuildWindowsLiveDesktopSwitchReport(
     }
 
     const HWND window = handle_it->second;
-    int destination_desktop_number = event.source_desktop_number;
-    DesktopIdentity to_desktop = desktop_context.Resolve(destination_desktop_number);
-    if (move.to_desktop_id == scenario.target_desktop_id) {
-      destination_desktop_number = event.target_desktop_number;
-      to_desktop = desktop_context.Resolve(destination_desktop_number);
-    } else if (staging_desktop.has_value() &&
-               move.to_desktop_id == FormatDesktopIdentity(*staging_desktop)) {
-      // Switch events name only source and target desktops; staging has to be
-      // resolved explicitly from the helper-owned desktop identity.
-      destination_desktop_number = staging_desktop->number;
-      to_desktop = *staging_desktop;
+    const auto destination_desktop = ResolvePlannedDesktopDestination(
+        move.to_desktop_id, source_desktop, target_desktop, staging_desktop,
+        available_desktops);
+    if (!destination_desktop.has_value()) {
+      report.move_results.push_back(WindowMoveResult{
+          .window = move.window,
+          .from_desktop = from_desktop,
+          .to_desktop = MakeDisplayOnlyDesktopIdentity(move.to_desktop_id),
+          .from_desktop_id = move.from_desktop_id,
+          .to_desktop_id = move.to_desktop_id,
+          .success = false,
+          .detail = "destination desktop was not available in the live desktop list",
+      });
+      continue;
     }
-    if (destination_desktop_number < 0) {
+    const DesktopIdentity to_desktop = *destination_desktop;
+    if (to_desktop.number < 0) {
       report.move_results.push_back(WindowMoveResult{
           .window = move.window,
           .from_desktop = from_desktop,
@@ -444,7 +460,7 @@ DesktopSwitchReport BuildWindowsLiveDesktopSwitchReport(
     }
 
     const int move_result =
-        helper.MoveWindowToDesktopNumber(window, destination_desktop_number);
+        helper.MoveWindowToDesktopNumber(window, to_desktop.number);
     if (move_result < 0) {
       report.move_results.push_back(WindowMoveResult{
           .window = move.window,
@@ -459,7 +475,7 @@ DesktopSwitchReport BuildWindowsLiveDesktopSwitchReport(
     }
 
     const WindowDesktopVerificationResult verification =
-        WaitForWindowDesktopNumber(helper, window, destination_desktop_number);
+        WaitForWindowDesktopNumber(helper, window, to_desktop.number);
     const int actual_desktop_number = verification.desktop_number;
     DesktopIdentity actual_desktop =
         actual_desktop_number >= 0
@@ -470,7 +486,7 @@ DesktopSwitchReport BuildWindowsLiveDesktopSwitchReport(
       actual_desktop = *staging_desktop;
     }
     const std::string actual_desktop_id = FormatDesktopIdentity(actual_desktop);
-    if (actual_desktop_id != move.to_desktop_id) {
+    if (!AsciiCaseInsensitiveEquals(actual_desktop_id, move.to_desktop_id)) {
       report.move_results.push_back(WindowMoveResult{
           .window = move.window,
           .from_desktop = from_desktop,
@@ -601,7 +617,7 @@ int WatchWindowsLiveSwitches(const core::SessionStore& store,
       const auto monitors = monitor_gateway->Enumerate();
       ++observed_events;
       if (!callback(BuildWindowsLiveDesktopSwitchReport(store, event, monitors,
-                                                        *helper))) {
+                                                        *helper, options))) {
         stop_watch_process = true;
         break;
       }
@@ -639,11 +655,16 @@ UnlockReturnReport BuildWindowsUnlockReturnReport(
     const UnlockReturnRequest& request) {
   UnlockReturnReport report{
       .monitor = request.monitor,
+      .monitor_home_desktop = request.monitor_home_desktop,
+      .current_desktop = request.current_desktop,
+      .borrowed_desktops = {},
+      .return_candidates = {},
       .move_results = {},
       .skipped_windows = {},
       .resulting_windows = {},
   };
-  if (request.tracked_windows.empty()) {
+  if (request.tracked_windows.empty() &&
+      !request.monitor_home_desktop.has_value()) {
     return report;
   }
 
@@ -670,8 +691,14 @@ UnlockReturnReport BuildWindowsUnlockReturnReport(
   const auto monitors = monitor_gateway->Enumerate();
   const auto available_desktops = helper->ListDesktops();
   const auto current_windows = CaptureLiveWindowsForReturn(*helper, monitors);
+  UnlockReturnRequest live_request = request;
+  const int current_desktop_number = helper->GetCurrentDesktopNumber();
+  if (current_desktop_number >= 0) {
+    live_request.current_desktop =
+        helper->GetDesktopIdentity(current_desktop_number);
+  }
   report = BuildUnlockReturnReport(
-      request, available_desktops, current_windows,
+      live_request, available_desktops, current_windows,
       [&helper](const CapturedWindow& current_window,
                 const DesktopIdentity& remembered_desktop) {
         if (remembered_desktop.number < 0 || current_window.handle == nullptr) {

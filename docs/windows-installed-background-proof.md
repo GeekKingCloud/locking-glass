@@ -42,11 +42,13 @@ Installed-path proof passed on the real Windows runtime on 2026-04-16.
    - The unlocked proof window `lg-bg-unlocked-target.txt - Notepad` remained on `Display 3` / `Desktop 2`.
    - After the tray unlock: `restored locks: 0`, `locked monitors: 0`, `planned moves: 0`
 
-## Current Product Behavior
+## v1.0.0 Product Contract
 
-The current installed build also performs a best-effort immediate return on unlock for windows that Locking Glass itself moved while the monitor was locked.
+The v1.0.0 source contract also performs a best-effort immediate return on unlock for the current top-level windows on the borrowed monitor.
 
-- If the remembered original workspace still exists, Locking Glass tries to move those tracked windows back immediately on unlock.
+- If the remembered original workspace still exists, Locking Glass tries to move remembered moved windows plus current movable top-level windows on the borrowed monitor back immediately on unlock.
+- Same-monitor windows on non-current virtual desktops are left alone.
+- Locking Glass works at the top-level window level; it does not merge browser tabs or restore browser tab groups inside a browser process.
 - If the remembered workspace is gone, the window stays where it is.
 - This remembered-workspace state is current-run only and is not persisted into the monitor session file.
 
@@ -54,4 +56,4 @@ The current installed build also performs a best-effort immediate return on unlo
 
 - The installed build still fails closed when the live helper assets cannot load.
 - The proof runtime still reports many skipped Display 2 shell windows as `window desktop could not be resolved safely`, which is expected fail-closed behavior rather than a silent success claim.
-- This installed proof was recorded before the immediate unlock-return feature was added, so it does not yet serve as direct installed-path evidence for the remembered-workspace return behavior.
+- This installed proof was recorded before the v1.0.0 current-monitor unlock-return behavior was added, so it does not yet serve as direct installed-path evidence for the borrowed-monitor return path.

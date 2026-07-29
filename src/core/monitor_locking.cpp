@@ -1,6 +1,7 @@
 #include "locking_glass/core/monitor_locking.h"
 
 #include <algorithm>
+#include <cctype>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -77,6 +78,46 @@ std::size_t CountPresentMonitors(const SessionRefreshResult& session) {
   return count;
 }
 
+bool DesktopIdEquals(const std::string& left, const std::string& right) {
+  if (left.size() != right.size()) {
+    return false;
+  }
+  for (std::size_t index = 0; index < left.size(); ++index) {
+    const auto left_char = static_cast<unsigned char>(left[index]);
+    const auto right_char = static_cast<unsigned char>(right[index]);
+    if (std::tolower(left_char) != std::tolower(right_char)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool StagingRestoreHintMatchesWindow(const StagingRestoreHint& hint,
+                                     const DesktopWindow& window) {
+  if (hint.window_id != window.window_id) {
+    return false;
+  }
+  if (!hint.monitor_id.empty() && !window.monitor_id.empty() &&
+      hint.monitor_id != window.monitor_id) {
+    return false;
+  }
+  if (!hint.monitor_label.empty() && !window.monitor_label.empty() &&
+      hint.monitor_label != window.monitor_label) {
+    return false;
+  }
+  return true;
+}
+
+const StagingRestoreHint* FindStagingRestoreHint(
+    const DesktopSwitchScenario& scenario, const DesktopWindow& window) {
+  for (const auto& hint : scenario.staging_restore_hints) {
+    if (StagingRestoreHintMatchesWindow(hint, window)) {
+      return &hint;
+    }
+  }
+  return nullptr;
+}
+
 }  // namespace
 
 MonitorLockingPlan BuildMonitorLockingPlan(
@@ -100,10 +141,14 @@ MonitorLockingPlan BuildMonitorLockingPlan(
   }
 
   if (plan.source_desktop_id.empty() || plan.target_desktop_id.empty() ||
-      plan.source_desktop_id == plan.target_desktop_id) {
+      DesktopIdEquals(plan.source_desktop_id, plan.target_desktop_id)) {
     return plan;
   }
 
+  const bool restore_staging_desktop =
+      !plan.staging_desktop_id.empty();
+
+  std::vector<MonitorLockingMove> staging_restore_moves;
   std::vector<MonitorLockingMove> source_moves;
   std::vector<MonitorLockingMove> staging_moves;
   for (const auto& window : scenario.windows) {
@@ -112,8 +157,19 @@ MonitorLockingPlan BuildMonitorLockingPlan(
       continue;
     }
 
-    if (window.desktop_id != plan.source_desktop_id &&
-        window.desktop_id != plan.target_desktop_id) {
+    const bool is_source_window =
+        DesktopIdEquals(window.desktop_id, plan.source_desktop_id);
+    const bool is_target_window =
+        DesktopIdEquals(window.desktop_id, plan.target_desktop_id);
+    const auto* staging_restore_hint =
+        FindStagingRestoreHint(scenario, window);
+    const bool is_staged_window =
+        restore_staging_desktop &&
+        DesktopIdEquals(window.desktop_id, plan.staging_desktop_id) &&
+        (!scenario.use_staging_restore_hints ||
+         (staging_restore_hint != nullptr &&
+          !staging_restore_hint->home_desktop_id.empty()));
+    if (!is_source_window && !is_target_window && !is_staged_window) {
       continue;
     }
 
@@ -133,30 +189,42 @@ MonitorLockingPlan BuildMonitorLockingPlan(
       continue;
     }
 
-    // Target-desktop occupants are staged before source-desktop windows move
-    // onto the target, so a locked monitor never uses another user workspace as
-    // overflow during a virtual-desktop switch.
+    // Staging is an implementation holder, not a user workspace. Empty it back
+    // to the desktop being left before parking the next target desktop there.
     std::string destination;
-    if (window.desktop_id == plan.source_desktop_id) {
+    if (is_staged_window) {
+      destination =
+          staging_restore_hint != nullptr
+              ? staging_restore_hint->home_desktop_id
+              : plan.source_desktop_id;
+    } else if (is_source_window) {
       destination = plan.target_desktop_id;
     } else if (!plan.staging_desktop_id.empty()) {
       destination = plan.staging_desktop_id;
     } else {
       destination = plan.source_desktop_id;
     }
+    if (DesktopIdEquals(window.desktop_id, destination)) {
+      continue;
+    }
     MonitorLockingMove move{
         .window = window,
         .from_desktop_id = window.desktop_id,
         .to_desktop_id = std::move(destination),
     };
-    if (move.to_desktop_id == plan.staging_desktop_id) {
+    if (is_staged_window) {
+      staging_restore_moves.push_back(std::move(move));
+    } else if (DesktopIdEquals(move.to_desktop_id, plan.staging_desktop_id)) {
       staging_moves.push_back(std::move(move));
     } else {
       source_moves.push_back(std::move(move));
     }
   }
 
-  plan.moves.reserve(staging_moves.size() + source_moves.size());
+  plan.moves.reserve(staging_restore_moves.size() + staging_moves.size() +
+                     source_moves.size());
+  plan.moves.insert(plan.moves.end(), staging_restore_moves.begin(),
+                    staging_restore_moves.end());
   plan.moves.insert(plan.moves.end(), staging_moves.begin(), staging_moves.end());
   plan.moves.insert(plan.moves.end(), source_moves.begin(), source_moves.end());
   return plan;

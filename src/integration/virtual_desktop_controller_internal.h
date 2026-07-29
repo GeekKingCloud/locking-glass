@@ -19,6 +19,8 @@ namespace locking_glass::integration::internal {
 std::vector<std::string> SplitFields(const std::string& line);
 bool ParseBoolField(const std::string& field, bool* value);
 bool ParseIntField(const std::string& field, int* value);
+bool AsciiCaseInsensitiveEquals(const std::string& left,
+                                const std::string& right);
 
 std::string BuildDesktopDisplayId(int desktop_number,
                                   const std::string& desktop_guid,
@@ -32,6 +34,12 @@ bool DesktopIdentityEquals(const DesktopIdentity& left,
 const DesktopIdentity* FindMatchingDesktop(
     const std::vector<DesktopIdentity>& desktops,
     const DesktopIdentity& remembered_desktop);
+std::optional<DesktopIdentity> ResolvePlannedDesktopDestination(
+    const std::string& destination_desktop_id,
+    const DesktopIdentity& source_desktop,
+    const DesktopIdentity& target_desktop,
+    const std::optional<DesktopIdentity>& staging_desktop,
+    const std::vector<DesktopIdentity>& available_desktops);
 
 std::string DescribeWindow(const core::DesktopWindow& window);
 std::string DescribeMonitor(const core::DesktopWindow& window);
@@ -57,6 +65,7 @@ struct CapturedWindow {
 struct DesktopReturnReplayState {
   std::vector<DesktopIdentity> desktops;
   std::vector<CapturedWindow> windows;
+  std::optional<DesktopIdentity> current_desktop;
 };
 
 const CapturedWindow* FindCapturedWindow(
